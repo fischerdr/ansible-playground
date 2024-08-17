@@ -27,7 +27,6 @@ websocket-client
 ## The following requirements were added by pip freeze:
 hvac
 pip
-## The following requirements were added by pip freeze:
 ansible-compat
 ansible-core
 ansible-lint
@@ -69,3 +68,39 @@ wcmatch
 wheel
 yamllint
 zipp
+## The following requirements were added by pip freeze:
+ansible-builder
+ansible-creator
+ansible-dev-environment
+ansible-dev-tools
+ansible-navigator
+ansible-runner
+ansible-sign
+bindep
+chardet
+click-help-colors
+colorama
+distlib
+distro
+docutils
+enrich
+execnet
+iniconfig
+lockfile
+molecule
+onigurumacffi
+Parsley
+pbr
+pexpect
+pluggy
+ptyprocess
+pyproject-api
+pytest
+pytest-ansible
+pytest-xdist
+python-daemon
+python-gnupg
+tox
+tox-ansible
+tzdata
+virtualenv

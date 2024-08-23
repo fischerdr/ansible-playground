@@ -2,4 +2,4 @@
 - name: Example playbook
   hosts: localhost
   roles:
-    - role: playground.pbtest.run
+    - role: playground.test.run

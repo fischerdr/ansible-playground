@@ -1,0 +1,96 @@
+---
+- name: Manage Kubernetes Resources
+  hosts: localhost
+  gather_facts: no
+  vars:
+    namespace: my-namespace  # Replace with your namespace
+    service_account_name: my-service-account  # Replace with your service account name
+    cluster_role_name: pxbackup-sa-clusterrolebinding
+    role_name: pxbackup-sa-clusterrolebinding
+    role_binding_name: pxbackup-sa-rolebinding
+    cluster_role_binding_name: pxbackup-sa-clusterrolebinding
+
+  tasks:
+    - name: Ensure namespace exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ namespace }}"
+
+    - name: Ensure service account exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: "{{ service_account_name }}"
+            namespace: "{{ namespace }}"
+
+    - name: Ensure ClusterRole exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: "{{ cluster_role_name }}"
+          rules:
+            - apiGroups: ["*"]
+              resources: ["*"]
+              verbs: ["get", "list", "create", "update", "delete"]
+
+    - name: Ensure Role exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          metadata:
+            name: "{{ role_name }}"
+            namespace: "{{ namespace }}"
+          rules:
+            - apiGroups: ["stork.libopenstorage.org"]
+              resources: ["*"]
+              verbs: ["*"]
+            - apiGroups: ["*"]
+              resources: ["*"]
+              verbs: ["get", "list", "create", "update", "delete"]
+
+    - name: Ensure ClusterRoleBinding exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: "{{ cluster_role_binding_name }}"
+          subjects:
+            - kind: ServiceAccount
+              name: "{{ service_account_name }}"
+              namespace: "{{ namespace }}"
+          roleRef:
+            kind: ClusterRole
+            name: "{{ cluster_role_name }}"
+            apiGroup: rbac.authorization.k8s.io
+
+    - name: Ensure RoleBinding exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata:
+            name: "{{ role_binding_name }}"
+            namespace: "{{ namespace }}"
+          subjects:
+            - kind: ServiceAccount
+              name: "{{ service_account_name }}"
+              namespace: "{{ namespace }}"
+          roleRef:
+            kind: Role
+            name: "{{ role_name }}"
+            apiGroup: rbac.authorization.k8s.io

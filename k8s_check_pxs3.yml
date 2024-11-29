@@ -1,0 +1,102 @@
+---
+- name: Get pods, retrieve secret, and execute command with secret data in each pod
+  hosts: localhost
+  gather_facts: false
+  vars:
+    namespace: "your-namespace"
+    label_selector: "app=myapp"  # Adjust this label selector to match your pods
+    command_to_run: "your-command"  # Replace with the command you want to execute
+    secret_name: "px-admin-token"  # The name of the secret to retrieve
+    secret_key: "auth-token"       # The key in the secret data to use as the environment variable value
+    env_var: "PX_AUTH_TOKEN"       # The environment variable name to set in the pod
+    expected_value: "expected_value"  # Value to check in each pod's command output
+
+  tasks:
+    - name: Get a list of pods in the namespace with the label selector
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ namespace }}"
+        label_selectors:
+          - "{{ label_selector }}"
+      register: pods_info
+
+    - name: Ensure pods are found
+      ansible.builtin.fail:
+        msg: "No pods found with label {{ label_selector }} in namespace {{ namespace }}"
+      when: pods_info.resources | length == 0
+
+    - name: Get the secret from the namespace
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: "{{ secret_name }}"
+        namespace: "{{ namespace }}"
+      register: secret_info
+
+    - name: Ensure the secret exists
+      ansible.builtin.fail:
+        msg: "Secret {{ secret_name }} not found in namespace {{ namespace }}"
+      when: secret_info.resources | length == 0
+
+    - name: Decode the secret data for the environment variable
+      ansible.builtin.set_fact:
+        secret_env_value: "{{ secret_info.resources[0].data[secret_key] | b64decode }}"
+      when: secret_key in secret_info.resources[0].data
+
+    - name: Ensure the secret key is valid
+      ansible.builtin.fail:
+        msg: "Key {{ secret_key }} not found in secret {{ secret_name }}"
+      when: secret_env_value is not defined
+
+    - name: Execute command in each pod and capture output
+      vars:
+        conditions_met: true
+      loop: "{{ pods_info.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      kubernetes.core.k8s_exec:
+        namespace: "{{ namespace }}"
+        pod: "{{ item.metadata.name }}"
+        command:
+          - /bin/sh
+          - -c
+          - "{{ command_to_run }}"
+        env:
+          - name: "{{ env_var }}"
+            value: "{{ secret_env_value }}"
+      register: exec_results
+      failed_when: exec_results.failed
+      check_mode: false
+
+    - name: Check conditions in each pod's command output
+      vars:
+        conditions_met: true
+      loop: "{{ exec_results.results }}"
+      loop_control:
+        label: "{{ item.pod }}"
+      ansible.builtin.fail:
+        msg: "Condition check failed for pod {{ item.pod }} on node {{ item.pod_node }}: '{{ expected_value }}' not found in output"
+      when: expected_value not in item.stdout
+      register: failed_pods
+
+    - name: Get status of failed pods and check if they are ready
+      loop: "{{ failed_pods.results }}"
+      loop_control:
+        label: "{{ item.pod }}"
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        name: "{{ item.pod }}"
+        namespace: "{{ namespace }}"
+      register: pod_statuses
+
+    - name: Ensure failed pods are in Ready state
+      vars:
+        pod_ready: "{{ 'True' in (item.resources[0].status.conditions | selectattr('type', 'equalto', 'Ready') | map(attribute='status') | list) }}"
+      loop: "{{ pod_statuses.results }}"
+      loop_control:
+        label: "{{ item.resources[0].metadata.name }}"
+      ansible.builtin.fail:
+        msg: "Pod {{ item.resources[0].metadata.name }} on node {{ item.resources[0].spec.nodeName }} is not in a Ready state"
+      when: not pod_ready

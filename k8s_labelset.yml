@@ -1,0 +1,67 @@
+---
+- name: Check and update Kubernetes namespaces for specific labels
+  hosts: localhost
+  gather_facts: false
+  vars:
+    label_a: "label_a"
+    label_b: "label_b"
+    label_c: "label_c"
+    label_d: "label_d"
+    label_d_values:
+      - "value1"
+      - "value2"
+      - "value3"
+      - "value4"
+      - "value5"
+      - "value6"
+    namespaces_missing_labels: []
+    namespace_label_map: {}
+
+  tasks:
+    - name: Get all namespaces in the cluster
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Namespace
+      register: namespaces_info
+
+    - name: Filter namespaces with label_a
+      ansible.builtin.set_fact:
+        namespaces_with_label_a: "{{ namespaces_info.resources | selectattr('metadata.labels', 'defined') | selectattr('metadata.labels.' + label_a, 'defined') | list }}"
+
+    - name: Check for namespaces missing label_b, label_c, or label_d
+      ansible.builtin.set_fact:
+        namespaces_missing_labels: >-
+          {{
+            namespaces_missing_labels +
+            [
+              namespace.metadata.name
+              for namespace in namespaces_with_label_a
+              if not (
+                namespace.metadata.labels.get(label_b) and
+                (namespace.metadata.labels.get(label_c) or namespace.metadata.labels.get(label_d))
+              )
+            ]
+          }}
+
+    - name: Assign random values to label_d for missing namespaces
+      ansible.builtin.set_fact:
+        namespace_label_map: "{{ namespace_label_map | combine({item:(label_d_values | random)}) }}"
+      loop: "{{ namespaces_missing_labels }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Patch namespaces to add random label_d values
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Namespace
+        name: "{{ item }}"
+        merge_type: "merge"
+        definition:
+          metadata:
+            labels:
+              label_d: "{{ namespace_label_map[item] }}"
+      loop: "{{ namespaces_missing_labels }}"
+
+    - name: Display updated namespaces and their assigned label_d values
+      ansible.builtin.debug:
+        msg: "Updated namespaces with label_d: {{ namespace_label_map }}"

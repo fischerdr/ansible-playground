@@ -1,0 +1,97 @@
+---
+- name: Setup HashiCorp Vault Kubernetes Authentication with Dynamic Service Account
+  hosts: localhost
+  gather_facts: false
+  vars:
+    vault_address: "http://127.0.0.1:8200"  # Vault server address
+    vault_token: "root"                     # Vault root token or a token with appropriate permissions
+    vault_namespace: "example-namespace"    # Vault namespace (empty for default namespace)
+    kubernetes_auth_path: "kubernetes"      # Path for the Kubernetes auth method
+    k8s_cluster_context: "default"          # Kubernetes cluster context
+    k8s_service_account: "vault-sa"         # Kubernetes Service Account name
+    k8s_namespace: "default"                # Kubernetes namespace for the Service Account
+    role_base_path: "auth/{{ kubernetes_auth_path }}/role" # Base path for Kubernetes roles
+    policy_base_path: "sys/policies/acl"    # Base path for policies
+    k8s_roles:                              # List of roles to create
+      - name: "example-role"
+        bound_service_account_names: ["vault-sa"]
+        bound_service_account_namespaces: ["default"]
+        policies: ["default"]
+        ttl: "1h"
+
+  tasks:
+    - name: Retrieve Kubernetes Service Account secret
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: ServiceAccount
+        namespace: "{{ k8s_namespace }}"
+        name: "{{ k8s_service_account }}"
+        context: "{{ k8s_cluster_context }}"
+      register: sa_info
+
+    - name: Get associated secret name for Service Account
+      ansible.builtin.set_fact:
+        sa_secret_name: "{{ sa_info.resources[0].secrets[0].name }}"
+
+    - name: Retrieve the Service Account secret
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        namespace: "{{ k8s_namespace }}"
+        name: "{{ sa_secret_name }}"
+        context: "{{ k8s_cluster_context }}"
+      register: sa_secret
+
+    - name: Set Service Account JWT, CA Cert, and Namespace
+      ansible.builtin.set_fact:
+        kubernetes_token_reviewer_jwt: "{{ sa_secret.resources[0].data.token | b64decode }}"
+        kubernetes_ca_cert: "{{ sa_secret.resources[0].data['ca.crt'] | b64decode }}"
+        kubernetes_host: "{{ lookup('env', 'KUBERNETES_SERVICE_HOST') }}:{{ lookup('env', 'KUBERNETES_SERVICE_PORT') }}"
+
+    - name: Enable Kubernetes authentication in Vault
+      ansible.builtin.uri:
+        url: "{{ vault_address }}/v1/sys/auth/{{ kubernetes_auth_path }}"
+        method: POST
+        headers: "{{ {'X-Vault-Token': vault_token} | combine({'X-Vault-Namespace': vault_namespace} if vault_namespace else {}) }}"
+        body: '{"type": "kubernetes"}'
+        status_code: 204
+
+    - name: Configure Kubernetes authentication
+      ansible.builtin.uri:
+        url: "{{ vault_address }}/v1/auth/{{ kubernetes_auth_path }}/config"
+        method: POST
+        headers: "{{ {'X-Vault-Token': vault_token} | combine({'X-Vault-Namespace': vault_namespace} if vault_namespace else {}) }}"
+        body: >
+          {
+            "kubernetes_host": "{{ kubernetes_host }}",
+            "kubernetes_ca_cert": "{{ kubernetes_ca_cert | to_json }}",
+            "token_reviewer_jwt": "{{ kubernetes_token_reviewer_jwt }}"
+          }
+        status_code: 204
+
+    - name: Create Vault roles for Kubernetes authentication
+      ansible.builtin.uri:
+        url: "{{ vault_address }}/v1/{{ role_base_path }}/{{ item.name }}"
+        method: POST
+        headers: "{{ {'X-Vault-Token': vault_token} | combine({'X-Vault-Namespace': vault_namespace} if vault_namespace else {}) }}"
+        body: >
+          {
+            "bound_service_account_names": {{ item.bound_service_account_names | to_json }},
+            "bound_service_account_namespaces": {{ item.bound_service_account_namespaces | to_json }},
+            "policies": {{ item.policies | to_json }},
+            "ttl": "{{ item.ttl }}"
+          }
+        status_code: 204
+      loop: "{{ k8s_roles }}"
+
+    - name: Create policies for Kubernetes roles
+      ansible.builtin.uri:
+        url: "{{ vault_address }}/v1/{{ policy_base_path }}/{{ item }}"
+        method: PUT
+        headers: "{{ {'X-Vault-Token': vault_token} | combine({'X-Vault-Namespace': vault_namespace} if vault_namespace else {}) }}"
+        body: >
+          {
+            "policy": "path \"secret/*\" { capabilities = [\"read\"] }"
+          }
+        status_code: 204
+      loop: "{{ k8s_roles | map(attribute='policies') | flatten | unique }}"

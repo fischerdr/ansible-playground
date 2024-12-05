@@ -18,6 +18,7 @@ websocket-client
 setuptools
 wheel
 ## The following requirements were added by pip freeze:
+aiohttp
 ansible-builder
 ansible-creator
 ansible-dev-environment

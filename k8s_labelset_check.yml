@@ -28,24 +28,25 @@
       ansible.builtin.set_fact:
         namespaces_with_label_a: "{{ namespaces_info.resources | selectattr('metadata.labels', 'defined') | selectattr('metadata.labels.' + label_a, 'defined') | list }}"
 
-    - name: Check for namespaces missing label_b, label_c, or label_d
+    - name: Initialize namespaces_missing_labels
+      ansible.builtin.set_fact:
+        namespaces_missing_labels: []
+
+    - name: Check each namespace for missing labels
       ansible.builtin.set_fact:
         namespaces_missing_labels: >-
           {{
             namespaces_missing_labels +
-            [
-              namespace.metadata.name
-              for namespace in namespaces_with_label_a
-              if not (
-                namespace.metadata.labels.get(label_b) and
-                (namespace.metadata.labels.get(label_c) or namespace.metadata.labels.get(label_d))
-              )
-            ]
+            [namespace.metadata.name]
           }}
+      loop: "{{ namespaces_with_label_a }}"
+      loop_control:
+        loop_var: namespace
+      when: not (namespace.metadata.labels.get(label_b) and (namespace.metadata.labels.get(label_c) or namespace.metadata.labels.get(label_d)))
 
     - name: Assign random values to label_d for missing namespaces
       ansible.builtin.set_fact:
-        namespace_label_map: "{{ namespace_label_map | combine({item:(label_d_values | random)}) }}"
+        namespace_label_map: "{{ namespace_label_map | combine({item: (label_d_values | random)}) }}"
       loop: "{{ namespaces_missing_labels }}"
       loop_control:
         label: "{{ item }}"

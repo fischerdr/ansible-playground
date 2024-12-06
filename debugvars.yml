@@ -1,0 +1,16 @@
+---
+- name: Print all Ansible special variables
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Print variable names and values
+      ansible.builtin.debug:
+        var: hostvars[inventory_hostname]
+    - name: Get shell environment
+      ansible.builtin.command:
+        cmd: env
+      changed_when: false
+      register: output
+    - name: Print shell output
+      ansible.builtin.debug:
+        var: output

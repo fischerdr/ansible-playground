@@ -1,32 +1,37 @@
 ---
-- name: Check and update Kubernetes namespaces for specific labels
+- name: Check_and_update
   hosts: localhost
   gather_facts: false
   vars:
-    label_a: "label_a"
-    label_b: "label_b"
-    label_c: "label_c"
-    label_d: "label_d"
-    label_d_values:
-      - "value1"
-      - "value2"
-      - "value3"
-      - "value4"
-      - "value5"
-      - "value6"
+    inital_label: "label_a"
+    storage: "label_b"
+    resrcs_only: "label_c"
+    full_namespace: "label_d"
+    schedule_names:
+      - "schedule1"
+      - "schedule2"
+      - "schedule3"
+      - "schedule4"
+      - "schedule5"
+      - "schedule6"
     namespaces_missing_labels: []
     namespace_label_map: {}
+    schedule_usage: {}
 
   tasks:
-    - name: Get all namespaces in the cluster
+    - name: Init_schedule_usage_counts
+      ansible.builtin.set_fact:
+        schedule_usage: "{{ dict(schedule_names | zip([0] * schedule_names | length)) }}"
+
+    - name: Namespaces.info.get_all_namespaces
       kubernetes.core.k8s_info:
         api_version: v1
         kind: Namespace
       register: namespaces_info
 
-    - name: Filter namespaces with label_a
+    - name: Filter_with_inital_label
       ansible.builtin.set_fact:
-        namespaces_with_label_a: "{{ namespaces_info.resources | selectattr('metadata.labels', 'defined') | selectattr('metadata.labels.' + label_a, 'defined') | list }}"
+        namespaces_with_inital_label: "{{ namespaces_info.resources | selectattr('metadata.labels', 'defined') | selectattr('metadata.labels.' + inital_label, 'defined') | list }}"
 
     - name: Initialize namespaces_missing_labels
       ansible.builtin.set_fact:
@@ -39,19 +44,30 @@
             namespaces_missing_labels +
             [namespace.metadata.name]
           }}
-      loop: "{{ namespaces_with_label_a }}"
+      loop: "{{ namespaces_with_inital_label }}"
       loop_control:
         loop_var: namespace
-      when: not (namespace.metadata.labels.get(label_b) and (namespace.metadata.labels.get(label_c) or namespace.metadata.labels.get(label_d)))
+      when: not (namespace.metadata.labels[storage] or (namespace.metadata.labels[resrcs_only] or namespace.metadata.labels[full_namespace]))
 
-    - name: Assign random values to label_d for missing namespaces
+    - name: Dynamically set max_schedule_count
       ansible.builtin.set_fact:
-        namespace_label_map: "{{ namespace_label_map | combine({item: (label_d_values | random)}) }}"
+        max_schedule_count: "{{ namespaces_missing_labels | length }}"
+
+    - name: Assign_random_schedules
+      vars:
+        available_schedules: >-
+          {{
+            schedule_names |
+            reject('in', schedule_usage | dict2items | selectattr('value', '>=', max_schedule_count) | map(attribute='key') | list)
+          }}
+      ansible.builtin.set_fact:
+        namespace_label_map: "{{ namespace_label_map | combine({item: (available_schedules | random)}) }}"
+        schedule_usage: "{{ schedule_usage | combine({namespace_label_map[item]: schedule_usage[namespace_label_map[item]] + 1}) }}"
       loop: "{{ namespaces_missing_labels }}"
       loop_control:
         label: "{{ item }}"
 
-    - name: Patch namespaces to add random label_d values
+    - name: Patch_with_schedules
       kubernetes.core.k8s:
         api_version: v1
         kind: Namespace
@@ -60,9 +76,11 @@
         definition:
           metadata:
             labels:
-              label_d: "{{ namespace_label_map[item] }}"
+              full_namespace: "{{ namespace_label_map[item] }}"
       loop: "{{ namespaces_missing_labels }}"
 
-    - name: Display updated namespaces and their assigned label_d values
+    - name: Display_results
       ansible.builtin.debug:
-        msg: "Updated namespaces with label_d: {{ namespace_label_map }}"
+        msg: >-
+          Updated namespaces with schedules: {{ namespace_label_map }}
+          Final schedule usage counts: {{ schedule_usage }}

@@ -1,9 +1,0 @@
----
-collections:
-  - name: ansible.posix
-  - name: ansible.scm
-  - name: ansible.utils
-  - name: kubernetes.core
-  - name: community.general
-  - name: vmware.vmware_rest
-  - name: purepx.px_backup

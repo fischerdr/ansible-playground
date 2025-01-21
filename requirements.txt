@@ -17,6 +17,10 @@ urllib3
 websocket-client
 setuptools
 wheel
+pytest>=7.0.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
 ## The following requirements were added by pip freeze:
 aiohttp
 ansible-builder

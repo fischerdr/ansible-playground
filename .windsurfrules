@@ -1,0 +1,9 @@
+this project is a test project
+this project uses tasks to talk to kubernetes and vault and portworx backup
+purepx is used to talk to the portworx backup api
+always Use FQCN for builtin module actions
+this is ansible code that uses collections and roles
+this code will be run from ansible-runner and will be executed on the target system
+the execution environment is defined in the execution-environment.yml
+the container runtime is defined in the execution-environment.yml and should be set to docker
+images used can be centos streamor fedora stream

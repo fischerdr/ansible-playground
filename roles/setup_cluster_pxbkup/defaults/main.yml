@@ -1,0 +1,43 @@
+---
+# Default variables for setup_cluster_pxbkup role
+# Common variables used across all playbooks
+px_backup_api_url: "https://px-backup-svc-exposed.com"
+px_backup_token: None  # Skip if providing username and password
+org_id: "default"
+pxcentral_auth_url: "https://px-auth-svc-exposed.com"
+pxcentral_client_id: "client_id"
+pxcentral_username: "username"
+pxcentral_password: "password"
+token_duration: "365d"
+
+# Cluster configuration
+clusters:
+  - name: "{{ cluster_name }}"
+    cloud_type: "OTHERS"
+    kubeconfig: "{{ kubeconfig_path }}"
+    cloud_credential_ref: ""
+    platform_credential_ref: ""
+    px_config: ""
+    service_token: ""
+    validate_certs: true
+
+# Kubernetes configuration
+namespace: "px-backup"
+sa_name: pxbackup-sa
+cluster_role_name: pxbackup-sa-clusterrole
+sa_role_name: pxbackup-sa-role
+sa_role_binding_name: pxbackup-sa-rolebinding
+cluster_role_binding_name: pxbackup-sa-clusterrolebinding
+
+# Inventory configuration
+inventory_id: ""  # Required: The name or ID of the inventory to query
+validate_certs: true  # Optional: Whether to validate SSL certificates
+
+# Vault configuration
+vault_mount_point: "static_secrets"
+kubeconfig_vault_path: ""  # This should be provided
+vault_namespace: ""  # This should be provided
+
+# Temporary file for kubeconfig
+kubeconfig_temp_path: "/tmp/kubeconfig_{{ cluster_name }}.yaml"
+kubeconfig_path: "/src/pxbkup_kubeconfig/kubeconfig_{{ cluster_name }}.yaml"

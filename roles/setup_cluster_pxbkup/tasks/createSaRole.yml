@@ -1,0 +1,174 @@
+---
+# Tasks for setup_cluster_pxbkup role
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - cluster_name is defined
+      - vault_token is defined
+      - kubeconfig_vault_path is defined
+      - vault_namespace is defined
+    fail_msg: "Missing required variables. Please ensure cluster_name, vault_token, kubeconfig_vault_path, and vault_namespace are provided."
+
+- name: Retrieve kubeconfig from Vault
+  community.hashi_vault.vault_read:
+    path: "{{ vault_mount_point }}/{{ vault_namespace }}/{{ kubeconfig_vault_path }}"
+    token: "{{ vault_token }}"
+  register: vault_kubeconfig
+
+- name: Write kubeconfig to variable
+  ansible.builtin.set_fact:
+    kubeconfig: "{{ vault_kubeconfig.data.data.kubeconfig }}"
+
+- name: Ensure namespace exists
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ namespace }}"
+
+- name: Ensure service account exists
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: "{{ sa_name }}"
+        namespace: "{{ namespace }}"
+
+- name: Ensure ClusterRole exists
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: "{{ cluster_role_name }}"
+      rules:
+        - apiGroups: ["*"]
+          resources: ["*"]
+          verbs: ["get", "list", "create", "update", "delete"]
+
+- name: Ensure Role exists
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: "{{ sa_role_name }}"
+        namespace: "{{ namespace }}"
+      rules:
+        - apiGroups: ["stork.libopenstorage.org"]
+          resources: ["*"]
+          verbs: ["*"]
+        - apiGroups: ["*"]
+          resources: ["*"]
+          verbs: ["get", "list", "create", "update", "delete"]
+
+- name: Ensure ClusterRoleBinding exists
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: "{{ cluster_role_binding_name }}"
+      subjects:
+        - kind: ServiceAccount
+          name: "{{ sa_name }}"
+          namespace: "{{ namespace }}"
+      roleRef:
+        kind: ClusterRole
+        name: "{{ cluster_role_name }}"
+        apiGroup: rbac.authorization.k8s.io
+
+- name: Ensure RoleBinding exists
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: "{{ sa_role_binding_name }}"
+        namespace: "{{ namespace }}"
+      subjects:
+        - kind: ServiceAccount
+          name: "{{ sa_name }}"
+          namespace: "{{ namespace }}"
+      roleRef:
+        kind: Role
+        name: "{{ sa_role_name }}"
+        apiGroup: rbac.authorization.k8s.io
+
+- name: Get the service account token secret
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    namespace: "{{ namespace }}"
+  register: sa_secrets
+
+- name: Extract service account token
+  ansible.builtin.set_fact:
+    sa_token: >-
+      {{
+        (item.data.token | b64decode)
+        if item.metadata.annotations['kubernetes.io/service-account.name'] == service_account_name
+        else omit
+      }}
+  loop: "{{ sa_secrets.resources }}"
+  when: "'kubernetes.io/service-account.name' in item.metadata.annotations"
+  vars:
+    service_account_secret: "{{ item }}"
+  delegate_to: localhost
+
+- name: Get cluster information
+  ansible.builtin.command: kubectl config view --raw --flatten
+  register: cluster_info
+  changed_when: cluster_info.rc != 0 # <- Uses the return code to define when the task has changed.
+
+- name: Extract cluster server URL
+  ansible.builtin.set_fact:
+    cluster_url: >-
+      {{
+        cluster_info.stdout
+        | regex_search('https://[^"]+')
+      }}
+- name: Create kubeconfig file
+  ansible.builtin.copy:
+    content: |
+      apiVersion: v1
+      kind: Config
+      clusters:
+      - cluster:
+          certificate-authority-data: {{ sa_secrets.resources[0].data['ca.crt'] }}
+          server: {{ cluster_url }}
+        name: kubernetes
+      contexts:
+      - context:
+          cluster: kubernetes
+          namespace: {{ namespace }}
+          user: {{ service_account_name }}
+        name: {{ service_account_name }}-context
+      current-context: {{ service_account_name }}-context
+      users:
+      - name: {{ service_account_name }}
+        user:
+          token: {{ sa_token }}
+    dest: "{{ kubeconfig_path }}"
+    mode: preserve
+  delegate_to: localhost
+
+- name: Print kubeconfig location
+  ansible.builtin.debug:
+    msg: "Kubeconfig file generated at {{ kubeconfig_path }}"
+

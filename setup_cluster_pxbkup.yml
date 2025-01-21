@@ -1,0 +1,23 @@
+---
+- name: Setup Kubernetes Service Account with Vault Integration
+  hosts: localhost
+  gather_facts: false
+  vars:
+    # Common variables used across all playbooks
+    px_backup_api_url: "https://px-backup-svc-exposed.com"
+    pxcentral_auth_url: "https://px-auth-svc-exposed.com"
+    org_id: "default"
+    pxcentral_client_id: "client_id"
+    pxcentral_username: "username"
+    pxcentral_password: "password"
+    px_backup_token: "NONE"  # Skip if providing username and password
+    token_duration: "365d"
+
+  roles:
+    - role: setup_cluster_pxbkup
+      vars:
+        setup_cluster_pxbkup_cluster_name: "{{ cluster_name }}"
+        setup_cluster_pxbkup_token: "{{ setup_cluster_pxbkup_token }}"
+        setup_cluster_pxbkup_kubeconfig_path: "clusters/{{ cluster_name }}/kubeconfig"
+        setup_cluster_pxbkup_vault_namespace: "{{ vault_namespace | default('kubernetes') }}"
+        setup_cluster_pxbkup_namespace: "{{ k8s_namespace | default('default') }}"

@@ -1,0 +1,17 @@
+---
+# Ensure kubeconfig directory exists
+- name: Ensure kubeconfig directory exists
+  ansible.builtin.file:
+    path: "{{ kubeconfig_path | dirname }}"
+    state: directory
+    mode: '0750'
+  delegate_to: localhost
+
+- name: "Get Vault configuration from inventory"
+  ansible.builtin.include_tasks: "get_vault_config.yml"
+
+- name: "Create Service Account and Role for Portworx Backup"
+  ansible.builtin.include_tasks: "createSaRole.yml"
+
+- name: "Create Cluster in Px-Backup"
+  ansible.builtin.include_tasks: "createCLSTRinPxBkup.yaml"

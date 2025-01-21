@@ -1,0 +1,31 @@
+---
+- name: Configure PX-Backup cloud credentials
+  hosts: localhost
+  gather_facts: false
+
+  vars_files:
+    - "{{ inventory_dir }}/group_vars/common/all.yaml"
+    - "{{ inventory_dir }}/group_vars/cloud_credential/delete_vars.yaml"
+  
+  tasks:
+    - name: Login and fetch Px-Backup token
+      include_tasks: "{{ playbook_dir | dirname }}/auth/auth.yaml"
+
+    - name: Create Cloud Credentials
+      block:
+        - name: Create Cloud Credential
+          cloud_credential:
+            operation: DELETE
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            name: "{{ item.name }}"
+            org_id: "{{ org_id | default('default') }}"
+            uid: "{{ item.uid }}"
+          loop: "{{ cloud_credentials }}"
+          register: cloudcred_result
+          loop_control:
+            label: "{{ item.name }}"
+
+
+
+

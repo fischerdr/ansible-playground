@@ -1,0 +1,19 @@
+---
+- name: Configure PX-Backup Schedules
+  hosts: localhost
+  gather_facts: false
+
+  vars_files:
+    - "{{ inventory_dir }}/group_vars/common/all.yaml"
+  
+  tasks:
+    - name: Login and fetch Px-Backup token
+      include_tasks: "{{ playbook_dir | dirname }}/auth/auth.yaml"
+    - name: Delete  Backup Schedule
+      backup_schedule:
+        operation: DELETE
+        api_url: "{{ px_backup_api_url }}"
+        token: "{{ px_backup_token }}"
+        org_id: "{{ org_id }}"
+        uid: "092c9ac5-fe55-4eb5-b7c5-23d45eb0a95e"
+        name: "bs-1"

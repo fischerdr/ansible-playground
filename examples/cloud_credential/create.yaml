@@ -1,0 +1,43 @@
+---
+- name: Configure PX-Backup cloud credentials
+  hosts: localhost
+  gather_facts: false
+
+  vars_files:
+    - "{{ inventory_dir }}/group_vars/common/all.yaml"
+    - "{{ inventory_dir }}/group_vars/cloud_credential/create_vars.yaml"
+  
+  tasks:
+    - name: Login and fetch Px-Backup token
+      include_tasks: "{{ playbook_dir | dirname }}/auth/auth.yaml"
+    - name: Create Cloud Credentials
+      block:
+        - name: Create Cloud Credential
+          cloud_credential:
+            operation: CREATE
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            name: "{{ item.name }}"
+            org_id: "{{ org_id | default('default') }}"
+            credential_type: "{{ item.credential_type }}"
+            owner: "admin"
+            aws_config: "{{ item.aws_config | default(omit) }}"
+            azure_config: "{{ item.azure_config | default(omit) }}"
+            ibm_config: "{{ item.ibm_config | default(omit) }}"
+            google_config: "{{ item.google_config | default(omit) }}"
+            rancher_config: "{{ item.rancher_config | default(omit) }}"
+          loop: "{{ cloud_credentials }}"
+          register: cloudcred_result
+          loop_control:
+            label: "{{ item.name }}"
+
+    - name: List Add Cloud Credentials
+      cloud_credential:
+        operation: INSPECT_ALL
+        api_url: "{{ px_backup_api_url }}"
+        token: "{{ px_backup_token }}"
+        org_id: "{{ org_id }}"
+
+
+
+

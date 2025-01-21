@@ -1,0 +1,26 @@
+- name: Configure PX-Backup cloud credentials
+  hosts: localhost
+  gather_facts: false
+
+  vars_files:
+    - "{{ inventory_dir }}/group_vars/common/all.yaml"
+    - "{{ inventory_dir }}/group_vars/cloud_credential//update_owner_vars.yaml"
+
+  tasks:
+    - name: Login and fetch Px-Backup token
+      include_tasks: "{{ playbook_dir | dirname }}/auth/auth.yaml"
+    - name: Create Cloud Credentials
+      block:
+        - name: Create Cloud Credential
+          cloud_credential:
+            operation: UPDATE_OWNERSHIP
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            org_id: "{{ org_id | default('default') }}"
+            name: "{{ item.name }}"
+            uid: "{{ item.uid }}"
+            ownership: "{{ item.ownership }}"
+          loop: "{{ cloud_credentials }}"
+          register: ownership_result
+          loop_control:
+            label: "{{ item.name }}"

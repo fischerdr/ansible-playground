@@ -1,0 +1,79 @@
+---
+- name: Validate PX-Backup Backup Locations
+  hosts: localhost
+  gather_facts: false
+
+  vars_files:
+    - "{{ inventory_dir }}/group_vars/common/all.yaml"
+    - "{{ inventory_dir }}/group_vars/backup_location/validate.yaml"
+
+  pre_tasks:
+    - name: Validate required variables
+      assert:
+        that:
+          - px_backup_api_url is defined
+          - backup_locations_validate is defined
+        fail_msg: "Required variables must be defined"
+
+  tasks:
+    - name: Login and fetch Px-Backup token
+      include_tasks: "{{ playbook_dir | dirname }}/auth/auth.yaml"
+    - name: Validate backup locations
+      block:
+        - name: Run validation
+          backup_location:
+            operation: VALIDATE
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            org_id: "{{ org_id | default('default') }}"
+            name: "{{ item.name }}"
+            uid: "{{ item.uid }}"
+          register: validation_result
+          loop: "{{ backup_locations_validate }}"
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Get post-validation state
+          backup_location:
+            operation: INSPECT_ONE
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            name: "{{ item.name }}"
+            uid: "{{ item.uid }}"
+            org_id: "{{ org_id | default('default') }}"
+            include_secrets: "{{ item.include_secrets | default(default_include_secrets) }}"
+            validate_certs: "{{ validate_certs }}"
+          register: post_validate_state
+          loop: "{{ backup_locations_validate }}"
+          loop_control:
+            label: "{{ item.name }}"
+
+      rescue:
+        - name: Display error details
+          debug:
+            msg: "Failed to validate backup locations: {{ validation_result.results | default([]) | selectattr('failed', 'true') | map(attribute='msg') | list }}"
+
+        - name: Fail with error message
+          fail:
+            msg: "Failed to validate backup locations. See above for details."
+
+    - name: Show validation results
+      debug:
+        msg:
+          - "Validation Results:"
+          - "----------------------------------------"
+          - "Location: {{ item.item.name }}"
+          - "Validation Successful: {{ item is success }}"
+          - "----------------------------------------"
+      loop: "{{ post_validate_state.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: Summarize validation operation
+      debug:
+        msg:
+          - "Validation Summary:"
+          - "Total locations: {{ validation_result.results | length }}"
+          - "Successful validations: {{ validation_result.results | selectattr('failed', 'undefined') | list | length }}"
+          - "Failed validations: {{ validation_result.results | selectattr('failed', 'defined') | selectattr('failed', 'true') | list | length }}"
+          - "Validated locations: {{ validation_result.results | selectattr('failed', 'undefined') | map(attribute='item.name') | list }}"

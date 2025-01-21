@@ -1,0 +1,35 @@
+---
+- name: Configure PX-Backup cloud credentials
+  hosts: localhost
+  gather_facts: false
+
+  vars_files:
+    - "{{ inventory_dir }}/group_vars/common/all.yaml"
+    - "{{ inventory_dir }}/group_vars/cloud_credential/inspect_vars.yaml"
+  
+  tasks:
+    - name: Login and fetch Px-Backup token
+      include_tasks: "{{ playbook_dir | dirname }}/auth/auth.yaml"
+    - name: List Add Cloud Credentials
+      block:
+        - name: List Add Cloud Credentials
+          cloud_credential:
+            operation: INSPECT_ONE
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token}}"
+            name: "{{ item.name }}"
+            org_id: "{{ org_id | default('default') }}"
+            uid: "{{ item.uid }}"
+            include_secrets: "{{ item.include_secrets |  default(omit) }}"
+          loop: "{{ cloud_credentials }}"
+          register: cloudcred_result
+          loop_control:
+            label: "{{ item.name }}"
+
+    - name: List Add Cloud Credentials
+      debug: 
+        msg: "Cloud Credentials: {{ cloudcred_result.results }}"
+
+
+
+

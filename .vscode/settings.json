@@ -1,6 +1,7 @@
 {
     "ansible.python.interpreterPath": "/development/git/ansible-playground/.venv/bin/python",
     "yaml.schemas": {
-        "https://raw.githubusercontent.com/ansible/ansible-lint/main/src/ansiblelint/schemas/ansible.json#/$defs/playbook": "file:///development/git/ansible-playground/k8s_labelset.yml"
+        "https://raw.githubusercontent.com/ansible/ansible-lint/main/src/ansiblelint/schemas/ansible.json#/$defs/playbook": "file:///development/git/ansible-playground/k8s_labelset.yml",
+        "https://raw.githubusercontent.com/ansible/ansible-lint/main/src/ansiblelint/schemas/execution-environment.json": "file:///development/git/ansible-playground/execution-environment.yml"
     }
 }

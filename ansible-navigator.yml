@@ -1,0 +1,34 @@
+---
+ansible-navigator:
+  execution-environment:
+    container-engine: docker
+    enabled: true
+    image: quay.io/centos/centos:stream9
+    pull:
+      policy: missing
+    volume-mounts:
+      - src: "${HOME}/.ssh/"
+        dest: "/home/runner/.ssh/:Z"
+      - src: "${HOME}/.kube/"
+        dest: "/home/runner/.kube/:Z"
+      - src: "./cache/"
+        dest: "/runner/cache/:Z"
+      - src: "./tmp/"
+        dest: "/runner/tmp/:Z"
+
+  logging:
+    level: debug
+    append: true
+    file: "./logs/ansible-navigator.log"
+
+  mode: interactive
+
+  playbook-artifact:
+    enable: true
+    save-as: "{playbook_dir}/artifacts/{playbook_name}-artifact-{time_stamp}.json"
+
+  ansible:
+    config:
+      path: "./ansible.cfg"
+    playbook:
+      path: "./setup_cluster_pxbkup.yml"

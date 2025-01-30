@@ -1,0 +1,22 @@
+{
+  "px_backup_api_url": "https://px-backup-svc-exposed.com",
+  "pxcentral_auth_url": "https://px-auth-svc-exposed.com",
+  "org_id": "default",
+  "pxcentral_client_id": "your_client_id",
+  "pxcentral_username": "your_username",
+  "pxcentral_password": "your_password",
+  "px_backup_token": null,
+  "token_duration": "365d",
+  "cluster_name": "your_cluster_name",
+  "clusters": [
+    {
+      "name": "your_cluster_name",
+      "cloud_type": "OTHERS",
+      "kubeconfig": "clusters/your_cluster_name/kubeconfig",
+      "cloud_credential_ref": "",
+      "platform_credential_ref": "",
+      "px_config": "",
+      "service_token": ""
+    }
+  ]
+}

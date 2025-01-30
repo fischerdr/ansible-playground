@@ -9,10 +9,10 @@
 
     # Vault configuration
     vault_mount_point: "static_secrets"
-    vault_token_path: "{{ playbook_dir }}/vault_token"
+    vault_token_path: "{{ playbook_dir }}/vault_secrets/ansible-token"
     kubeconfig_temp_path: "{{ playbook_dir }}/tmp/kubeconfig_{{ cluster_name }}.yaml"
     kubeconfig_path: "{{ playbook_dir }}/pxbkup_kubeconfig/kubeconfig_{{ cluster_name }}.yaml"
-    
+
     # SSL Configuration
     ca_cert_path: "{{ playbook_dir }}/certs/ca.crt"  # Path to CA certificate
     validate_certs: true  # Set to false only for testing with self-signed certs
@@ -125,3 +125,44 @@
       ansible.builtin.debug:
         msg: "Kubeconfig retrieved successfully"
         verbosity: 1
+
+    - name: "Ensure kubeconfig directory exists"
+      ansible.builtin.file:
+        path: "{{ kubeconfig_path | dirname }}"
+        state: directory
+        mode: '0750'
+
+    - name: "Write kubeconfig to file"
+      ansible.builtin.copy:
+        content: "{{ kubeconfig_content }}"
+        dest: "{{ kubeconfig_path }}"
+        mode: '0600'
+      register: kubeconfig_write
+
+    - name: "Verify kubeconfig file was written"
+      ansible.builtin.stat:
+        path: "{{ kubeconfig_path }}"
+      register: kubeconfig_file
+      failed_when: not kubeconfig_file.stat.exists
+
+    - name: "Test kubeconfig - List pods in default namespace"
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: default
+        kubeconfig: "{{ kubeconfig_content }}"
+      register: pod_list
+      ignore_errors: true
+
+    - name: "Display pod list"
+      ansible.builtin.debug:
+        msg:
+          - "Successfully connected to cluster"
+          - "Found {{ pod_list.resources | length }} pods in default namespace"
+          - "Pod names:"
+          - "{{ pod_list.resources | map(attribute='metadata.name') | list }}"
+      when: pod_list is not failed
+
+    - name: "Display connection error"
+      ansible.builtin.fail:
+        msg: "Failed to connect to cluster: {{ pod_list.msg | default('Unknown error') }}"
+      when: pod_list is failed

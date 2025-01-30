@@ -3,21 +3,12 @@ ansible-navigator:
   execution-environment:
     container-engine: docker
     enabled: true
-    image: quay.io/centos/centos:stream9
+    image: test-ee:latest
     pull:
       policy: missing
-    volume-mounts:
-      - src: "${HOME}/.ssh/"
-        dest: "/home/runner/.ssh/:Z"
-      - src: "${HOME}/.kube/"
-        dest: "/home/runner/.kube/:Z"
-      - src: "./cache/"
-        dest: "/runner/cache/:Z"
-      - src: "./tmp/"
-        dest: "/runner/tmp/:Z"
 
   logging:
-    level: debug
+    level: error
     append: true
     file: "./logs/ansible-navigator.log"
 

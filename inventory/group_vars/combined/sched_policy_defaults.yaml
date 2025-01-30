@@ -1,0 +1,51 @@
+---
+# Define policies list
+schedule_policies:
+  - name: "4am"
+    validate_certs: true
+    schedule_policy:
+      daily:
+        time: "04:00AM"
+        retain: 7
+        incremental_count:
+          count: 6
+  - name: "8am"
+    validate_certs: true
+    schedule_policy:
+      daily:
+        time: "08:00AM"
+        retain: 7
+        incremental_count:
+          count: 6
+  - name: "12am"
+    validate_certs: true
+    schedule_policy:
+      daily:
+        time: "12:00AM"
+        retain: 7
+        incremental_count:
+          count: 6
+  - name: "4pm"
+    validate_certs: true
+    schedule_policy:
+      daily:
+        time: "4:00PM"
+        retain: 7
+        incremental_count:
+          count: 6
+  - name: "8pm"
+    validate_certs: true
+    schedule_policy:
+      daily:
+        time: "8:00PM"
+        retain: 7
+        incremental_count:
+          count: 6
+  - name: "12pm"
+    validate_certs: true
+    schedule_policy:
+      daily:
+        time: "12:00PM"
+        retain: 7
+        incremental_count:
+          count: 6

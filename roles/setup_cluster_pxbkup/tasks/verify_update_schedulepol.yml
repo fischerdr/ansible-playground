@@ -1,0 +1,63 @@
+---
+- name: Verify Update Schedule Policies
+  block:
+    - name: Debug payload
+      ansible.builtin.debug:
+        var: item
+      loop: "{{ schedule_policies }}"
+
+    - name: Verify schedule policy
+      purepx.px_backup.schedule_policy:
+        operation: VERIFY
+        api_url: "{{ px_backup_api_url }}"
+        token: "{{ px_backup_token }}"
+        name: "{{ item.name }}"
+        org_id: "{{ org_id | default('default') }}"
+        validate_certs: "{{ item.validate_certs | default(true) }}"
+        labels: "{{ item.labels | default(omit) }}"
+        schedule_policy: "{{ item.schedule_policy }}"
+      loop: "{{ schedule_policies }}"
+      register: schedule_policy_result
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Display error details
+      ansible.builtin.debug:
+        msg: "Failed to verify schedule_policy: {{ schedule_policy_result.results | selectattr('failed', 'true') | map(attribute='msg') | list }}"
+      when: schedule_policy_result is defined and schedule_policy_result.results is defined
+
+    - name: Create schedule policy
+      purepx.px_backup.schedule_policy:
+        operation: CREATE
+        api_url: "{{ px_backup_api_url }}"
+        token: "{{ px_backup_token }}"
+        name: "{{ item.name }}"
+        org_id: "{{ org_id | default('default') }}"
+        validate_certs: "{{ item.validate_certs | default(true) }}"
+        labels: "{{ item.labels | default(omit) }}"
+        schedule_policy: "{{ item.schedule_policy }}"
+      loop: "{{ schedule_policies }}"
+      register: schedule_policy_result
+      loop_control:
+        label: "{{ item.name }}"
+      when: schedule_policy_result is not defined or schedule_policy_result.results is not defined
+  rescue:
+    - name: Display error details
+      ansible.builtin.debug:
+        msg: "Failed to create schedule_policy: {{ schedule_policy_result.results | selectattr('failed', 'true') | map(attribute='msg') | list }}"
+      when: schedule_policy_result is defined and schedule_policy_result.results is defined
+
+    - name: Fail with error message
+      ansible.builtin.fail:
+        msg: "Failed to create schedule policies. See above for details."
+
+- name: Display creation results
+  ansible.builtin.debug:
+    msg:
+      - "Successfully created schedule_policies"
+      - "Created schedule policies: {{ schedule_policy_result.results | map(attribute='item.name') | list }}"
+      - "Changed status: {{ schedule_policy_result.results | map(attribute='changed') | list }}"
+  when:
+    - schedule_policy_result is defined
+    - schedule_policy_result.results is defined
+    - (schedule_policy_result.results | selectattr('failed', 'defined') | selectattr('failed', 'true') | list | length) == 0

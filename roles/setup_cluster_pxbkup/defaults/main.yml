@@ -37,7 +37,8 @@ validate_certs: true  # Optional: Whether to validate SSL certificates
 vault_mount_point: "static_secrets"
 kubeconfig_vault_path: ""  # This should be provided
 vault_namespace: ""  # This should be provided
+vault_token_path: "/runner/project/vault_token"  # Path when running in ansible-navigator container
 
 # Temporary file for kubeconfig
-kubeconfig_temp_path: "/tmp/kubeconfig_{{ cluster_name }}.yaml"
-kubeconfig_path: "/src/pxbkup_kubeconfig/kubeconfig_{{ cluster_name }}.yaml"
+kubeconfig_temp_path: "/runner/project/tmp/kubeconfig_{{ cluster_name }}.yaml"
+kubeconfig_path: "/runner/project/pxbkup_kubeconfig/kubeconfig_{{ cluster_name }}.yaml"

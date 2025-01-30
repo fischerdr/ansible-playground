@@ -10,6 +10,15 @@
 - name: "Get Vault configuration from inventory"
   ansible.builtin.include_tasks: "get_vault_config.yml"
 
+- name: Login and fetch Px-Backup token
+  ansible.builtin.include_tasks: "auth.yaml"
+
+- name: "Verify Update Schedule Policies"
+  ansible.builtin.include_tasks: "verify_update_schedulepol.yml"
+  vars_files:
+    - "{{ inventory_dir }}/group_vars/common/all.yaml"
+    - "{{ inventory_dir }}/group_vars/combined/sched_policy_defaults.yaml"
+
 - name: "Create Service Account and Role for Portworx Backup"
   ansible.builtin.include_tasks: "createSaRole.yml"
 

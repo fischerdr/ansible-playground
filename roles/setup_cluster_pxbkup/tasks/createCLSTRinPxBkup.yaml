@@ -1,8 +1,4 @@
 ---
-
-- name: Login and fetch Px-Backup token
-  ansible.builtin.include_tasks: "auth.yaml"
-
 - name: Create clusters
   block:
     - name: Create cluster

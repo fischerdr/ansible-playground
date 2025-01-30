@@ -34,12 +34,6 @@
           Accept: "application/json"
       register: inventory_response
 
-      rescue:
-        - name: "Display error details"
-          ansible.builtin.debug:
-            msg: "Failed to retrieve inventory: {{ inventory_response.msg | default('Unknown error') }}"
-          when: inventory_response is failed
-
     - name: "Set Vault configuration facts"
       ansible.builtin.set_fact:
         vault_address: "{{ inventory_response.json | community.general.json_query('kubernetes_platform.secrets_management.platform_vault[0].address') }}"

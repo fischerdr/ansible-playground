@@ -26,6 +26,79 @@
     vault_namespace: "{{ vault_namespace }}"
     kubeconfig_vault_path: "{{ vault_default_path }}"
 
+- name: "Check if Vault token file exists"
+  ansible.builtin.stat:
+    path: "{{ vault_token_path }}"
+  register: token_file_stat
+
+- name: "Fail if Vault token file does not exist"
+  ansible.builtin.fail:
+    msg: "Vault token file not found at {{ vault_token_path }}. Please ensure the token file exists and is readable."
+  when: not token_file_stat.stat.exists
+
+- name: "Read Vault token from file"
+  ansible.builtin.set_fact:
+    vault_token: "{{ lookup('ansible.builtin.file', vault_token_path) | trim }}"
+  failed_when: vault_token | length == 0
+  register: token_read
+  ignore_errors: true
+
+- name: "Fail if Vault token is empty"
+  ansible.builtin.fail:
+    msg: "Vault token file is empty or unreadable. Please ensure the token file contains a valid token."
+  when: token_read is failed
+
+- name: "Verify required Vault variables"
+  ansible.builtin.assert:
+    that:
+      - vault_address is defined and vault_address | length > 0
+      - vault_namespace is defined and vault_namespace | length > 0
+      - vault_default_path is defined and vault_default_path | length > 0
+    fail_msg: "Missing required Vault variables. Please ensure vault_address, vault_namespace, and vault_default_path are set."
+    success_msg: "All required Vault variables are present."
+
+- name: "Retrieve kubeconfig from Vault"
+  community.hashi_vault.vault_kv2_get:
+    url: "{{ vault_address }}"
+    path: "{{ vault_default_path }}"
+    engine_mount_point: "{{vault_mount_point}}"
+    auth_method: token
+    token: "{{ vault_token }}"
+    namespace: "{{ vault_namespace }}"
+  register: vault_kubeconfig_response
+  ignore_errors: true
+
+- name: "Fail if Vault request failed"
+  ansible.builtin.fail:
+    msg: "Failed to retrieve kubeconfig from Vault: {{ vault_kubeconfig_response.msg | default('Unknown error') }}"
+  when: vault_kubeconfig_response is failed
+
+- name: "Verify kubeconfig content exists in Vault response"
+  ansible.builtin.assert:
+    that:
+      - vault_kubeconfig_response.data is defined
+      - vault_kubeconfig_response.data.data is defined
+      - vault_kubeconfig_response.data.data.kubeconfig is defined
+    fail_msg: "Kubeconfig not found in Vault response. Please check the path and key name."
+    success_msg: "Kubeconfig found in Vault response."
+
+- name: "Set kubeconfig variable"
+  ansible.builtin.set_fact:
+    kubeconfig_content: "{{ vault_kubeconfig_response.data.data.kubeconfig }}"
+
+- name: "Verify kubeconfig content is not empty"
+  ansible.builtin.assert:
+    that:
+      - kubeconfig_content is defined
+      - kubeconfig_content | length > 0
+    fail_msg: "Retrieved kubeconfig is empty. Please check the Vault data."
+    success_msg: "Kubeconfig retrieved successfully"
+
+- name: "Verify kubeconfig was retrieved"
+  ansible.builtin.debug:
+    msg: "Kubeconfig retrieved successfully"
+    verbosity: 1
+
 - name: "Verify Vault configuration facts"
   ansible.builtin.debug:
     msg: |

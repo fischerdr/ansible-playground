@@ -4,6 +4,6 @@ collections:
   - name: ansible.scm
   - name: ansible.utils
   - name: kubernetes.core
-  - name: community.general 
+  - name: community.general
   - name: purepx.px_backup
   - name: community.hashi_vault

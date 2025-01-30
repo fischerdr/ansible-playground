@@ -61,7 +61,7 @@
   community.hashi_vault.vault_kv2_get:
     url: "{{ vault_address }}"
     path: "{{ vault_default_path }}"
-    engine_mount_point: "{{vault_mount_point}}"
+    engine_mount_point: "{{ vault_mount_point}}"
     auth_method: token
     token: "{{ vault_token }}"
     namespace: "{{ vault_namespace }}"

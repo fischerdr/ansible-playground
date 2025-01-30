@@ -1,4 +1,4 @@
- #!/bin/bash
+#!/bin/bash
 
 # Define variables
 BUILDER_TAG="quay.io/ansible/awx-ee"

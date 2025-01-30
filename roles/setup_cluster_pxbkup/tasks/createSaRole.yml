@@ -171,4 +171,3 @@
 - name: Print kubeconfig location
   ansible.builtin.debug:
     msg: "Kubeconfig file generated at {{ kubeconfig_path }}"
-

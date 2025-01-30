@@ -149,7 +149,7 @@
       kubernetes.core.k8s_info:
         kind: Pod
         namespace: default
-        kubeconfig: "{{ kubeconfig_content }}"
+        kubeconfig: "{{ kubeconfig_content | from_yaml }}"
       register: pod_list
       ignore_errors: true
 

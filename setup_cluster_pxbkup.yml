@@ -1,23 +1,50 @@
 ---
+# setup_cluster_pxbkup.yml
+#
+# This playbook sets up a Kubernetes cluster with Portworx Backup integration.
+# It handles the following tasks:
+# - Retrieves Vault configuration from inventory
+# - Authenticates with Px-Backup and obtains token
+# - Verifies and updates schedule policies
+# - Creates necessary service accounts and roles
+# - Registers the cluster with Px-Backup
+#
+# Requirements:
+# - Vault access configured
+# - Valid kubeconfig
+# - Px-Backup credentials
+#
+# Author: Your Name
+# Last Updated: 2025-01-30
+
 - name: Setup Kubernetes Service Account with Vault Integration
   hosts: localhost
   gather_facts: false
+
   vars:
-    # Common variables used across all playbooks
-    px_backup_api_url: "https://px-backup-svc-exposed.com"
-    pxcentral_auth_url: "https://px-auth-svc-exposed.com"
-    org_id: "default"
-    pxcentral_client_id: "client_id"
-    pxcentral_username: "username"
-    pxcentral_password: "password"
-    px_backup_token: "NONE"  # Skip if providing username and password
-    token_duration: "365d"
+    ansible_log_path: "{{ playbook_dir }}/logs/setup_cluster_pxbkup.log"
+
+  pre_tasks:
+    - name: Ensure log directory exists
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/logs"
+        state: directory
+        mode: '0750'
+      delegate_to: localhost
+
+    - name: Set error handling block
+      ansible.builtin.set_fact:
+        error_handling: |
+          block:
+            - name: Include task
+              ansible.builtin.include_tasks: "{{ include_file }}"
+          rescue:
+            - name: Log error
+              ansible.builtin.debug:
+                msg: "Error executing {{ include_file }}: {{ ansible_failed_result }}"
+              when: ansible_failed_result is defined
+            - ansible.builtin.fail:
+                msg: "Failed to execute {{ include_file }}"
 
   roles:
     - role: setup_cluster_pxbkup
-      vars:
-        setup_cluster_pxbkup_cluster_name: "{{ cluster_name }}"
-        setup_cluster_pxbkup_token: "{{ setup_cluster_pxbkup_token }}"
-        setup_cluster_pxbkup_kubeconfig_path: "clusters/{{ cluster_name }}/kubeconfig"
-        setup_cluster_pxbkup_vault_namespace: "{{ vault_namespace | default('kubernetes') }}"
-        setup_cluster_pxbkup_namespace: "{{ k8s_namespace | default('default') }}"

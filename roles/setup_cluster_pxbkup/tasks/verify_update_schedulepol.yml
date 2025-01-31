@@ -1,3 +1,6 @@
+- name: "Include schedule_policy defaults"
+  ansible.builtin.include_vars: "{{ lookup('template', 'inventory/group_vars/combined/sched_policy_defaults.yaml') }}"
+
 - name: Verify Update Schedule Policies
   block:
     - name: Debug payload

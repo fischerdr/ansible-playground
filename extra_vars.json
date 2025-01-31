@@ -20,24 +20,58 @@
     }
   ],
   "backup_locations": [
-  {"name": "s3-backup",
-    "location_type": "S3",
-    "path": "my-backup-bucket",
-    "cloud_credential_ref": {
-      "cloud_credential_name": "s3-credentials",
-      "cloud_credential_uid": "s3-cred-123456"},
-    "validate_certs": true,
-    "validate_cloud_credential": true,
-    "object_lock_enabled": false,
-    "s3_config": {
-      "region": "us-east-1",
-      "endpoint": "s3.amazonaws.com",
-      "disable_ssl": false,
-      "disable_path_style": false,
-      "storage_class": "STANDARD",
-      "sse_type": "SSE_S3"
+    {
+      "name": "s3-backup",
+      "location_type": "S3",
+      "path": "my-backup-bucket",
+      "cloud_credential_ref": {
+        "cloud_credential_name": "s3-credentials",
+        "cloud_credential_uid": "s3-cred-123456"
+      },
+      "validate_certs": true,
+      "validate_cloud_credential": true,
+      "object_lock_enabled": false,
+      "s3_config": {
+        "region": "us-east-1",
+        "endpoint": "s3.amazonaws.com",
+        "disable_ssl": false,
+        "disable_path_style": false,
+        "storage_class": "STANDARD",
+        "sse_type": "SSE_S3"
+      }
     }
-  }
+  ],
+  "backup_schedules": [
+    {
+      "name": "bs-4",
+      "reclaim_policy": "Retain",
+      "label_selectors": {
+        "pxbackup": "default"
+      },
+      "csi_snapshot_class_name": "default-snapshot-class",
+      "schedule_policy_ref": {
+        "name": "15min-retain3-incr2",
+        "uid": "7c0b5c09-c667-4f5a-a814-de8634d197e8"
+      },
+      "backup_location_ref": {
+        "name": "s3-backup-1",
+        "uid": "0af0ae2b-6259-4d1a-a3fc-8e40fe229cb6"
+      },
+      "backup_type": "Normal",
+      "cluster_ref": {
+        "name": "demo-1",
+        "uid": "07dd2ef3-8261-4f75-acd5-64a3fc011172"
+      }
+    }
+  ],
+  "cloud_credentials": [
+    {
+      "name": "aws-cc",
+      "credential_type": "AWS",
+      "aws_config": {
+        "access_key": "access_key",
+        "secret_key": "secret_key"
+      }
+    }
   ]
-  
 }

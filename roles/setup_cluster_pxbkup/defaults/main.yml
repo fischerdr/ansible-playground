@@ -22,7 +22,7 @@ clusters:
     validate_certs: true
 
 # Kubernetes configuration
-namespace: "px-backup"
+k8s_namespace: "px-backup"
 sa_name: pxbackup-sa
 cluster_role_name: pxbackup-sa-clusterrole
 sa_role_name: pxbackup-sa-role

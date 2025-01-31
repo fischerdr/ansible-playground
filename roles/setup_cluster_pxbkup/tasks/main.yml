@@ -11,7 +11,7 @@
   ansible.builtin.include_tasks: "get_vault_config.yml"
 
 - name: Login and fetch Px-Backup token
-  ansible.builtin.include_tasks: "auth.yml"
+  ansible.builtin.include_tasks: "pxbkup_auth.yml"
 
 - name: "Verify Update Schedule Policies"
   ansible.builtin.include_tasks: "verify_update_schedulepol.yml"
@@ -23,7 +23,7 @@
   ansible.builtin.include_tasks: "create_cluster_pxbkup.yml"
 
 - name: "Update Schedule Policies"
-  ansible.builtin.include_tasks: "update_schedulepol.yml"
+  ansible.builtin.include_tasks: "verify_update_schedulepol.yml"
 
 - name: "Create or verify Backup Locations"
   ansible.builtin.include_tasks: "verify_create_backup_locations.yml"

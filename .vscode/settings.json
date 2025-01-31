@@ -1,5 +1,6 @@
 {
     "python-envs.pythonProjects": [],
     "ansible.ansible.reuseTerminal": true,
-    "ansible.executionEnvironment.image": "test-ee:latest"
+    "ansible.executionEnvironment.image": "development-ee:latest",
+    "ansible.python.interpreterPath": "/development/git/ansible-playground/.venv/bin/python",
 }

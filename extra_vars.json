@@ -18,5 +18,26 @@
       "px_config": "",
       "service_token": ""
     }
+  ],
+  "backup_locations": [
+  {"name": "s3-backup",
+    "location_type": "S3",
+    "path": "my-backup-bucket",
+    "cloud_credential_ref": {
+      "cloud_credential_name": "s3-credentials",
+      "cloud_credential_uid": "s3-cred-123456"},
+    "validate_certs": true,
+    "validate_cloud_credential": true,
+    "object_lock_enabled": false,
+    "s3_config": {
+      "region": "us-east-1",
+      "endpoint": "s3.amazonaws.com",
+      "disable_ssl": false,
+      "disable_path_style": false,
+      "storage_class": "STANDARD",
+      "sse_type": "SSE_S3"
+    }
+  }
   ]
+  
 }

@@ -1,41 +1,55 @@
 # requirements.txt
-appdirs
-cachetools
-certifi
-filelock
-click
-click-help-colors
-kubernetes
-oauthlib
-pick
-pip
-python-dateutil
-pyvmomi
-requests
-requests-oauthlib
-urllib3
-websocket-client
-setuptools
-wheel
-pytest>=7.0.0
-black>=23.0.0
-flake8>=6.0.0
-mypy>=1.0.0
-## The following requirements were added by pip freeze:
-aiohttp
+
+# Core Dependencies
+click>=8.0.0
+click-help-colors>=0.9.0
+requests>=2.31.0
+urllib3>=2.0.0
+python-dateutil>=2.8.2
+Jinja2>=3.1.0
+
+# Kubernetes and Cloud Dependencies
+kubernetes>=28.1.0
+boto3>=1.34.0
+pyvmomi>=8.0.0
+hvac>=2.0.0
+
+# Ansible Dependencies
+ansible-core>=2.15.0
+ansible-runner>=2.3.0
+ansible-navigator>=3.5.0
+ansible-compat==25.1.1
+ansible-lint>=6.22.0
 ansible-builder
 ansible-creator
 ansible-dev-environment
 ansible-dev-tools
-ansible-navigator
-ansible-runner
 ansible-sign
-ansible-compat
-ansible-core
-ansible-lint
-hvac
-boto3
-Jinja2
+
+
+# Utility Dependencies
+appdirs>=1.4.4
+cachetools>=5.3.0
+certifi>=2023.11.17
+filelock>=3.13.0
+oauthlib>=3.2.0
+pick>=2.0.0
+requests-oauthlib>=1.3.0
+websocket-client>=1.7.0
+
+# Build Dependencies
+setuptools>=69.0.0
+wheel>=0.42.0
+
+# Testing Dependencies
+pytest>=7.0.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
+
+# Other Dependencies
+aiohttp
+pip
 tox
 tox-ansible
 virtualenv

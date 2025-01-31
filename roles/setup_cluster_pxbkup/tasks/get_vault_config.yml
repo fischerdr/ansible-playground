@@ -7,6 +7,7 @@
     validate_certs: "{{ validate_certs | default(true) }}"
     headers:
       Accept: "application/json"
+      Content-Type: "application/json"
   register: inventory_response
 
 - name: "Set Vault configuration facts"

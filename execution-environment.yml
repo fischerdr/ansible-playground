@@ -1,0 +1,63 @@
+---
+version: 3
+images:
+  base_image:
+    name: quay.io/centos/centos:stream9
+dependencies:
+  python_interpreter:
+    package_system: python3.11
+    python_path: /usr/bin/python3.11
+  ansible_core:
+    package_pip: ansible-core
+  ansible_runner:
+    package_pip: ansible-runner
+  galaxy: requirements.yml
+  python: requirements.txt
+  system: |
+    git-core [platform:rpm]
+    python3.11-devel [platform:rpm compile]
+    libcurl-devel [platform:rpm compile]
+    krb5-devel [platform:rpm compile]
+    krb5-workstation [platform:rpm]
+    subversion [platform:rpm]
+    subversion [platform:dpkg]
+    git-lfs [platform:rpm]
+    sshpass [platform:rpm]
+    rsync [platform:rpm]
+    epel-release [platform:rpm]
+    unzip [platform:rpm]
+    podman-remote [platform:rpm]
+    cmake [platform:rpm compile]
+    gcc [platform:rpm compile]
+    gcc-c++ [platform:rpm compile]
+    make [platform:rpm compile]
+    openssl-devel [platform:rpm compile]
+    python3.11 [platform:rpm]
+    curl [platform:rpm]
+    unzip [platform:rpm]
+
+
+  append_base:
+    - RUN python3.11 -m pip install -U pip setuptools wheel
+
+  append_final:
+    - RUN dnf -y update && dnf clean all
+    # Ansible configuration
+    - ENV ANSIBLE_FORCE_COLOR=1
+    - ENV ANSIBLE_COLLECTIONS_PATH=./collections:/usr/share/ansible/collections
+    # Python configuration
+    - ENV PYTHONPATH=/usr/local/lib/python3.11/site-packages
+    # Logging configuration
+    - ENV LOG_LEVEL=INFO
+    - ENV LOG_FORMAT=json
+    - ENV LOG_DIR=/logs
+    # Security settings
+    - ENV REQUESTS_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+    - ENV CURL_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+    # Receptor configuration
+    - COPY --from=quay.io/ansible/receptor:devel /usr/bin/receptor /usr/bin/receptor
+    - RUN mkdir -p /var/run/receptor
+    - RUN git lfs install --system
+    # SymLink `python` -> `python3.11`
+    - RUN alternatives --install /usr/bin/python python /usr/bin/python3.11 311
+    - RUN alternatives --set python /usr/bin/python3.11

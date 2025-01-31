@@ -14,7 +14,7 @@ This document describes the execution environment configuration for the Ansible 
 
 The execution environment supports the following project structure:
 
-```
+```text
 ansible-playground/
 ├── logs/           # Structured logging output
 ├── collections/    # Ansible collections (both local and system paths)

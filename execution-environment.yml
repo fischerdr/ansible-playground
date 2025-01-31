@@ -33,10 +33,9 @@ dependencies:
     make [platform:rpm compile]
     openssl-devel [platform:rpm compile]
     python3.11 [platform:rpm]
-    curl [platform:rpm]
     unzip [platform:rpm]
 
-
+additional_build_steps:
   append_base:
     - RUN python3.11 -m pip install -U pip setuptools wheel
 

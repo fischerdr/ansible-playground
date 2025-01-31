@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Define variables
-BUILDER_TAG="quay.io/ansible/awx-ee"
-EE_TAG="test-ee:latest"
-BUILDX_NAME="test-ee"
+BUILDER_TAG="development-ee"
+EE_TAG="development-ee:latest"
+BUILDX_NAME="development-ee"
 
 # Build execution environment
 ansible-builder build -v3 -t "${BUILDER_TAG}" --container-runtime=docker

@@ -1,0 +1,579 @@
+---
+# Playbook for deploying and configuring Portworx operator
+# This playbook handles the deployment and configuration of Portworx operator components
+# including operator group, subscription, and deployment verification
+- name: Test URL and other tasks
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Verify required variables are defined
+      ansible.builtin.assert:
+        that:
+          - working_dir is defined
+          - namespace is defined
+          - workdir_temp_folder is defined
+        fail_msg: "Missing required variables. Please ensure working_dir, namespace, and workdir_temp_folder are defined"
+        success_msg: "All required variables are present"
+
+    - name: Verify namespace management variables
+      ansible.builtin.assert:
+        that:
+          - install_dir is defined
+          - install_dir | length > 0
+        fail_msg: "install_dir variable must be defined and not empty"
+        success_msg: "Required variables for namespace management are present"
+
+    - name: Check if project namespace exists
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+
+        # Check if namespace exists
+        if ! {{ working_dir }}/oc get project {{ namespace }} &>/dev/null; then
+          echo "namespace_missing"
+          exit 1
+        else
+          echo "namespace_exists"
+          exit 0
+        fi
+      environment:
+        KUBECONFIG: "{{ install_dir }}/auth/kubeconfig"
+      register: check_namespace_result
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Create project namespace
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+
+        # Attempt to create the namespace
+        if ! {{ working_dir }}/oc new-project {{ namespace }}; then
+          echo "Failed to create namespace {{ namespace }}"
+          exit 1
+        fi
+      environment:
+        KUBECONFIG: "{{ install_dir }}/auth/kubeconfig"
+      register: create_namespace_result
+      when: >
+        check_namespace_result.stdout is defined and
+        check_namespace_result.stdout == "namespace_missing"
+      changed_when: create_namespace_result.rc == 0
+      failed_when: create_namespace_result.rc != 0
+
+    # Pre-flight checks
+    - name: Check if required files exist
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: file_check
+      failed_when: not file_check.stat.exists
+      with_items:
+        - "{{ workdir_temp_folder }}/px-og.yaml"
+        - "{{ workdir_temp_folder }}/px-subscription.yaml"
+
+    # Deploy and configure Portworx operator components
+    - name: Deploy Portworx Operator Group
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+
+        # Check if operator group already exists
+        if {{ working_dir }}/oc -n {{ namespace }} get operatorgroup portworx-og &>/dev/null; then
+          echo "Operator group already exists, applying updates"
+        fi
+
+        {{ working_dir }}/oc -n {{ namespace }} apply -f {{ workdir_temp_folder }}/px-og.yaml
+      register: og_result
+      changed_when: "'configured' in og_result.stdout or 'created' in og_result.stdout"
+      failed_when: og_result.rc != 0
+      no_log: false
+
+    - name: Deploy Portworx Subscription
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+
+        # Check if subscription already exists
+        if {{ working_dir }}/oc -n {{ namespace }} get subscription portworx-certified &>/dev/null; then
+          echo "Subscription already exists, applying updates"
+        fi
+        {{ working_dir }}/oc -n {{ namespace }} apply -f {{ workdir_temp_folder }}/px-subscription.yaml
+      register: sub_result
+      changed_when: "'configured' in sub_result.stdout or 'created' in sub_result.stdout"
+      failed_when: sub_result.rc != 0
+      no_log: false
+
+    - name: Wait for Portworx ClusterServiceVersion to be ready
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+
+        # Get CSV status with timeout handling
+        TIMEOUT=1800  # 30 minutes
+        START_TIME=$(date +%s)
+        while true; do
+          CURRENT_TIME=$(date +%s)
+          if [ $((CURRENT_TIME - START_TIME)) -gt ${TIMEOUT} ]; then
+            echo "Timeout waiting for CSV to be ready"
+            exit 1
+          fi
+          STATUS=$({{ working_dir }}/oc -n {{ namespace }} get csv -o json | \
+            jq -r '.items[] | select(.metadata.name | contains("portworx")) | .status.phase')
+          if [ "$STATUS" = "Succeeded" ]; then
+            echo "$STATUS"
+            exit 0
+          fi
+          sleep 15
+        done
+      register: csv_status
+      until: csv_status.stdout == "Succeeded"
+      retries: 100
+      delay: 15
+      changed_when: false
+      failed_when: >
+        csv_status.rc != 0 or
+        (csv_status.attempts | default(0) == 100 and csv_status.stdout != "Succeeded")
+      vars:
+        ansible_timeout: 1800  # 30 minutes timeout for long-running operation
+
+    - name: Set Portworx subscription to manual approval
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+
+        # Patch subscription with proper error handling
+        if ! {{ working_dir }}/oc -n {{ namespace }} patch subscriptions.v1alpha1.operators.coreos.com \
+          portworx-certified \
+          --type merge \
+          -p '{"spec": {"installPlanApproval": "Manual"}}'; then
+          echo "Failed to patch subscription"
+          exit 1
+        fi
+      register: patch_result
+      changed_when: "'patched' in patch_result.stdout"
+      failed_when: patch_result.rc != 0
+      no_log: false
+
+    - name: Wait for Portworx operator deployment to be ready
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+
+        # Function to check deployment status
+        check_deployment() {
+          READY_REPLICAS=$({{ working_dir }}/oc -n {{ namespace }} get deployment portworx-operator \
+            -o jsonpath='{.status.readyReplicas}')
+          if [ -z "$READY_REPLICAS" ]; then
+            echo "0"
+            return 1
+          fi
+          if [ "$READY_REPLICAS" -gt 0 ]; then
+            echo "$READY_REPLICAS"
+            return 0
+          else
+            echo "$READY_REPLICAS"
+            return 1
+          fi
+        }
+        # Check deployment with timeout
+        TIMEOUT=600  # 10 minutes
+        START_TIME=$(date +%s)
+        while true; do
+          CURRENT_TIME=$(date +%s)
+          if [ $((CURRENT_TIME - START_TIME)) -gt ${TIMEOUT} ]; then
+            echo "Timeout waiting for deployment to be ready"
+            exit 1
+          fi
+          if check_deployment; then
+            exit 0
+          fi
+          sleep 5
+        done
+      register: deployment_status
+      until: deployment_status.stdout | int > 0
+      retries: 100
+      delay: 5
+      changed_when: false
+      failed_when: >
+        deployment_status.rc != 0 or
+        (deployment_status.attempts | default(0) == 100 and deployment_status.stdout | int == 0)
+      vars:
+        ansible_timeout: 600  # 10 minutes timeout for deployment check
+
+    # vSphere Secret Management
+    - name: Verify vSphere credentials are provided
+      ansible.builtin.assert:
+        that:
+          - vsphere_user is defined
+          - vsphere_pwd is defined
+        fail_msg: "vSphere credentials are required (vsphere_user and vsphere_pwd)"
+        success_msg: "vSphere credentials are properly defined"
+      when: not (force_create_vsphere_secret | default(false) | bool)
+      no_log: true
+
+    - name: Forcibly delete vSphere secret
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+        {{ working_dir }}/oc -n {{ namespace }} delete secret px-vsphere-secret --ignore-not-found
+      register: delete_vsphere_result
+      when: force_create_vsphere_secret | default(false) | bool
+      changed_when: delete_vsphere_result.rc == 0 and delete_vsphere_result.stdout != ""
+      failed_when: delete_vsphere_result.rc not in [0, 1]
+
+    - name: Create vSphere authentication secret
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+        {{ working_dir }}/oc -n {{ namespace }} create secret generic px-vsphere-secret \
+          --from-literal="VSPHERE_USER={{ vsphere_user | trim }}" \
+          --from-literal="VSPHERE_PASSWORD={{ vsphere_pwd | trim }}"
+      register: create_vsphere_secret_result
+      no_log: true  # Hide sensitive data from logs
+      changed_when: create_vsphere_secret_result.rc == 0
+      failed_when: >
+        create_vsphere_secret_result.rc == 1 and
+        'secrets "px-vsphere-secret" already exists' not in create_vsphere_secret_result.stderr
+
+    # S3 Certificate Management
+    - name: Verify S3 bundle certificate is provided
+      ansible.builtin.assert:
+        that: s3bundle_crt is defined
+        fail_msg: "S3 bundle certificate (s3bundle_crt) is required"
+        success_msg: "S3 bundle certificate is properly defined"
+
+    - name: Create temporary directory for certificates
+      ansible.builtin.file:
+        path: "{{ workdir_temp_folder }}"
+        state: directory
+        mode: '0750'
+      when: not force_vault_cert_create_secret | default(false) | bool
+
+    - name: Copy S3 bundle certificate to temporary file
+      ansible.builtin.copy:
+        dest: "{{ workdir_temp_folder }}/s3bundle.crt"
+        content: "{{ s3bundle_crt }}"
+        mode: '0600'
+        backup: true
+      register: copy_cert_result
+      no_log: true
+
+    - name: Forcibly delete S3 bundle certificate secret
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+        {{ working_dir }}/oc -n {{ namespace }} delete secret px-s3bundle-cert --ignore-not-found
+      register: delete_s3_cert_result
+      when: force_vault_cert_create_secret | default(false) | bool
+      changed_when: delete_s3_cert_result.rc == 0 and delete_s3_cert_result.stdout != ""
+      failed_when: delete_s3_cert_result.rc not in [0, 1]
+
+    - name: Create S3 bundle certificate secret
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+        {{ working_dir }}/oc -n {{ namespace }} create secret generic px-s3bundle-cert \
+          --from-file={{ workdir_temp_folder }}/s3bundle.crt
+      register: create_s3_cert_result
+      changed_when: create_s3_cert_result.rc == 0
+      failed_when: >
+        create_s3_cert_result.rc == 1 and
+        'secrets "px-s3bundle-cert" already exists' not in create_s3_cert_result.stderr
+
+    - name: Clean up temporary certificate file
+      ansible.builtin.file:
+        path: "{{ workdir_temp_folder }}/s3bundle.crt"
+        state: absent
+      when: copy_cert_result is success
+
+    # Portworx Storage Cluster Deployment
+    - name: Verify Portworx deployment file exists
+      ansible.builtin.stat:
+        path: "{{ workdir_temp_folder }}/px-deploy.yaml"
+      register: px_deploy_file
+      failed_when: not px_deploy_file.stat.exists
+
+    - name: Create Portworx Storage Cluster
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+
+        # Apply the Portworx deployment configuration
+        if ! {{ working_dir }}/oc apply -f {{ workdir_temp_folder }}/px-deploy.yaml; then
+          echo "Failed to create Portworx Storage Cluster"
+          exit 1
+        fi
+      register: create_px_result
+      changed_when: create_px_result.rc == 0
+      failed_when: create_px_result.rc != 0
+
+    - name: Initial wait for Portworx pods to start
+      ansible.builtin.pause:
+        seconds: 90
+        prompt: "Waiting for Portworx pods to initialize..."
+
+    - name: Wait for Portworx storage cluster to become ready
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+
+        # Wait for pods to be ready with timeout
+        if ! {{ working_dir }}/oc wait --namespace={{ namespace }} \
+          --for=condition=Ready pods \
+          --selector name=portworx \
+          --timeout=600s; then
+          echo "Timeout waiting for Portworx pods to become ready"
+          exit 1
+        fi
+      register: wait_px_result
+      changed_when: false
+      failed_when: wait_px_result.rc != 0
+
+    - name: Get Portworx pod name
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+
+        # Get the first pod matching the cluster name
+        POD_NAME=$({{ working_dir }}/oc -n {{ namespace }} get pods \
+          --selector=name=portworx \
+          --field-selector status.phase=Running \
+          -o jsonpath='{.items[0].metadata.name}')
+
+        if [ -z "$POD_NAME" ]; then
+          echo "No running Portworx pods found"
+          exit 1
+        fi
+        echo "$POD_NAME"
+      register: pod_name
+      changed_when: false
+      failed_when: pod_name.rc != 0 or pod_name.stdout == ""
+
+    - name: Verify license variable is defined
+      ansible.builtin.assert:
+        that: license is defined
+        fail_msg: "License variable must be defined"
+        success_msg: "License variable is properly defined"
+
+    - name: Copy license to temporary file
+      ansible.builtin.copy:
+        dest: "{{ workdir_temp_folder }}/license"
+        content: "{{ license }}"
+        mode: '0600'
+        backup: true
+      register: copy_license_result
+      no_log: true
+
+    - name: Get Portworx admin token
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+
+        # Extract and decode the admin token
+        TOKEN=$({{ working_dir }}/oc -n {{ namespace }} get secret px-admin-token \
+          -o jsonpath='{.data.auth-token}' | base64 -d)
+
+        if [ -z "$TOKEN" ]; then
+          echo "Failed to retrieve admin token" >&2
+          exit 1
+        fi
+        echo "$TOKEN"
+      register: admin_token
+      changed_when: false
+      failed_when: admin_token.rc != 0 or admin_token.stdout == ""
+      no_log: true
+
+    - name: Copy license to Portworx pod
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+
+        # Ensure source file exists
+        if [ ! -f "{{ workdir_temp_folder }}/license" ]; then
+          echo "License file not found at {{ workdir_temp_folder }}/license" >&2
+          exit 1
+        fi
+
+        # Copy license file to pod
+        if ! {{ working_dir }}/oc -n {{ namespace }} cp \
+          {{ workdir_temp_folder }}/license \
+          {{ pod_name.stdout }}:/tmp/license; then
+          echo "Failed to copy license file to pod" >&2
+          exit 1
+        fi
+      register: copy_license_pod
+      changed_when: copy_license_pod.rc == 0
+      failed_when: copy_license_pod.rc != 0
+
+    - name: Apply Portworx license
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+
+        # Apply license inside the pod
+        {{ working_dir }}/oc -n {{ namespace }} exec {{ pod_name.stdout }} -- bash -c '
+          set -e
+          # Set auth token
+          export PXCTL_AUTH_TOKEN="{{ admin_token.stdout }}"
+          # Process and validate license
+          if ! base64 -d < /tmp/license > /tmp/license.bin; then
+            echo "Failed to decode license file" >&2
+            rm -f /tmp/license
+            exit 1
+          fi
+          # Apply license
+          if ! /opt/pwx/bin/pxctl license add /tmp/license.bin; then
+            echo "Failed to apply license" >&2
+            rm -f /tmp/license /tmp/license.bin
+            exit 1
+          fi
+          # Cleanup
+          rm -f /tmp/license /tmp/license.bin
+        '
+      register: apply_license_result
+      changed_when: >
+        apply_license_result.rc == 0 and
+        'Successfully updated licenses' in apply_license_result.stdout
+      failed_when: >
+        apply_license_result.rc != 0 or
+        ('Successfully updated licenses' not in apply_license_result.stdout and
+         'license already exists' not in apply_license_result.stderr)
+      no_log: true
+
+    # Storage Configuration
+    - name: Verify schedule policy file exists
+      ansible.builtin.stat:
+        path: "{{ workdir_temp_folder }}/px-schedulepolicy.yaml"
+      register: schedule_policy_file
+      failed_when: not schedule_policy_file.stat.exists
+
+    - name: Create snapshot schedule policy
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+
+        if ! {{ working_dir }}/oc -n {{ namespace }} apply -f {{ workdir_temp_folder }}/px-schedulepolicy.yaml; then
+          echo "Failed to create snapshot schedule policy" >&2
+          exit 1
+        fi
+      register: schedule_policy_result
+      changed_when: schedule_policy_result.rc == 0
+      failed_when: schedule_policy_result.rc != 0
+
+    - name: Verify storage class files exist
+      ansible.builtin.stat:
+        path: "{{ workdir_temp_folder }}/{{ item }}"
+      register: storage_class_files
+      failed_when: not storage_class_files.stat.exists
+      with_items:
+        - px-storageclass.yaml
+        - hydra-infra-sc.yml
+        - hydra-infra-scnorepl.yml
+
+    - name: Create StorageClass
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+
+        # Delete existing storage class if present
+        {{ working_dir }}/oc delete -f {{ workdir_temp_folder }}/{{ item }} --ignore-not-found
+
+        # Create new storage class
+        if ! {{ working_dir }}/oc apply -f {{ workdir_temp_folder }}/{{ item }}; then
+          echo "Failed to create storage class from {{ item }}" >&2
+          exit 1
+        fi
+      register: storage_class_result
+      with_items:
+        - px-storageclass.yaml
+        - hydra-infra-sc.yml
+        - hydra-infra-scnorepl.yml
+      changed_when: storage_class_result.rc == 0
+      failed_when: storage_class_result.rc != 0
+
+    # S3 Credentials Management
+    - name: Verify S3 variables are defined
+      ansible.builtin.assert:
+        that:
+          - s3_access_key is defined
+          - s3_secret_key is defined
+          - s3_endpoint is defined
+          - cluster_name is defined
+        fail_msg: "Required S3 variables are missing"
+        success_msg: "All required S3 variables are present"
+      no_log: true
+
+    - name: Create S3 credentials
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+
+        {{ working_dir }}/oc -n {{ namespace }} exec {{ pod_name.stdout }} -- bash -c '
+          set -e
+          export PXCTL_AUTH_TOKEN="{{ admin_token.stdout }}"
+
+          # Create S3 credentials
+          if ! /opt/pwx/bin/pxctl credentials create \
+            --provider s3 \
+            --s3-access-key "{{ s3_access_key }}" \
+            --s3-secret-key "{{ s3_secret_key }}" \
+            --s3-region us-east-1 \
+            --s3-endpoint "{{ s3_endpoint }}" \
+            --bucket "{{ cluster_name }}" \
+            px-snap-creds; then
+
+            if ! echo "$?" | grep -q "credential by the name px-snap-creds already exists"; then
+              echo "Failed to create S3 credentials" >&2
+              exit 1
+            fi
+          fi'
+      register: create_s3_credentials_result
+      changed_when: create_s3_credentials_result.rc == 0
+      failed_when: >
+        create_s3_credentials_result.rc != 0 and
+        'credential by the name px-snap-creds already exists' not in create_s3_credentials_result.stderr
+      no_log: true
+
+    - name: Validate S3 credentials
+      ansible.builtin.shell: |
+        set -o pipefail
+        set -o nounset
+        set -o errexit
+
+        {{ working_dir }}/oc -n {{ namespace }} exec {{ pod_name.stdout }} -- bash -c '
+          set -e
+          export PXCTL_AUTH_TOKEN="{{ admin_token.stdout }}"
+
+          # Validate credentials
+          if ! /opt/pwx/bin/pxctl credentials validate px-snap-creds; then
+            echo "Failed to validate S3 credentials" >&2
+            exit 1
+          fi'
+      register: validate_s3_creds_result
+      changed_when: false
+      failed_when: >
+        validate_s3_creds_result.rc != 0 or
+        'Credential validated successfully' not in validate_s3_creds_result.stdout
+      no_log: true

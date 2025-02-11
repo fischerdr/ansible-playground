@@ -3,7 +3,7 @@
   hosts: localhost
   gather_facts: false
   vars:
-    namespace: "your-namespace"
+    k8s_ns: "your-namespace"
     label_selector: "app=myapp"  # Adjust this label selector to match your pods
     command_to_run: "your-command"  # Replace with the command you want to execute
     secret_name: "px-admin-token"  # The name of the secret to retrieve
@@ -16,14 +16,14 @@
       kubernetes.core.k8s_info:
         api_version: v1
         kind: Pod
-        namespace: "{{ namespace }}"
+        namespace: "{{ k8s_ns }}"
         label_selectors:
           - "{{ label_selector }}"
       register: pods_info
 
     - name: Ensure pods are found
       ansible.builtin.fail:
-        msg: "No pods found with label {{ label_selector }} in namespace {{ namespace }}"
+        msg: "No pods found with label {{ label_selector }} in namespace {{ k8s_ns }}"
       when: pods_info.resources | length == 0
 
     - name: Get the secret from the namespace
@@ -31,12 +31,12 @@
         api_version: v1
         kind: Secret
         name: "{{ secret_name }}"
-        namespace: "{{ namespace }}"
+        namespace: "{{ k8s_ns }}"
       register: secret_info
 
     - name: Ensure the secret exists
       ansible.builtin.fail:
-        msg: "Secret {{ secret_name }} not found in namespace {{ namespace }}"
+        msg: "Secret {{ secret_name }} not found in namespace {{ k8s_ns }}"
       when: secret_info.resources | length == 0
 
     - name: Decode the secret data for the environment variable
@@ -56,7 +56,7 @@
       loop_control:
         label: "{{ item.metadata.name }}"
       kubernetes.core.k8s_exec:
-        namespace: "{{ namespace }}"
+        namespace: "{{ k8s_ns }}"
         pod: "{{ item.metadata.name }}"
         command:
           - /bin/sh
@@ -88,7 +88,7 @@
         api_version: v1
         kind: Pod
         name: "{{ item.pod }}"
-        namespace: "{{ namespace }}"
+        namespace: "{{ k8s_ns }}"
       register: pod_statuses
 
     - name: Ensure failed pods are in Ready state

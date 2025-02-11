@@ -3,7 +3,7 @@
   hosts: localhost
   gather_facts: false
   vars:
-    namespace: my-namespace  # Replace with your namespace
+    k8s_ns: my-namespace  # Replace with your namespace
     service_account_name: my-service-account  # Replace with your service account name
     cluster_role_name: pxbackup-sa-clusterrolebinding
     sa_role_name: pxbackup-sa-clusterrolebinding
@@ -19,7 +19,7 @@
           apiVersion: v1
           kind: Namespace
           metadata:
-            name: "{{ namespace }}"
+            name: "{{ k8s_ns }}"
 
     - name: Ensure service account exists
       kubernetes.core.k8s:
@@ -29,7 +29,55 @@
           kind: ServiceAccount
           metadata:
             name: "{{ service_account_name }}"
-            namespace: "{{ namespace }}"
+            namespace: "{{ k8s_ns }}"
+
+    - name: Check if service account token exists
+      ansible.builtin.set_fact:
+        token_name: "{{ service_account_name }}-token"
+
+    - name: Get existing service account token
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        namespace: "{{ k8s_ns }}"
+        name: "{{ token_name }}"
+      register: existing_token
+      no_log: true
+
+    - name: Create service account token if not exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ token_name }}"
+            namespace: "{{ k8s_ns }}"
+            annotations:
+              kubernetes.io/service-account.name: "{{ service_account_name }}"
+          type: kubernetes.io/service-account-token
+      when: existing_token.resources | length == 0
+
+    - name: Get the service account token secret
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        namespace: "{{ k8s_ns }}"
+      register: sa_secrets
+
+    - name: Extract service account token
+      ansible.builtin.set_fact:
+        sa_token: >-
+          {{
+            (item.data.token | b64decode)
+            if item.metadata.annotations['kubernetes.io/service-account.name'] == service_account_name
+            else omit
+          }}
+      loop: "{{ sa_secrets.resources }}"
+      when: "'kubernetes.io/service-account.name' in item.metadata.annotations"
+      vars:
+        service_account_secret: "{{ item }}"
+      delegate_to: localhost
 
     - name: Ensure ClusterRole exists
       kubernetes.core.k8s:
@@ -52,7 +100,7 @@
           kind: Role
           metadata:
             name: "{{ sa_role_name }}"
-            namespace: "{{ namespace }}"
+            namespace: "{{ k8s_ns }}"
           rules:
             - apiGroups: ["stork.libopenstorage.org"]
               resources: ["*"]
@@ -72,7 +120,7 @@
           subjects:
             - kind: ServiceAccount
               name: "{{ service_account_name }}"
-              namespace: "{{ namespace }}"
+              namespace: "{{ k8s_ns }}"
           roleRef:
             kind: ClusterRole
             name: "{{ cluster_role_name }}"
@@ -86,36 +134,15 @@
           kind: RoleBinding
           metadata:
             name: "{{ sa_role_binding_name }}"
-            namespace: "{{ namespace }}"
+            namespace: "{{ k8s_ns }}"
           subjects:
             - kind: ServiceAccount
               name: "{{ service_account_name }}"
-              namespace: "{{ namespace }}"
+              namespace: "{{ k8s_ns }}"
           roleRef:
             kind: Role
             name: "{{ sa_role_name }}"
             apiGroup: rbac.authorization.k8s.io
-
-    - name: Get the service account token secret
-      kubernetes.core.k8s_info:
-        api_version: v1
-        kind: Secret
-        namespace: "{{ namespace }}"
-      register: sa_secrets
-
-    - name: Extract service account token
-      ansible.builtin.set_fact:
-        sa_token: >-
-          {{
-            (item.data.token | b64decode)
-            if item.metadata.annotations['kubernetes.io/service-account.name'] == service_account_name
-            else omit
-          }}
-      loop: "{{ sa_secrets.resources }}"
-      when: "'kubernetes.io/service-account.name' in item.metadata.annotations"
-      vars:
-        service_account_secret: "{{ item }}"
-      delegate_to: localhost
 
     - name: Get cluster information
       ansible.builtin.command: kubectl config view --raw --flatten
@@ -143,7 +170,7 @@
           contexts:
           - context:
               cluster: kubernetes
-              namespace: {{ namespace }}
+              namespace: {{ k8s_ns }}
               user: {{ service_account_name }}
             name: {{ service_account_name }}-context
           current-context: {{ service_account_name }}-context

@@ -1,16 +1,143 @@
 ---
-- name: Print all Ansible special variables
+- name: Print Ansible variables and defaults
   hosts: all
-  gather_facts: false
+  gather_facts: true
   tasks:
-    - name: Print variable names and values
+    - name: Validate required variables
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname is defined
+        msg: "Required variables are not set"
+        
+    - name: Print Ansible facts
       ansible.builtin.debug:
-        var: hostvars[inventory_hostname]
+        msg: |
+          Ansible Facts:
+          - Architecture: {{ ansible_architecture }}
+          - Distribution: {{ ansible_distribution }}
+          - Distribution Version: {{ ansible_distribution_version }}
+          - Python Version: {{ ansible_python_version }}
+      when: ansible_facts is defined
+      
+    - name: Print detailed host variables
+      ansible.builtin.debug:
+        msg: |
+          Host-Specific Variables:
+          - Current Host: {{ inventory_hostname }}
+          - Host Variables: {{ hostvars[inventory_hostname] | dict2items | selectattr('key', 'match', '^(?!ansible_).*') | list }}
+          
+    - name: Print group information
+      ansible.builtin.debug:
+        msg: |
+          Group Information:
+          - All Groups: {{ groups.keys() | list }}
+          - Host Groups: {{ group_names }}
+          {% for group in group_names %}
+          - Group '{{ group }}' Variables:
+            {{ hostvars[inventory_hostname] | dict2items | selectattr('key', 'match', '^' + group + '_.*') | list }}
+          {% endfor %}
+          
+    - name: Print inventory hierarchy
+      ansible.builtin.debug:
+        msg: |
+          Inventory Hierarchy:
+          - Current Host: {{ inventory_hostname }}
+          - Parent Groups: {{ group_names }}
+          - Child Groups: {{ groups | dict2items | selectattr('value', 'contains', inventory_hostname) | map(attribute='key') | list }}
+          
+    - name: Print special variables
+      ansible.builtin.debug:
+        msg: |
+          Special Variables:
+          - Playbook Directory: {{ playbook_dir }}
+          - Role Names: {{ role_names | default([]) }}
+          - Ansible Version: {{ ansible_version }}
+          - Ansible User: {{ ansible_user | default('undefined') }}
+          - Connection Type: {{ ansible_connection | default('undefined') }}
+          - Inventory Directory: {{ inventory_dir | default('undefined') }}
+          - Inventory File: {{ inventory_file | default('undefined') }}
+          
     - name: Get shell environment
       ansible.builtin.command:
         cmd: env
       changed_when: false
-      register: output
-    - name: Print shell output
+      no_log: true  # Hide potential sensitive environment variables
+      register: env_output
+      
+    - name: Print filtered environment variables
       ansible.builtin.debug:
-        var: output
+        msg: |
+          Environment Variables (filtered):
+          - PATH: {{ env_output.stdout_lines | select('match', '^PATH=.*') | list }}
+          - PYTHONPATH: {{ env_output.stdout_lines | select('match', '^PYTHONPATH=.*') | list }}
+          - ANSIBLE_*: {{ env_output.stdout_lines | select('match', '^ANSIBLE_.*') | list }}
+          
+    - name: Print variable precedence info
+      ansible.builtin.debug:
+        msg: |
+          Variable Precedence Info:
+          - inventory_dir: {{ inventory_dir | default('undefined') }}
+          - inventory_file: {{ inventory_file | default('undefined') }}
+          - group_vars location: {{ inventory_dir }}/group_vars
+          - host_vars location: {{ inventory_dir }}/host_vars
+          - role_path: {{ role_path | default('undefined') }}
+          - ansible_config_file: {{ ansible_config_file | default('undefined') }}
+          
+    - name: Print group variable inheritance
+      ansible.builtin.debug:
+        msg: |
+          Group Variable Inheritance:
+          {% for group in group_names %}
+          {{ group }}:
+            {% if group in groups %}
+            Members: {{ groups[group] }}
+            Variables: {{ vars[group] | default({}) }}
+            {% endif %}
+          {% endfor %}
+
+    - name: Print AWX/Tower specific variables
+      ansible.builtin.debug:
+        msg: |
+          AWX/Tower Information:
+          - Tower Job ID: {{ tower_job_id | default('undefined') }}
+          - Tower Job Template ID: {{ tower_job_template_id | default('undefined') }}
+          - Tower Project Name: {{ tower_project_name | default('undefined') }}
+          - Tower User: {{ tower_user_name | default('undefined') }}
+          
+    - name: Print credential related variables
+      ansible.builtin.debug:
+        msg: |
+          Credential Information:
+          # Machine credentials
+          - SSH Username: {{ ansible_user | default('undefined') }}
+          - SSH Private Key File: {{ ansible_ssh_private_key_file | default('undefined') }}
+          
+          # Vault credentials (if used)
+          - Vault Password Path: {{ ansible_vault_password_file | default('undefined') }}
+          
+          # Custom credentials (filtered for security)
+          {% for key, value in vars.items() if (key | lower is match(".*_password$|.*_secret$|.*_key$|.*_token$")) %}
+          - {{ key }}: ****** (hidden)
+          {% endfor %}
+          
+          # Cloud credentials (common types)
+          - AWS Access Key: {{ lookup('env', 'AWS_ACCESS_KEY_ID', default='undefined') }}
+          - Azure Client ID: {{ lookup('env', 'AZURE_CLIENT_ID', default='undefined') }}
+          - GCP Project: {{ lookup('env', 'GCP_PROJECT', default='undefined') }}
+          
+          # Container credentials
+          - Container Registry: {{ lookup('env', 'REGISTRY_URL', default='undefined') }}
+          - K8s Context: {{ lookup('env', 'K8S_CONTEXT', default='undefined') }}
+          
+          # Extra vars from Tower
+          - Tower Extra Vars: {{ tower_extra_vars | default({}) }}
+          
+    - name: Print sensitive variable names (without values)
+      ansible.builtin.debug:
+        msg: |
+          Detected Sensitive Variables (names only):
+          {% for key in vars.keys() | sort %}
+          {%- if key | lower is match(".*_password$|.*_secret$|.*_key$|.*_token$") %}
+          - {{ key }}
+          {%- endif %}
+          {% endfor %}

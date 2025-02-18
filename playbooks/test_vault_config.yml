@@ -82,6 +82,25 @@
         fail_msg: "Missing required Vault variables. Please ensure vault_address, vault_namespace, and vault_default_path are set."
         success_msg: "All required Vault variables are present."
 
+    - name: Validate Vault token
+      block:
+        - name: Check token validity
+          community.hashi_vault.vault_login:
+            auth_method: token
+            token: "{{ vault_token }}"
+            token_validate: true
+          register: token_result
+          no_log: true  # Following security best practice for sensitive data
+
+        - name: Assert token is valid
+          ansible.builtin.assert:
+            that:
+              - token_result is success
+              - token_result.login is defined
+              - token_result.login.auth is defined
+            fail_msg: "Vault token is invalid"
+            success_msg: "Vault token is valid"
+
     - name: "Retrieve kubeconfig from Vault"
       community.hashi_vault.vault_kv2_get:
         url: "{{ vault_address }}"

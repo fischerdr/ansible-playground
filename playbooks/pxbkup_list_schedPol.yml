@@ -2,10 +2,22 @@
 - name: Enumerate PX-Backup Schedule Policies
   hosts: localhost
   gather_facts: false
-
-  vars_files:
-    - "{{ inventory_dir }}/group_vars/common/all.yaml"
-    - "{{ inventory_dir }}/group_vars/schedule_policy/enumerate.yaml"
+  vars:
+  # Common variables used across all playbooks
+  px_backup_api_url: "https://px-backup-svc-exposed.com"
+  px_backup_token: "eyJhbGciOiJSUzI1..."  # Skip if providing username and password
+  org_id: "default"
+  pxcentral_auth_url: "https://px-auth-svc-exposed.com"
+  pxcentral_client_id: "client_id"
+  pxcentral_username: "username"
+  pxcentral_password: "password"
+  token_duration: "365d"
+  pxcentral_verify_ssl: "true"
+  # Variables specific to enumeration operations
+  labels: {}  # Optional labels for filtering
+  # Optional filters
+  max_results: 100
+  validate_certs: "true"
 
   pre_tasks:
     - name: Validate required variables
@@ -18,6 +30,7 @@
   tasks:
     - name: Login and fetch Px-Backup token
       include_tasks: "{{ playbook_dir | dirname }}/auth/auth.yaml"
+    
     - name: Enumerate schedule policies
       block:
         - name: Get list of schedule policies

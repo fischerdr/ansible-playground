@@ -12,7 +12,7 @@ The backup location module provides comprehensive management of PX-Backup storag
 
 ## Requirements
 
-* PX-Backup >= 2.8.1
+* PX-Backup >= 2.8.3
 * Stork >= 24.3.3
 * Python >= 3.9
 * The `requests` Python package
@@ -20,6 +20,7 @@ The backup location module provides comprehensive management of PX-Backup storag
 ## Operations
 
 The module supports the following operations:
+
 
 | Operation        | Description                               |
 | ------------------ | ------------------------------------------- |
@@ -35,6 +36,7 @@ The module supports the following operations:
 
 ### Common Parameters
 
+
 | Parameter      | Type    | Required | Default | Description                                                                                                  |
 | ---------------- | --------- | ---------- | --------- | -------------------------------------------------------------------------------------------------------------- |
 | api_url        | string  | yes      |         | PX-Backup API URL                                                                                            |
@@ -47,6 +49,7 @@ The module supports the following operations:
 
 ### Location Configuration Parameters
 
+
 | Parameter                 | Type       | Required | Default                        | Description                                | Choices                        |
 | --------------------------- | ------------ | ---------- | -------------------------------- | -------------------------------------------- | -------------------------------- |
 | location_type             | string     | varies   |                                | Type of backup location                    | `S3`, `Azure`, `Google`, `NFS` |
@@ -58,6 +61,7 @@ The module supports the following operations:
 
 ### cloud_credential_ref Reference
 
+
 | Parameter                                  | Type   | Required | Description                  |
 | -------------------------------------------- | -------- | ---------- | ------------------------------ |
 | cloud_credential_ref.cloud_credential_name | string | yes      | Name of the cloud credential |
@@ -66,6 +70,7 @@ The module supports the following operations:
 ### Storage Provider Configurations
 
 #### S3 Configuration
+
 
 | Parameter                           | Type    | Required | Description                 | Choices                                  |
 | ------------------------------------- | --------- | ---------- | ----------------------------- | ------------------------------------------ |
@@ -80,6 +85,7 @@ The module supports the following operations:
 
 #### NFS Configuration
 
+
 | Parameter               | Type   | Required | Description           |
 | ------------------------- | -------- | ---------- | ----------------------- |
 | nfs_config.server_addr  | string | yes      | NFS server address    |
@@ -87,6 +93,7 @@ The module supports the following operations:
 | nfs_config.mount_option | string | no       | NFS mount options     |
 
 #### Azure Configuration
+
 
 | Parameter                      | Type   | Required | Description            |
 | -------------------------------- | -------- | ---------- | ------------------------ |
@@ -100,12 +107,14 @@ The module supports the following operations:
 
 #### Google Configuration
 
+
 | Parameter                | Type   | Required | Description                     |
 | -------------------------- | -------- | ---------- | --------------------------------- |
 | google_config.project_id | string | yes      | Google project ID               |
 | google_config.json_key   | string | yes      | Google service account JSON key |
 
 ### Ownership Configuration
+
 
 | Parameter               | Type       | Required | Description                                |
 | ------------------------- | ------------ | ---------- | -------------------------------------------- |
@@ -116,6 +125,7 @@ The module supports the following operations:
 | ownership.public        | dictionary | no       | Public access configuration                |
 
 #### Access Configuration (for groups and collaborators)
+
 
 | Parameter | Type   | Required | Choices                             | Description                      |
 | ----------- | -------- | ---------- | ------------------------------------- | ---------------------------------- |
@@ -135,35 +145,35 @@ The module implements comprehensive error handling:
 
 Common error scenarios:
 
-* Invalid credentials
-* Location not found
-* Permission denied
-* Invalid configuration
-* Cloud provider errors
-* Network connectivity issues
+- Invalid credentials
+- Location not found
+- Permission denied
+- Invalid configuration
+- Cloud provider errors
+- Network connectivity issues
 
 ## Notes
 
 1. **Security Considerations**
 
-   * Secure token management
-   * Encryption key handling
-   * Cloud credential security
-   * Access control configuration
+   - Secure token management
+   - Encryption key handling
+   - Cloud credential security
+   - Access control configuration
 2. **Storage Provider Considerations**
 
-   * Provider-specific requirements
-   * Regional restrictions
-   * Access permissions
-   * Storage class options
+   - Provider-specific requirements
+   - Regional restrictions
+   - Access permissions
+   - Storage class options
 3. **Best Practices**
 
-   * Regular validation checks
-   * Proper access control
-   * Encryption configuration
-   * Monitoring and maintenance
+   - Regular validation checks
+   - Proper access control
+   - Encryption configuration
+   - Monitoring and maintenance
 4. **Limitations**
 
-   * Operation-specific requirements
-   * Provider-specific restrictions
-   * Storage limitations
+   - Operation-specific requirements
+   - Provider-specific restrictions
+   - Storage limitations

@@ -7,7 +7,6 @@
       - schedule_item.backup_location is defined
       - schedule_item.schedule_policy is defined
       - schedule_item.cluster is defined
-      - schedule_item.resource_types is defined
     fail_msg: "Invalid schedule configuration for {{ schedule_item.name | default('unknown') }}"
 
 - name: Get Schedule Policy Reference
@@ -49,7 +48,7 @@
     name: "{{ schedule_item.name }}"
     org_id: "{{ org_id }}"
     reclaim_policy: "{{ schedule_item.reclaim_policy | default('Delete') }}"
-    resource_types: "{{ schedule_item.resource_types }}"
+    resource_types: "{{ schedule_item.resource_types | default(omit) }}"
     schedule_policy_ref: "{{ schedule_policy_ref }}"
     backup_location_ref: "{{ backup_location_ref }}"
     cluster_ref: "{{ cluster_ref }}"
@@ -94,4 +93,4 @@
       {% if schedule_item.exclude_resource_types is defined %}
       - Excluded Resource Types: {{ schedule_item.exclude_resource_types | to_yaml }}
       {% endif %}
-  when: backup_result.response is defined
+  when: backup_result.message is defined and backup_result.message contains("Backup schedule created successfully")

@@ -13,30 +13,30 @@
 - name: Get Schedule Policy Reference
   ansible.builtin.set_fact:
     schedule_policy_ref:
-      name: "{{ selected_policy.name }}"
-      uid: "{{ selected_policy.uid }}"
+      name: "{{ selected_policy.metadata.name }}"
+      uid: "{{ selected_policy.metadata.uid }}"
   vars:
-    selected_policy: "{{ schedule_policies.response | selectattr('name', 'equalto', schedule_item.schedule_policy) | list | first }}"
+    selected_policy: "{{ schedule_policies.schedule_policies | selectattr('metadata.name', 'equalto', schedule_item.schedule_policy) | list | first }}"
   failed_when: selected_policy | length == 0
   no_log: true
 
 - name: Get Backup Location Reference
   ansible.builtin.set_fact:
     backup_location_ref:
-      name: "{{ selected_location.name }}"
-      uid: "{{ selected_location.uid }}"
+      name: "{{ selected_location.metadata.name }}"
+      uid: "{{ selected_location.metadata.uid }}"
   vars:
-    selected_location: "{{ backup_locations.response | selectattr('name', 'equalto', schedule_item.backup_location) | list | first }}"
+    selected_location: "{{ backup_locations.backup_locations | selectattr('metadata.name', 'equalto', schedule_item.backup_location) | list | first }}"
   failed_when: selected_location | length == 0
   no_log: true
 
 - name: Get Cluster Reference
   ansible.builtin.set_fact:
     cluster_ref:
-      name: "{{ selected_cluster.name }}"
-      uid: "{{ selected_cluster.uid }}"
+      name: "{{ selected_cluster.metadata.name }}"
+      uid: "{{ selected_cluster.metadata.uid }}"
   vars:
-    selected_cluster: "{{ clusters.response | selectattr('name', 'equalto', schedule_item.cluster) | list | first }}"
+    selected_cluster: "{{ clusters.clusters | selectattr('metadata.name', 'equalto', schedule_item.cluster) | list | first }}"
   failed_when: selected_cluster | length == 0
   no_log: true
 

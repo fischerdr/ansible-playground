@@ -1,0 +1,80 @@
+---
+# Description: Lists all PX-Backup schedules from the specified PX-Backup instance
+
+
+- name: List and Display PX-Backup Schedules
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    # Default to secure HTTPS validation
+    validate_certs: true
+
+  tasks:
+    - name: Manage PX-Backup Schedule Operations
+      block:
+        - name: Validate Required Variables
+          ansible.builtin.assert:
+            that:
+              - px_backup_api_url is defined
+              - px_backup_api_url | string | length > 0
+              - px_backup_token is defined
+              - px_backup_token | string | length > 0
+              - org_id is defined
+              - org_id | string | length > 0
+            fail_msg: "Required variables are not set. Please ensure px_backup_api_url, px_backup_token, and org_id are defined."
+            success_msg: "All required variables are properly set"
+
+        - name: Login and Fetch PX-Backup Token
+          ansible.builtin.include_role:
+            name: common
+            tasks_from: pxbkup_auth.yml
+
+        - name: List All Backup Schedules
+          purepx.px_backup.backup_schedule:
+            operation: INSPECT_ALL
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            org_id: "{{ org_id }}"
+            validate_certs: "{{ validate_certs | bool }}"
+          register: backup_schedules_result
+          no_log: true  # Prevent token exposure in logs
+
+        - name: Display Backup Schedules Information
+          ansible.builtin.debug:
+            msg: |
+              Total Backup Schedules Found: {{ backup_schedules_result.backup_schedules | length }}
+              {% for schedule in backup_schedules_result.backup_schedules %}
+              Schedule {{ loop.index }}:
+                Name: {{ schedule.metadata.name }}
+                UID: {{ schedule.metadata.uid }}
+                Cluster: {{ schedule.backup_schedule_info.cluster }}
+                Target Namespace: {{ schedule.backup_schedule_info.target_namespace }}
+                NS Label Selectors: {{ schedule.backup_schedule_info.ns_label_selectors }}
+                Schedule Policy: {{ schedule.backup_schedule_info.schedule_policy_ref.name }}
+                Backup Location: {{ schedule.backup_schedule_info.backup_location_ref.name }}
+                Backup Type: {{ schedule.backup_schedule_info.backup_type.type }}
+                Backup Object Type: {{ schedule.backup_schedule_info.backup_object_type.type }}
+                Created: {{ schedule.metadata.create_time }}
+              {% endfor %}
+          when: not backup_schedules_result.failed
+
+      rescue:
+        - name: Log Error Details
+          ansible.builtin.debug:
+            msg: "Error occurred during PX-Backup operations: {{ ansible_failed_result }}"
+
+        - name: Set Error Flag
+          ansible.builtin.set_fact:
+            px_backup_operation_failed: true
+
+      always:
+        - name: Cleanup Operations Status
+          ansible.builtin.debug:
+            msg: >-
+              PX-Backup Schedule Operation completed.
+              {% if px_backup_operation_failed | default(false) %}
+              Status: Failed - Please check error details above
+              {% else %}
+              Status: Successful
+              {% endif %}

@@ -1,0 +1,94 @@
+---
+- name: Configure Multiple PX-Backup Schedules
+  hosts: all
+  gather_facts: false
+
+  # vars:
+    # Example of how the backup_schedules list should be structured
+    # backup_schedules:
+    #   - name: "daily-backup-app1"
+    #     backup_location: "s3-backup-location"
+    #     schedule_policy: "daily-retention-30d"
+    #     cluster: "prod-cluster-1"
+    #     ns_label_selectors: "app=app1"
+    #     resource_types:
+    #       - "apps/v1/Deployment"
+    #       - "v1/ConfigMap"
+    #   - name: "weekly-backup-app2"
+    #     backup_location: "azure-backup-location"
+    #     schedule_policy: "weekly-retention-90d"
+    #     cluster: "prod-cluster-2"
+    #     ns_label_selectors: "environment=prod,app=app2"
+    #     resource_types:
+    #       - "apps/v1/StatefulSet"
+    #       - "v1/Secret"
+
+  tasks:
+    - name: Validate Required Variables
+      ansible.builtin.assert:
+        that:
+          - px_backup_api_url is defined
+          - px_backup_api_url | string | length > 0
+          - px_backup_token is defined
+          - px_backup_token | string | length > 0
+          - org_id is defined
+          - org_id | string | length > 0
+          - backup_schedules is defined
+          - backup_schedules | length > 0
+        fail_msg: "Required variables are not set. Please ensure px_backup_api_url, px_backup_token, org_id, and backup_schedules are defined."
+        success_msg: "All required variables are properly set"
+
+    - name: Login and Fetch PX-Backup Token
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: pxbkup_auth.yml
+
+    - name: Get Schedule Policies
+      purepx.px_backup.schedule_policy:
+        operation: INSPECT_ALL
+        org_id: "{{ org_id }}"
+        api_url: "{{ px_backup_api_url }}"
+        token: "{{ px_backup_token }}"
+        validate_certs: "{{ validate_certs | bool }}"
+      register: schedule_policies
+      no_log: true  # Since response contains token
+
+    - name: Get Backup Locations
+      purepx.px_backup.backup_location:
+        operation: INSPECT_ALL
+        org_id: "{{ org_id }}"
+        api_url: "{{ px_backup_api_url }}"
+        token: "{{ px_backup_token }}"
+        validate_certs: "{{ validate_certs | bool }}"
+      register: backup_locations
+      no_log: true  # Since response contains token
+
+    - name: Get Clusters
+      purepx.px_backup.cluster:
+        operation: INSPECT_ALL
+        org_id: "{{ org_id }}"
+        api_url: "{{ px_backup_api_url }}"
+        token: "{{ px_backup_token }}"
+        validate_certs: "{{ validate_certs | bool }}"
+      register: clusters
+      no_log: true  # Since response contains token
+
+    - name: Create Backup Schedules
+      block:
+        - name: Process Each Backup Schedule
+          ansible.builtin.include_tasks:
+            file: tasks/create_single_backup_schedule.yml
+          loop: "{{ backup_schedules }}"
+          loop_control:
+            loop_var: schedule_item
+            label: "{{ schedule_item.name }}"
+
+      rescue:
+        - name: Handle Backup Schedule Creation Failure
+          ansible.builtin.fail:
+            msg: "Failed to create one or more backup schedules. Please check the logs for details."
+
+      always:
+        - name: Log Backup Schedule Operations Status
+          ansible.builtin.debug:
+            msg: "Backup schedule operations completed"

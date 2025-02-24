@@ -1,0 +1,152 @@
+---
+- name: Configure PX-Backup Schedules
+  hosts: all
+  gather_facts: false
+
+  tasks:
+    - name: Manage PX-Backup Schedule Operations
+      block:
+        - name: Validate Required Variables
+          ansible.builtin.assert:
+            that:
+              - px_backup_api_url is defined
+              - px_backup_api_url | string | length > 0
+              - px_backup_token is defined
+              - px_backup_token | string | length > 0
+              - org_id is defined
+              - org_id | string | length > 0
+              - schedule_policy_name is defined
+              - schedule_policy_name | string | length > 0
+              - backup_location_name is defined
+              - backup_location_name | string | length > 0
+              - cluster_name is defined
+              - cluster_name | string | length > 0
+              - backup_schedule_name is defined
+              - backup_schedule_name | string | length > 0
+              - backup_resource_types is defined
+            fail_msg: "Required variables are not set. Please ensure all required variables are defined."
+            success_msg: "All required variables are properly set"
+
+        - name: Login and Fetch PX-Backup Token
+          ansible.builtin.include_role:
+            name: common
+            tasks_from: pxbkup_auth.yml
+
+        - name: Get Schedule Policies
+          purepx.px_backup.schedule_policy:
+            operation: INSPECT_ALL
+            org_id: "{{ org_id }}"
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            validate_certs: "{{ validate_certs | bool }}"
+          register: schedule_policies
+          no_log: true  # Since response contains token
+
+        - name: Extract Schedule Policy Information
+          ansible.builtin.set_fact:
+            schedule_policy_ref:
+              name: "{{ selected_policy.name }}"
+              uid: "{{ selected_policy.uid }}"
+          vars:
+            selected_policy: "{{ schedule_policies.response | selectattr('name', 'equalto', schedule_policy_name) | list | first }}"
+          failed_when: selected_policy | length == 0
+          no_log: true
+
+        - name: Get Backup Locations
+          purepx.px_backup.backup_location:
+            operation: INSPECT_ALL
+            org_id: "{{ org_id }}"
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            validate_certs: "{{ validate_certs | bool }}"
+          register: backup_locations
+          no_log: true  # Since response contains token
+
+        - name: Extract Backup Location Information
+          ansible.builtin.set_fact:
+            backup_location_ref:
+              name: "{{ selected_location.name }}"
+              uid: "{{ selected_location.uid }}"
+          vars:
+            selected_location: "{{ backup_locations.response | selectattr('name', 'equalto', backup_location_name) | list | first }}"
+          failed_when: selected_location | length == 0
+          no_log: true
+
+        - name: Get Clusters
+          purepx.px_backup.cluster:
+            operation: INSPECT_ALL
+            org_id: "{{ org_id }}"
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            validate_certs: "{{ validate_certs | bool }}"
+          register: clusters
+          no_log: true  # Since response contains token
+
+        - name: Extract Cluster Information
+          ansible.builtin.set_fact:
+            cluster_ref:
+              name: "{{ selected_cluster.name }}"
+              uid: "{{ selected_cluster.uid }}"
+          vars:
+            selected_cluster: "{{ clusters.response | selectattr('name', 'equalto', cluster_name) | list | first }}"
+          failed_when: selected_cluster | length == 0
+          no_log: true
+
+    - name: Create Backup Schedule
+      block:
+        - name: Create Backup Schedule
+          purepx.px_backup.backup_schedule:
+            operation: CREATE
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            validate_certs: "{{ validate_certs | bool }}"
+            name: "{{ backup_schedule_name }}"
+            org_id: "{{ org_id }}"
+            reclaim_policy: "{{ backup_reclaim_policy | default('Delete') }}"
+            schedule_policy_ref: "{{ schedule_policy_ref }}"
+            backup_location_ref: "{{ backup_location_ref }}"
+            cluster_ref: "{{ cluster_ref }}"
+            owner: "admin"
+            # Optional parameters
+            backup_type: "{{ backup_type | default('Normal') }}"
+            parallel_backup: "{{ backup_parallel | default(false) }}"
+            exclude_resource_types: "{{ backup_exclude_resource_types | default(omit) }}"
+            ns_label_selectors: "{{ backup_ns_label_selectors | default(omit) }}"
+            ownership: "{{ backup_ownership | default(omit) }}"
+          register: backup_result
+          no_log: true  # Since response contains token
+
+        - name: Display Backup Schedule Creation Result
+          ansible.builtin.debug:
+            msg: |
+              Backup Schedule created successfully:
+              - Name: {{ backup_schedule_name }}
+              - Organization: {{ org_id }}
+              - Schedule Policy: {{ schedule_policy_ref.name }}
+              - Backup Location: {{ backup_location_ref.name }}
+              - Cluster: {{ cluster_ref.name }}
+              - Resource Types: {{ backup_resource_types | to_yaml }}
+              - Backup Type: {{ backup_type | default('Normal') }}
+              - Parallel Backup: {{ backup_parallel | default(false) }}
+              - Keep CR Status: {{ backup_keep_cr_status | default(false) }}
+              {% if backup_namespaces is defined %}
+              - Namespaces: {{ backup_namespaces | to_yaml }}
+              {% endif %}
+              {% if backup_exclude_resource_types is defined %}
+              - Excluded Resource Types: {{ backup_exclude_resource_types | to_yaml }}
+              {% endif %}
+          when: backup_result.response is defined
+
+      rescue:
+        - name: Handle Backup Schedule Creation Failure
+          ansible.builtin.fail:
+            msg: |
+              Failed to create backup schedule:
+              Error: {{ backup_result.msg if backup_result.msg is defined else 'Unknown error occurred' }}
+              Details: {{ backup_result.error if backup_result.error is defined else '' }}
+
+      always:
+        - name: Log Backup Schedule Operation Status
+          ansible.builtin.debug:
+            msg: "Backup schedule operation completed with status: {{ backup_result.failed | default(false) | ternary('failed', 'success') }}"
+          when: backup_result is defined

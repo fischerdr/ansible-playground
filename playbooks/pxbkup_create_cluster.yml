@@ -4,63 +4,75 @@
   gather_facts: false
 
   tasks:
-    - name: Manage PX-Backup Schedule Operations
-      block:
-        - name: Validate Required Variables
-          ansible.builtin.assert:
-            that:
-              - px_backup_api_url is defined
-              - px_backup_api_url | string | length > 0
-              - org_id is defined
-              - org_id | string | length > 0
-              - cluster_name is defined
-              - cluster_name | string | length > 0
-            fail_msg: "Required variables are not set. Please ensure all required variables are defined."
-            success_msg: "All required variables are properly set"
+    - name: Validate Required Variables
+      ansible.builtin.assert:
+        that:
+          - px_backup_api_url is defined
+          - px_backup_api_url | string | length > 0
+          - org_id is defined
+          - org_id | string | length > 0
+          - clusters is defined
+          - clusters | length > 0
+        fail_msg: "Required variables are not set. Please ensure all required variables are defined."
+        success_msg: "All required variables are properly set"
 
-        - name: Login and Fetch PX-Backup Token
-          ansible.builtin.include_role:
-            name: common
-            tasks_from: pxbkup_auth.yml
+    - name: Login and Fetch PX-Backup Token
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: pxbkup_auth.yml
 
     - name: Create clusters
       block:
+        - name: Retrieve kubeconfig from Vault
+          community.hashi_vault.vault_kv2_get:
+            url: "{{ vault_address }}"
+            path: "secret/env/pxbackup/{{ item.name }}/{{ item.name }}.pxbkup"
+            auth_method: token
+            token: "{{ vault_token }}"
+            namespace: "ansible"
+            validate_certs: "{{ validate_certs }}"
+          register: vault_kubeconfig
+          loop: "{{ clusters }}"
+          loop_control:
+            label: "{{ item.name }}"
+          no_log: true
+
         - name: Create cluster
-          cluster:
+          purepx.px_backup.cluster:
             operation: CREATE
             api_url: "{{ px_backup_api_url }}"
             token: "{{ px_backup_token }}"
-            name: "{{ item.name }}"
+            name: "{{ item.0.name }}"
             org_id: "{{ org_id | default('default') }}"
-            cloud_type: "{{ item.cloud_type }}"
-            kubeconfig: "{{ item.kubeconfig }}"
-            cloud_credential_ref: "{{ item.cloud_credential_ref | default(omit) }}"
-            platform_credential_ref: "{{ item.platform_credential_ref | default(omit) }}"
-            px_config: "{{ item.px_config | default(omit) }}"
-            service_token: "{{ item.service_token | default(omit) }}"
-            validate_certs: "{{ item.validate_certs | default(true) }}"
-          loop: "{{ clusters }}"
-          register: cluster_result
+            cloud_type: "{{ item.0.cloud_type | default('generic') }}"
+            kubeconfig: "{{ item.1.data.data.kubeconfig }}"
+            cloud_credential_ref: "{{ item.0.cloud_credential_ref | default(omit) }}"
+            platform_credential_ref: "{{ item.0.platform_credential_ref | default(omit) }}"
+            px_config: "{{ item.0.px_config | default(omit) }}"
+            service_token: "{{ item.0.service_token | default(omit) }}"
+            validate_certs: "{{ item.0.validate_certs | default(true) }}"
+          loop: "{{ clusters | zip(vault_kubeconfig.results) | list }}"
           loop_control:
-            label: "{{ item.name }}"
+            label: "{{ item.0.name }}"
+          register: cluster_result
+          no_log: true
 
       rescue:
         - name: Display error details
-          debug:
-            msg: "Failed to create cluster: {{ cluster_result.results | selectattr('failed', 'true') | map(attribute='msg') | list }}"
+          ansible.builtin.debug:
+            msg: "Failed to create clusters: {{ cluster_result.results | selectattr('failed', 'true') | map(attribute='msg') | list }}"
           when: cluster_result is defined and cluster_result.results is defined
 
         - name: Fail with error message
-          fail:
+          ansible.builtin.fail:
             msg: "Failed to create clusters. See above for details."
 
     - name: Display creation results
-      debug:
-        msg: 
+      ansible.builtin.debug:
+        msg:
           - "Successfully created clusters:"
-          - "Created locations: {{ cluster_result.results | map(attribute='item.name') | list }}"
-          - "Changed status: {{ cluster_result.results | map(attribute='changed') | list }}"
-      when: 
-        - cluster_result is defined 
+          - "Created clusters: {{ cluster_result.results | map(attribute='item.0.name') | list }}"
+      when:
+        - cluster_result is defined
         - cluster_result.results is defined
         - (cluster_result.results | selectattr('failed', 'defined') | selectattr('failed', 'true') | list | length) == 0

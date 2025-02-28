@@ -76,8 +76,9 @@
     - name: Create Backup Schedules
       block:
         - name: Process Each Backup Schedule
-          ansible.builtin.include_tasks:
-            file: tasks/create_single_backup_schedule.yml
+          ansible.builtin.include_role:
+            name: common
+            tasks_from: create_single_backup_schedule.yml
           loop: "{{ backup_schedules }}"
           loop_control:
             loop_var: schedule_item

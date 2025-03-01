@@ -1,0 +1,109 @@
+---
+
+- name: Setup and validate cluster variables
+  block:
+    - name: Validate cluster name format
+      ansible.builtin.assert:
+        that:
+          - cluster_name is defined
+          - cluster_name is string
+          - cluster_name | regex_search('^[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+[abc]-[0-9]+$') is not none
+        fail_msg: "Invalid cluster name format. Expected format: <cluster_user>-<platform>-<env>-<region><zone>-<id>"
+        success_msg: "Valid cluster name format"
+
+    - name: Parse cluster name into components
+      ansible.builtin.set_fact:
+        # example clustername = "ansible-infrastructure-d-eusw1a-4"
+        parts: "{{ cluster_name.split('-') }}"
+        cluster_user: "{{ parts[0] }}"
+        platform: "{{ parts[1] }}"
+        cluster_env: "{{ parts[2] | regex_replace('p', 'prod') | regex_replace('d', 'dev') | regex_replace('t', 'test') }}"
+        region_zone: "{{ parts[3] }}"
+        region: "{{ region_zone[:-1] }}"
+        zone: "{{ region_zone[-1:] | regex_replace('a', 'zone-a') | regex_replace('b', 'zone-b') | regex_replace('c', 'zone-c') }}"
+        cluster_id: "{{ parts[4] }}"
+      no_log: false  # Set to true if cluster name contains sensitive information
+
+    - name: Log extracted cluster information
+      ansible.builtin.debug:
+        verbosity: 1
+        msg:
+          - "cluster_user: {{ cluster_user }}"
+          - "Platform: {{ platform }}"
+          - "Environment: {{ cluster_env }}"
+          - "Region: {{ region }}"
+          - "Zone: {{ zone }}"
+          - "Cluster ID: {{ cluster_id }}"
+
+  rescue:
+    - name: Handle cluster variable setup failure
+      ansible.builtin.fail:
+        msg: "Failed to setup cluster variables: {{ ansible_failed_result.msg | default('Unknown error') }}"
+
+- name: "Get cluster info from inventory"
+  ansible.builtin.uri:
+    url: "{{ inventory_url }}/{{ cluster_name }}"
+    method: GET
+    return_content: true
+    validate_certs: "{{ validate_certs }}"
+    ca_path: "{{ ca_cert_path }}"
+    headers:
+      Accept: "application/json"
+  register: inventory_response
+  no_log: false
+
+- name: "Check inventory response for platform_vault"
+  ansible.builtin.assert:
+    that:
+      inventory_response.json | community.general.json_query('kubernetes_platform.secrets_management.platform_vault[0]') is defined
+    msg:
+      - "Failed to retrieve platform_vault information from inventory"
+      - "Inventory response: {{ inventory_response.json | indent(4) }}"
+
+- name: Check inventory for cluster vault information
+  when:
+    - inventory_response.json | community.general.json_query('kubernetes_platform.secrets_management.platform_vault[0]') is defined
+  block:
+    - name: "Set Vault configuration facts"
+      ansible.builtin.set_fact:
+        vault_address: "{{ inventory_response.json | community.general.json_query('kubernetes_platform.secrets_management.platform_vault[0].address') }}"
+        vault_namespace: "{{ inventory_response.json | community.general.json_query('kubernetes_platform.secrets_management.platform_vault[0].namespace') }}"
+        vault_default_path_full: "{{ inventory_response.json | community.general.json_query('kubernetes_platform.secrets_management.platform_vault[0].secrets_paths') }}"
+
+    - name: "Set Vault mount point and paths"
+      ansible.builtin.set_fact:
+        vault_mount_point: "{{ vault_default_path_full.split('/')[0] }}"
+        vault_default_path: "{{ vault_default_path_full.split('/')[1:] | join('/') }}"
+
+    - name: "Verify Vault configuration facts"
+      ansible.builtin.debug:
+        msg: |
+          Vault Address: {{ vault_address }}
+          Vault Namespace: {{ vault_namespace }}
+          Vault Default Path (Full): {{ vault_default_path_full }}
+          Vault Default Path (Clean): {{ vault_default_path }}
+          Vault Mount Point: {{ vault_mount_point }}
+          Vault Namespace: {{ vault_namespace }}
+          Kubeconfig Path: {{ kubeconfig_path }}
+
+- name: Set vault information from defaults
+  when:
+    - inventory_response.json | community.general.json_query('kubernetes_platform.secrets_management.platform_vault[0]') is not defined
+  block:
+    - name: Setup Defaults based on cluster_env
+      ansible.builtin.set_fact:
+        vault_address: >-
+          {%- if cluster_env == 'prod' -%}{{ vault_automation_prod_address }}{%- elif cluster_user == 'eng' -%}{{ vault_automation_eng_address }}{%- elif cluster_env == 'stage' -%}{{ vault_automation_stage_address }}{%- else -%}{{ vault_automation_dev_address }}{%- endif -%}
+        vault_namespace: "{{ vault_automation_default_namespace }}"
+        vault_mount_point: "{{ vault_automation_default_mount_point }}"
+        vault_default_path: "{{ cluster_user }}/{{ cluster_name }}"
+        kubeconfig_vault_path: "{{ cluster_user }}/{{ cluster_name }}"
+
+    - name: "Verify Vault configuration facts"
+      ansible.builtin.debug:
+        msg: |
+          Vault Address: {{ vault_address }}
+          Vault Namespace: {{ vault_namespace }}
+          Vault Default Path (Clean): {{ vault_default_path }}
+          Vault Mount Point: {{ vault_mount_point }}
+          Kubeconfig Path: {{ kubeconfig_path }}

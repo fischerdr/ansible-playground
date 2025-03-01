@@ -1,0 +1,72 @@
+---
+# Tasks for processing individual clusters
+- name: Configure cluster variables
+  ansible.builtin.include_tasks:
+    file: cluster_variables.yml
+
+# First retrieve the master kubeconfig and create service account
+- name: Retrieve Master Kubeconfig from Vault
+  ansible.builtin.include_tasks:
+    file: retrieve_master_kubeconfig.yml
+
+- name: Create Service Account and Kubeconfig
+  ansible.builtin.include_tasks:
+    file: create_sa_kubeconfig.yml
+
+# Then create the cluster in PX-Backup
+- name: Create PX-Backup clusters
+  block:
+    - name: Retrieve kubeconfig from Vault
+      community.hashi_vault.vault_kv2_get:
+        url: "{{ vault_address }}"
+        namespace: "{{ vault_automation_default_namespace }}"
+        path: "{{ vault_automation_config_path }}{{ cluster.name }}/{{ cluster.name }}.pxbkup"
+        engine_mount_point: "{{ vault_automation_config_mount_point }}"
+        auth_method: token
+        token: "{{ vault_token }}"
+        validate_certs: "{{ validate_certs }}"
+        ca_cert: "{{ ca_cert_path }}"
+      register: kubeconfig_data
+      no_log: true
+
+    - name: Validate kubeconfig data
+      ansible.builtin.assert:
+        that:
+          - kubeconfig_data.data.data.kubeconfig is defined
+          - kubeconfig_data.data.data.kubeconfig | string | length > 0
+        fail_msg: "Failed to retrieve valid kubeconfig for cluster {{ cluster.name }}"
+      no_log: true
+
+    - name: Create cluster in PX-Backup
+      purepx.px_backup.cluster:
+        operation: CREATE
+        api_url: "{{ px_backup_api_url }}"
+        token: "{{ px_backup_token }}"
+        name: "{{ cluster.name }}"
+        org_id: "{{ org_id | default('default') }}"
+        cloud_type: "{{ cluster.cloud_type | default('OTHER') }}"
+        kubeconfig: "{{ kubeconfig_data.data.data.kubeconfig | b64decode }}"
+        cloud_credential_ref: "{{ cluster.cloud_credential_ref | default(omit) }}"
+        platform_credential_ref: "{{ cluster.platform_credential_ref | default(omit) }}"
+        px_config: "{{ cluster.px_config | default(omit) }}"
+        service_token: "{{ cluster.service_token | default(omit) }}"
+        validate_certs: "{{ validate_certs | default(true) }}"
+      register: cluster_result
+      no_log: true
+
+    - name: Log cluster creation details
+      ansible.builtin.debug:
+        msg:
+          - "Cluster: {{ cluster.name }}"
+          - "Status: {{ cluster_result.changed | ternary('Created', 'Already exists') }}"
+          - "Cloud Type: {{ cluster.cloud_type | default('OTHER') }}"
+      when: not ansible_check_mode
+
+  rescue:
+    - name: Display error details
+      ansible.builtin.debug:
+        msg:
+          - "Failed to create cluster:"
+          - "Cluster: {{ cluster.name }}"
+          - "Error: {{ cluster_result.msg | default('Unknown error') }}"
+      when: cluster_result is defined

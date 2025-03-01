@@ -1,0 +1,113 @@
+---
+# Default variables for the pxbackup role
+
+###################
+# API Configuration
+###################
+
+# PX-Backup API configuration
+px_backup_api_url: ""  # Required: URL of the PX-Backup API endpoint
+pxcentral_auth_url: ""  # Required: Authentication URL for PX-Backup
+pxcentral_client_id: ""  # Required: Client ID for authentication
+pxcentral_username: ""  # Required: Username for PX-Backup authentication
+pxcentral_password: ""  # Required: Password for PX-Backup authentication
+pxcentral_verify_ssl: true  # Optional: Whether to verify SSL certificates
+token_duration: "7d"  # Optional: Duration of the authentication token
+
+###################
+# Vault Configuration
+###################
+
+# Vault server settings
+vault_address: ""  # Required: URL of the Vault server
+vault_token_path: "/run/secrets/vault-token"  # Path to the Vault token file
+vault_namespace: ""  # Optional: Vault namespace if using enterprise
+vault_cacert_path: ""  # Optional: Path to Vault CA certificate
+vault_cacert_mount_path: ""  # Optional: Mount path for Vault CA certificate
+validate_certs: true  # Optional: Whether to validate Vault SSL certificates
+
+# Environment-specific Vault addresses
+vault_automation_prod_address: ""  # Required: Production Vault address
+vault_automation_dev_address: ""   # Required: Development Vault address
+vault_automation_stage_address: "" # Required: Staging Vault address
+vault_automation_eng_address: ""   # Required: Engineering Vault address
+
+# Vault paths and mount points
+vault_automation_default_namespace: ""  # Required: Default namespace for automation
+vault_automation_config_path: ""  # Required: Path for storing configurations
+vault_automation_config_mount_point: "secret"  # Optional: Mount point for secrets engine
+
+# Environment-specific Vault paths
+vault_paths:
+  prod:
+    namespace: "prod"
+    config_path: "kubernetes/prod/"
+    mount_point: "secret"
+  dev:
+    namespace: "dev"
+    config_path: "kubernetes/dev/"
+    mount_point: "secret"
+  test:
+    namespace: "test"
+    config_path: "kubernetes/test/"
+    mount_point: "secret"
+
+###################
+# Inventory Configuration
+###################
+
+# Inventory API settings
+inventory_url: ""  # Required: URL of the inventory service
+ca_cert_path: ""  # Optional: Path to CA certificate for inventory API
+
+###################
+# Organization Config
+###################
+
+org_id: ""  # Required: Organization ID in PX-Backup
+
+###################
+# Kubernetes Config
+###################
+
+# Namespace and resource names
+k8s_ns: "portworx"  # Namespace for PX-Backup resources
+service_account_name: "pxbackup-sa"  # Name of the service account
+cluster_role_name: "pxbackup-cluster-role"  # Name of the cluster role
+sa_role_name: "pxbackup-role"  # Name of the namespaced role
+cluster_role_binding_name: "pxbackup-cluster-rolebinding"  # Name of the cluster role binding
+sa_role_binding_name: "pxbackup-rolebinding"  # Name of the namespaced role binding
+
+# Temporary paths
+outp_k8s_config_path: "/tmp/k8s"  # Path for temporary kubeconfig files
+
+###################
+# Clusters Configuration
+###################
+
+# Default empty clusters list
+clusters: []
+
+# Example cluster structure:
+# clusters:
+#   - name: "user-platform-env-region-id"  # Required: Must follow naming convention
+#     description: "Production Cluster 1"   # Optional: Cluster description
+#     cloud_type: "OTHER"                  # Optional: AWS, AZURE, GCP, or OTHER (default)
+#     cloud_credential_ref: ""             # Optional: Reference to cloud credentials
+#     platform_credential_ref: ""          # Optional: Reference to platform credentials
+#     px_config:                          # Optional: PX-specific configuration
+#       storage_classes: []               # Optional: List of storage classes to backup
+#       namespaces: []                    # Optional: List of namespaces to backup
+#     service_token: ""                   # Optional: Pre-existing service account token
+#     skip_sa_creation: false             # Optional: Skip service account creation
+
+# Cluster name components (set by cluster_variables.yml)
+# cluster_name format: <cluster_user>-<platform>-<env>-<region><zone>-<id>
+# Example: ansible-infrastructure-d-eusw1a-4
+cluster_user: ""      # First component of cluster name
+platform: ""         # Second component of cluster name
+cluster_env: ""      # Third component (p=prod, d=dev, t=test)
+region_zone: ""      # Fourth component (e.g., eusw1a)
+region: ""          # Extracted from region_zone (e.g., eusw1)
+zone: ""            # Extracted from region_zone (a=zone-a, b=zone-b, c=zone-c)
+cluster_id: ""      # Fifth component (numeric id)

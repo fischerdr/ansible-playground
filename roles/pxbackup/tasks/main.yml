@@ -1,0 +1,26 @@
+---
+# Main tasks file for pxbackup role
+
+- name: Validate Required Variables
+  ansible.builtin.assert:
+    that:
+      - px_backup_api_url is defined
+      - px_backup_api_url | string | length > 0
+      - org_id is defined
+      - org_id | string | length > 0
+      - clusters is defined
+      - clusters | length > 0
+    fail_msg: "Required variables are not set. Please ensure all required variables are defined."
+    success_msg: "All required variables are properly set"
+
+- name: Login and Fetch PX-Backup Token
+  ansible.builtin.include_tasks:
+    file: auth.yml
+
+- name: Process Clusters
+  ansible.builtin.include_tasks:
+    file: process_cluster.yml
+  loop: "{{ clusters }}"
+  loop_control:
+    loop_var: cluster
+    label: "{{ cluster.name }}"

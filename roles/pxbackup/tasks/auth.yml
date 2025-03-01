@@ -1,0 +1,40 @@
+---
+# Authentication tasks for PX-Backup
+
+- name: Validate Authentication Variables
+  ansible.builtin.assert:
+    that:
+      - pxcentral_auth_url is defined
+      - pxcentral_client_id is defined
+      - pxcentral_username is defined
+      - pxcentral_password is defined
+    fail_msg: "Required authentication variables must be defined"
+
+- name: Request Bearer Token
+  purepx.px_backup.auth:
+    auth_url: "{{ pxcentral_auth_url }}"
+    client_id: "{{ pxcentral_client_id }}"
+    username: "{{ pxcentral_username }}"
+    password: "{{ pxcentral_password }}"
+    token_duration: "{{ token_duration | default('7d') }}"
+    verify_ssl: "{{ pxcentral_verify_ssl | default(true) }}"
+  register: token_response
+  check_mode: false
+  when: px_backup_token is not defined
+  no_log: true
+
+- name: Set Token Fact
+  ansible.builtin.set_fact:
+    px_backup_token: "{{ token_response.access_token }}"
+  when:
+    - token_response is defined
+    - token_response.access_token is defined
+    - token_response.access_token | length > 0
+  no_log: true
+
+- name: Verify Token is Set
+  ansible.builtin.assert:
+    that:
+      - px_backup_token is defined
+      - px_backup_token | length > 0
+    fail_msg: "Failed to obtain valid authentication token"

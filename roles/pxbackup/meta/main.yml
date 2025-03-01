@@ -1,0 +1,38 @@
+---
+galaxy_info:
+  role_name: pxbackup
+  namespace: purepx
+  author: Pure Storage, Inc.
+  description: |
+    Ansible role for managing PX-Backup cluster definitions. This role enables:
+    - Service account creation in Kubernetes clusters
+    - Secure kubeconfig generation and Vault storage
+    - PX-Backup cluster registration and management
+  company: Pure Storage
+  license: Apache-2.0
+  min_ansible_version: "2.14"  # Ensures modern Ansible features and security
+
+  platforms:
+    - name: EL  # Enterprise Linux (RHEL/CentOS Stream)
+      versions:
+        - "8"
+        - "9"
+    - name: Fedora
+      versions:
+        - "37"
+        - "38"
+        - "39"
+
+  galaxy_tags:
+    - pxbackup
+    - kubernetes
+    - backup
+    - storage
+    - portworx
+    - containers
+    - cloud
+    - infrastructure
+    - security
+    - vault
+
+dependencies: []

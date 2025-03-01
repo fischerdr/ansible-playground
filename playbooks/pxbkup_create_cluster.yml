@@ -21,58 +21,98 @@
         name: common
         tasks_from: pxbkup_auth.yml
 
-    - name: Create clusters
+    - name: Create PX-Backup clusters
       block:
         - name: Retrieve kubeconfig from Vault
           community.hashi_vault.vault_kv2_get:
             url: "{{ vault_address }}"
-            path: "secret/env/pxbackup/{{ item.name }}/{{ item.name }}.pxbkup"
+            namespace: "{{ vault_automation_default_namespace }}"
+            path: "{{ vault_automation_config_path }}{{ item.name }}/{{ item.name }}.pxbkup"
+            engine_mount_point: "{{ vault_automation_config_mount_point }}"
             auth_method: token
             token: "{{ vault_token }}"
-            namespace: "ansible"
             validate_certs: "{{ validate_certs }}"
-          register: vault_kubeconfig
+            ca_cert: "{{ ca_cert_path }}"
+          register: kubeconfig_data
+          no_log: true
           loop: "{{ clusters }}"
           loop_control:
             label: "{{ item.name }}"
+            index_var: cluster_idx
+
+        - name: Validate kubeconfig data
+          ansible.builtin.assert:
+            that:
+              - kubeconfig_data.results[cluster_idx].data.data.kubeconfig is defined
+              - kubeconfig_data.results[cluster_idx].data.data.kubeconfig | string | length > 0
+            fail_msg: "Failed to retrieve valid kubeconfig for cluster {{ item.name }}"
+          loop: "{{ clusters }}"
+          loop_control:
+            label: "{{ item.name }}"
+            index_var: cluster_idx
           no_log: true
 
-        - name: Create cluster
+        - name: Create cluster in PX-Backup
           purepx.px_backup.cluster:
             operation: CREATE
             api_url: "{{ px_backup_api_url }}"
-            token: "{{ px_backup_token }}"
-            name: "{{ item.0.name }}"
+            token: "{{ token_response.token }}"
+            name: "{{ cluster.name }}"
             org_id: "{{ org_id | default('default') }}"
-            cloud_type: "{{ item.0.cloud_type | default('OTHER') }}"
-            kubeconfig: "{{ item.1.data.data.kubeconfig | b64decode }}"
-            cloud_credential_ref: "{{ item.0.cloud_credential_ref | default(omit) }}"
-            platform_credential_ref: "{{ item.0.platform_credential_ref | default(omit) }}"
-            px_config: "{{ item.0.px_config | default(omit) }}"
-            service_token: "{{ item.0.service_token | default(omit) }}"
-            validate_certs: "{{ item.0.validate_certs | default(true) }}"
-          loop: "{{ clusters | zip(vault_kubeconfig.results) | list }}"
-          loop_control:
-            label: "{{ item.0.name }}"
+            cloud_type: "{{ cluster.cloud_type | default('OTHER') }}"
+            kubeconfig: "{{ kubeconfig.data.data.kubeconfig | b64decode }}"
+            cloud_credential_ref: "{{ cluster.cloud_credential_ref | default(omit) }}"
+            platform_credential_ref: "{{ cluster.platform_credential_ref | default(omit) }}"
+            px_config: "{{ cluster.px_config | default(omit) }}"
+            service_token: "{{ cluster.service_token | default(omit) }}"
+            validate_certs: "{{ validate_certs | default(true) }}"
           register: cluster_result
           no_log: true
+          vars:
+            cluster: "{{ item.0 }}"
+            kubeconfig: "{{ item.1 }}"
+          loop: "{{ clusters | zip(kubeconfig_data.results) | list }}"
+          loop_control:
+            label: "{{ item.0.name }}"
+
+        - name: Log cluster creation details
+          ansible.builtin.debug:
+            msg:
+              - "Cluster: {{ item.name }}"
+              - "Status: {{ (cluster_result.results | selectattr('item.0.name', 'equalto', item.name) | first).changed | ternary('Created', 'Already exists') }}"
+              - "Cloud Type: {{ item.cloud_type | default('OTHER') }}"
+          loop: "{{ clusters }}"
+          loop_control:
+            label: "{{ item.name }}"
+          when: not ansible_check_mode
 
       rescue:
+        - name: Collect failed operations
+          ansible.builtin.set_fact:
+            failed_clusters: "{{ cluster_result.results | selectattr('failed', 'true') | map(attribute='item.0.name') | list }}"
+            failure_messages: "{{ cluster_result.results | selectattr('failed', 'true') | map(attribute='msg') | list }}"
+          when: cluster_result is defined and cluster_result.results is defined
+
         - name: Display error details
           ansible.builtin.debug:
-            msg: "Failed to create clusters: {{ cluster_result.results | selectattr('failed', 'true') | map(attribute='msg') | list }}"
-          when: cluster_result is defined and cluster_result.results is defined
+            msg:
+              - "Failed to create the following clusters:"
+              - "Clusters: {{ failed_clusters | default([]) }}"
+              - "Errors: {{ failure_messages | default([]) }}"
+          when: failed_clusters is defined and failed_clusters | length > 0
 
         - name: Fail with error message
           ansible.builtin.fail:
-            msg: "Failed to create clusters. See above for details."
+            msg: "Failed to create {{ failed_clusters | length }} cluster(s). See above for details."
+          when: failed_clusters is defined and failed_clusters | length > 0
 
     - name: Display creation results
       ansible.builtin.debug:
         msg:
           - "Successfully created clusters:"
-          - "Created clusters: {{ cluster_result.results | map(attribute='item.0.name') | list }}"
+          - "Clusters: {{ clusters | map(attribute='name') | list }}"
+          - "Total clusters created: {{ clusters | length }}"
       when:
+        - not ansible_check_mode
         - cluster_result is defined
-        - cluster_result.results is defined
-        - (cluster_result.results | selectattr('failed', 'defined') | selectattr('failed', 'true') | list | length) == 0
+        - not (cluster_result.results | selectattr('failed', 'true') | list | length > 0)

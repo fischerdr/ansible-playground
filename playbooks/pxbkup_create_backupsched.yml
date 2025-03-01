@@ -10,19 +10,12 @@
           ansible.builtin.assert:
             that:
               - px_backup_api_url is defined
-              - px_backup_api_url | string | length > 0
               - px_backup_token is defined
-              - px_backup_token | string | length > 0
               - org_id is defined
-              - org_id | string | length > 0
               - schedule_policy_name is defined
-              - schedule_policy_name | string | length > 0
               - backup_location_name is defined
-              - backup_location_name | string | length > 0
               - cluster_name is defined
-              - cluster_name | string | length > 0
               - backup_schedule_name is defined
-              - backup_schedule_name | string | length > 0
               - backup_resource_types is defined
             fail_msg: "Required variables are not set. Please ensure all required variables are defined."
             success_msg: "All required variables are properly set"

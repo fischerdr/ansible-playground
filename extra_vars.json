@@ -10,13 +10,15 @@
   "cluster_name": "your_cluster_name",
   "clusters": [
     {
-      "name": "your_cluster_name",
-      "cloud_type": "OTHERS",
-      "kubeconfig": "clusters/your_cluster_name/kubeconfig",
-      "cloud_credential_ref": "",
-      "platform_credential_ref": "",
-      "px_config": "",
-      "service_token": ""
+      "name": "cluster1-name",
+      "cloud_type": "generic",
+      "cloud_credential_ref": "optional-cloud-cred",
+      "platform_credential_ref": "optional-platform-cred",
+      "px_config": {
+        "optional": "px-config-values"
+      },
+      "service_token": "optional-service-token",
+      "validate_certs": true
     }
   ],
   "backup_locations": [

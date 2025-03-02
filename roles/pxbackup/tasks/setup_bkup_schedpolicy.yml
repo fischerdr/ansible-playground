@@ -1,0 +1,97 @@
+---
+
+# Then add backup schedules to newly created cluster
+- name: Validate Schedule Item
+  ansible.builtin.assert:
+    that:
+      - schedule_item.name is defined
+      - schedule_item.backup_location is defined
+      - schedule_item.schedule_policy is defined
+      - schedule_item.cluster is defined
+    fail_msg: "Invalid schedule configuration for {{ schedule_item.name | default('unknown') }}"
+
+- name: Get Schedule Policy Reference
+  ansible.builtin.set_fact:
+    schedule_policy_ref:
+      name: "{{ selected_policy.metadata.name }}"
+      uid: "{{ selected_policy.metadata.uid }}"
+  vars:
+    selected_policy: "{{ schedule_policies_list.schedule_policies | selectattr('metadata.name', 'equalto', schedule_item.schedule_policy) | list | first }}"
+  failed_when: selected_policy | length == 0
+  no_log: true
+
+- name: Get Backup Location Reference
+  ansible.builtin.set_fact:
+    backup_location_ref:
+      name: "{{ selected_location.metadata.name }}"
+      uid: "{{ selected_location.metadata.uid }}"
+  vars:
+    selected_location: "{{ backup_locations_list.backup_locations | selectattr('metadata.name', 'equalto', schedule_item.backup_location) | list | first }}"
+  failed_when: selected_location | length == 0
+  no_log: true
+
+- name: Get Cluster Reference
+  ansible.builtin.set_fact:
+    cluster_ref:
+      name: "{{ selected_cluster.metadata.name }}"
+      uid: "{{ selected_cluster.metadata.uid }}"
+  vars:
+    selected_cluster: "{{ px_clusters_list.clusters | selectattr('metadata.name', 'equalto', cluster.name) | list | first }}"
+  failed_when: selected_cluster | length == 0
+  no_log: true
+
+- name: Create Backup Schedule
+  purepx.px_backup.backup_schedule:
+    operation: CREATE
+    api_url: "{{ px_backup_api_url }}"
+    token: "{{ px_backup_token }}"
+    validate_certs: "{{ validate_certs | bool }}"
+    name: "{{ schedule_item.name }}"
+    org_id: "{{ org_id }}"
+    reclaim_policy: "{{ schedule_item.reclaim_policy | default('Retain') }}"
+    resource_types: "{{ schedule_item.resource_types | default(omit) }}"
+    schedule_policy_ref: "{{ schedule_policy_ref }}"
+    backup_location_ref: "{{ backup_location_ref }}"
+    cluster_ref: "{{ cluster_ref }}"
+    ns_label_selectors: "{{ schedule_item.ns_label_selectors | default(omit) }}"
+    owner: "admin"
+    # Optional parameters
+    backup_type: "{{ schedule_item.backup_type | default('Normal') }}"
+    suspend: "{{ schedule_item.suspend | default(false) }}"
+    direct_kdmp: "{{ schedule_item.direct_kdmp | default(false) }}"
+    skip_vm_auto_exec_rules: "{{ schedule_item.skip_vm_auto_exec_rules | default(false) }}"
+    parallel_backup: "{{ schedule_item.parallel_backup | default(false) }}"
+    keep_cr_status: "{{ schedule_item.keep_cr_status | default(false) }}"
+    namespaces: "{{ schedule_item.namespaces | default(omit) }}"
+    exclude_resource_types: "{{ schedule_item.exclude_resource_types | default(omit) }}"
+    label_selectors: "{{ schedule_item.label_selectors | default(omit) }}"
+    include_resources: "{{ schedule_item.include_resources | default(omit) }}"
+    backup_object_type: "{{ schedule_item.backup_object_type | default(omit) }}"
+    volume_snapshot_class_mapping: "{{ schedule_item.volume_snapshot_class_mapping | default(omit) }}"
+    csi_snapshot_class_name: "{{ schedule_item.csi_snapshot_class_name | default(omit) }}"
+    pre_exec_rule_ref: "{{ schedule_item.pre_exec_rule_ref | default(omit) }}"
+    post_exec_rule_ref: "{{ schedule_item.post_exec_rule_ref | default(omit) }}"
+    ownership: "{{ schedule_item.ownership | default(omit) }}"
+  register: backup_result
+  no_log: true  # Since response contains token
+
+- name: Display Backup Schedule Creation Result
+  ansible.builtin.debug:
+    msg: |
+      Backup Schedule created successfully:
+      - Name: {{ schedule_item.name }}
+      - Organization: {{ org_id }}
+      - Schedule Policy: {{ schedule_policy_ref.name }}
+      - Backup Location: {{ backup_location_ref.name }}
+      - Cluster: {{ cluster_ref.name }}
+      - Resource Types: {{ schedule_item.resource_types | to_yaml }}
+      {% if schedule_item.ns_label_selectors is defined %}
+      - Namespace Label Selectors: {{ schedule_item.ns_label_selectors }}
+      {% endif %}
+      {% if schedule_item.namespaces is defined %}
+      - Namespaces: {{ schedule_item.namespaces | to_yaml }}
+      {% endif %}
+      {% if schedule_item.exclude_resource_types is defined %}
+      - Excluded Resource Types: {{ schedule_item.exclude_resource_types | to_yaml }}
+      {% endif %}
+  when: backup_result.message is defined and backup_result.message contains("Backup schedule created successfully")

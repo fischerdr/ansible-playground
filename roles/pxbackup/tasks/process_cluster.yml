@@ -9,6 +9,7 @@
   ansible.builtin.include_tasks:
     file: retrieve_master_kubeconfig.yml
 
+# Create service account and kubeconfig for use in PX-Backup
 - name: Create Service Account and Kubeconfig
   ansible.builtin.include_tasks:
     file: create_sa_kubeconfig.yml
@@ -51,22 +52,102 @@
         px_config: "{{ cluster.px_config | default(omit) }}"
         service_token: "{{ cluster.service_token | default(omit) }}"
         validate_certs: "{{ validate_certs | default(true) }}"
-      register: cluster_result
+      register: cluster_creation
       no_log: true
+
+    - name: Verify cluster creation
+      ansible.builtin.assert:
+        that:
+          - cluster_creation is success
+          - cluster_creation.changed is defined
+        fail_msg: "Failed to verify cluster creation status for {{ cluster.name }}"
+        success_msg: "Successfully created cluster {{ cluster.name }} in PX-Backup"
 
     - name: Log cluster creation details
       ansible.builtin.debug:
         msg:
           - "Cluster: {{ cluster.name }}"
-          - "Status: {{ cluster_result.changed | ternary('Created', 'Already exists') }}"
+          - "Status: {{ cluster_creation.changed | ternary('Created', 'Already exists') }}"
           - "Cloud Type: {{ cluster.cloud_type | default('OTHER') }}"
+          - "Organization: {{ org_id | default('default') }}"
+          - "Cloud Credential: {{ cluster.cloud_credential_ref | default('None') }}"
+          - "Platform Credential: {{ cluster.platform_credential_ref | default('None') }}"
+        verbosity: 1
       when: not ansible_check_mode
+      no_log: false
+
+    # Create cluster backup schedules
+    - name: Create Cluster Backup Schedules
+      block:
+        - name: Get Schedule Policies
+          purepx.px_backup.schedule_policy:
+            operation: INSPECT_ALL
+            org_id: "{{ org_id }}"
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            validate_certs: "{{ validate_certs | bool }}"
+          register: schedule_policies_list
+          no_log: true  # Since response contains token
+
+        - name: Get Backup Locations
+          purepx.px_backup.backup_location:
+            operation: INSPECT_ALL
+            org_id: "{{ org_id }}"
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            validate_certs: "{{ validate_certs | bool }}"
+          register: backup_locations_list
+          no_log: true  # Since response contains token
+
+        - name: Get Clusters
+          purepx.px_backup.cluster:
+            operation: INSPECT_ALL
+            org_id: "{{ org_id }}"
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            validate_certs: "{{ validate_certs | bool }}"
+          register: px_clusters_list
+          no_log: true  # Since response contains token
+
+        - name: Process Each Backup Schedule
+          ansible.builtin.include_tasks:
+            file: setup_bkup_schedpolicy.yml
+          loop: "{{ backup_schedules }}"
+          loop_control:
+            loop_var: schedule_item
+            label: "{{ schedule_item.name }}"
 
   rescue:
-    - name: Display error details
+    - name: Log cluster creation failure
+      ansible.builtin.set_fact:
+        cluster_error: >-
+          Failed to create cluster {{ cluster.name }}:
+          {% if kubeconfig_data is defined and kubeconfig_data.failed %}
+          Failed to retrieve kubeconfig from Vault
+          {% elif cluster_creation is defined and cluster_creation.failed %}
+          {{ cluster_creation.msg }}
+          {% else %}
+          Unknown error occurred
+          {% endif %}
+      no_log: true
+
+    - name: Debug cluster creation failure
       ansible.builtin.debug:
-        msg:
-          - "Failed to create cluster:"
-          - "Cluster: {{ cluster.name }}"
-          - "Error: {{ cluster_result.msg | default('Unknown error') }}"
-      when: cluster_result is defined
+        msg: "{{ cluster_error }}"
+        verbosity: 1
+
+    - name: Record failed cluster
+      ansible.builtin.set_fact:
+        failed_clusters: "{{ failed_clusters | default([]) + [cluster.name] }}"
+
+    - name: Fail task with error
+      ansible.builtin.fail:
+        msg: "{{ cluster_error }}"
+      when: fail_on_cluster_error | default(true) | bool
+
+  always:
+    - name: Cleanup sensitive variables
+      ansible.builtin.set_fact:
+        kubeconfig_data: null
+        cluster_creation: null
+      no_log: true

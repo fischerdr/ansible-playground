@@ -84,7 +84,6 @@
           Vault Default Path (Clean): {{ vault_default_path }}
           Vault Mount Point: {{ vault_mount_point }}
           Vault Namespace: {{ vault_namespace }}
-          Kubeconfig Path: {{ kubeconfig_path }}
 
 - name: Set vault information from defaults
   when:
@@ -106,4 +105,3 @@
           Vault Namespace: {{ vault_namespace }}
           Vault Default Path (Clean): {{ vault_default_path }}
           Vault Mount Point: {{ vault_mount_point }}
-          Kubeconfig Path: {{ kubeconfig_path }}

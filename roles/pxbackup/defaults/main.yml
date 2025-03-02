@@ -111,3 +111,25 @@ region_zone: ""      # Fourth component (e.g., eusw1a)
 region: ""          # Extracted from region_zone (e.g., eusw1)
 zone: ""            # Extracted from region_zone (a=zone-a, b=zone-b, c=zone-c)
 cluster_id: ""      # Fifth component (numeric id)
+
+# Cluster Backup Schedules (To be applied to the clusters in list)
+backup_schedules: []
+
+# Example backup_schedules structure:
+# backup_schedules:
+#   - name: "daily-backup-app1"
+#     backup_location: "s3-backup-location"
+#     schedule_policy: "daily-retention-30d"
+#     cluster: "prod-cluster-1"
+#     ns_label_selectors: "app=app1"
+#     resource_types:
+#       - "apps/v1/Deployment"
+#       - "v1/ConfigMap"
+#   - name: "weekly-backup-app2"
+#     backup_location: "azure-backup-location"
+#     schedule_policy: "weekly-retention-90d"
+#     cluster: "prod-cluster-2"
+#     ns_label_selectors: "environment=prod,app=app2"
+#     resource_types:
+#       - "apps/v1/StatefulSet"
+#       - "v1/Secret"

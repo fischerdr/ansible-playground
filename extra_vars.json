@@ -1,79 +1,135 @@
 {
-  "px_backup_api_url": "https://px-backup-svc-exposed.com",
-  "pxcentral_auth_url": "https://px-auth-svc-exposed.com",
+  "px_backup_api_url": "https://pxbackup.example.com",
+  "pxcentral_auth_url": "https://pxbackup.example.com/auth",
+  "pxcentral_client_id": "px-backup-client",
+  "pxcentral_username": "admin",
+  "pxcentral_password": "{{ vault_pxcentral_password }}",
+  "pxcentral_verify_ssl": true,
+  "token_duration": "7d",
   "org_id": "default",
-  "pxcentral_client_id": "your_client_id",
-  "pxcentral_username": "your_username",
-  "pxcentral_password": "your_password",
-  "px_backup_token": null,
-  "token_duration": "365d",
-  "cluster_name": "your_cluster_name",
+
+  "vault_token_path": "/run/secrets/vault-token",
+  "vault_automation_prod_address": "https://vault-prod.example.com",
+  "vault_automation_dev_address": "https://vault-dev.example.com",
+  "vault_automation_stage_address": "https://vault-stage.example.com",
+  "vault_automation_eng_address": "https://vault-eng.example.com",
+  "vault_automation_default_namespace": "automation",
+  "vault_automation_config_path": "kubernetes/",
+  "vault_automation_config_mount_point": "secret",
+  "vault_cacert_path": "",
+  "vault_cacert_mount_path": "",
+  "vault_cacert_namespace": "automation",
+
+  "k8s_ns": "portworx",
+  "service_account_name": "pxbackup-sa",
+  "cluster_role_name": "pxbackup-cluster-role",
+  "sa_role_name": "pxbackup-role",
+  "cluster_role_binding_name": "pxbackup-cluster-rolebinding",
+  "sa_role_binding_name": "pxbackup-rolebinding",
+  "inventory_url": "https://inventory.example.com",
+  "validate_certs": true,
+  "ca_cert_path": "/etc/ssl/certs/ca-certificates.crt",
+
   "clusters": [
     {
-      "name": "cluster1-name",
-      "cloud_type": "generic",
-      "cloud_credential_ref": "optional-cloud-cred",
-      "platform_credential_ref": "optional-platform-cred",
+      "name": "user1-platform-p-usw2a-1",
+      "description": "Production Cluster US West 2 Zone A",
+      "cloud_type": "AWS",
       "px_config": {
-        "optional": "px-config-values"
-      },
-      "service_token": "optional-service-token",
-      "validate_certs": true
-    }
-  ],
-  "backup_locations": [
+        "storage_classes": [
+          "portworx-db-sc",
+          "portworx-file-sc"
+        ],
+        "namespaces": [
+          "prod-apps",
+          "monitoring"
+        ]
+      }
+    },
     {
-      "name": "s3-backup",
-      "location_type": "S3",
-      "path": "my-backup-bucket",
-      "cloud_credential_ref": {
-        "cloud_credential_name": "s3-credentials",
-        "cloud_credential_uid": "s3-cred-123456"
-      },
-      "validate_certs": true,
-      "validate_cloud_credential": true,
-      "object_lock_enabled": false,
-      "s3_config": {
-        "region": "us-east-1",
-        "endpoint": "s3.amazonaws.com",
-        "disable_ssl": false,
-        "disable_path_style": false,
-        "storage_class": "STANDARD",
-        "sse_type": "SSE_S3"
+      "name": "user1-platform-p-use1b-2",
+      "description": "Production Cluster US East 1 Zone B",
+      "cloud_type": "AWS",
+      "px_config": {
+        "storage_classes": [
+          "portworx-db-sc"
+        ],
+        "namespaces": [
+          "prod-services"
+        ]
+      }
+    },
+    {
+      "name": "user2-platform-d-euw1a-3",
+      "description": "Development Cluster EU West 1 Zone A",
+      "cloud_type": "AWS",
+      "px_config": {
+        "namespaces": [
+          "dev-apps"
+        ]
+      }
+    },
+    {
+      "name": "user2-platform-t-aps1a-4",
+      "description": "Test Cluster Asia Pacific South 1 Zone A",
+      "cloud_type": "AWS",
+      "px_config": {
+        "storage_classes": [
+          "portworx-test-sc"
+        ],
+        "namespaces": [
+          "test-apps"
+        ]
+      }
+    },
+    {
+      "name": "user3-platform-p-euc1c-5",
+      "description": "Production Cluster EU Central 1 Zone C",
+      "cloud_type": "AWS",
+      "px_config": {
+        "storage_classes": [
+          "portworx-db-sc",
+          "portworx-cache-sc"
+        ],
+        "namespaces": [
+          "prod-apps",
+          "prod-db"
+        ]
       }
     }
   ],
+
   "backup_schedules": [
     {
-      "name": "bs-4",
+      "name": "daily-prod-apps",
+      "backup_location": "aws-s3-backup",
+      "schedule_policy": "daily-30d-retention",
+      "cluster": "user1-platform-p-usw2a-1",
+      "ns_label_selectors": "environment=prod,tier=application",
+      "resource_types": [
+        "apps/v1/Deployment",
+        "apps/v1/StatefulSet",
+        "v1/ConfigMap",
+        "v1/Secret"
+      ],
       "reclaim_policy": "Retain",
-      "label_selectors": {
-        "pxbackup": "default"
-      },
-      "csi_snapshot_class_name": "default-snapshot-class",
-      "schedule_policy_ref": {
-        "name": "15min-retain3-incr2",
-        "uid": "7c0b5c09-c667-4f5a-a814-de8634d197e8"
-      },
-      "backup_location_ref": {
-        "name": "s3-backup-1",
-        "uid": "0af0ae2b-6259-4d1a-a3fc-8e40fe229cb6"
-      },
-      "backup_type": "Normal",
-      "cluster_ref": {
-        "name": "demo-1",
-        "uid": "07dd2ef3-8261-4f75-acd5-64a3fc011172"
-      }
-    }
-  ],
-  "cloud_credentials": [
+      "backup_type": "Normal"
+    },
     {
-      "name": "aws-cc",
-      "credential_type": "AWS",
-      "aws_config": {
-        "access_key": "access_key",
-        "secret_key": "secret_key"
-      }
+      "name": "weekly-prod-db",
+      "backup_location": "aws-s3-backup",
+      "schedule_policy": "weekly-90d-retention",
+      "cluster": "user3-platform-p-euc1c-5",
+      "namespaces": [
+        "prod-db"
+      ],
+      "resource_types": [
+        "apps/v1/StatefulSet",
+        "v1/PersistentVolumeClaim"
+      ],
+      "reclaim_policy": "Retain",
+      "backup_type": "Normal",
+      "parallel_backup": true
     }
   ]
 }

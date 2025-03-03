@@ -78,8 +78,6 @@ sa_role_name: "pxbackup-role"  # Name of the namespaced role
 cluster_role_binding_name: "pxbackup-cluster-rolebinding"  # Name of the cluster role binding
 sa_role_binding_name: "pxbackup-rolebinding"  # Name of the namespaced role binding
 
-# Temporary paths
-outp_k8s_config_path: "/tmp/k8s"  # Path for temporary kubeconfig files
 
 ###################
 # Clusters Configuration

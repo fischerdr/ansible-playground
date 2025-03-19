@@ -7,28 +7,49 @@
         that:
           - cluster_name is defined
           - cluster_name is string
-          - cluster_name | regex_search('^[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+[abc]-[0-9]+$') is not none
-        fail_msg: "Invalid cluster name format. Expected format: <cluster_user>-<platform>-<env>-<region><zone>-<id>"
+          - >
+            cluster_name | regex_search('^[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+[abc]-[a-z0-9]+$') is not none or
+            cluster_name | regex_search('^[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-z0-9]+$') is not none
+        fail_msg: >
+          "Invalid cluster name format. Expected formats:
+           - With zone: <cluster_user>-<platform>-<env>-<region><zone>-<id>
+           - Without zone: <cluster_user>-<platform>-<env>-<region>-<id>"
         success_msg: "Valid cluster name format"
 
-    - name: Parse cluster name into components
+    - name: Determine if cluster name has zone
       ansible.builtin.set_fact:
-        # example clustername = "ansible-infrastructure-d-eusw1a-4"
+        cluster_has_zone: "{{ cluster_name | regex_search('^[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+[abc]-[a-z0-9]+$') is not none }}"
+
+    - name: Parse cluster name with zone
+      ansible.builtin.set_fact:
         parts: "{{ cluster_name.split('-') }}"
         cluster_user: "{{ parts[0] }}"
         platform: "{{ parts[1] }}"
         cluster_env: "{{ parts[2] | regex_replace('p', 'prod') | regex_replace('d', 'dev') | regex_replace('t', 'test') }}"
         region_zone: "{{ parts[3] }}"
-        region: "{{ region_zone[:-1] }}"
-        zone: "{{ region_zone[-1:] | regex_replace('a', 'zone-a') | regex_replace('b', 'zone-b') | regex_replace('c', 'zone-c') }}"
+        region: "{{ parts[3] | regex_replace('[abc]$', '') }}"
+        zone: "{{ 'zone-' + (parts[3] | regex_search('[abc]$') | default('')) }}"
         cluster_id: "{{ parts[4] }}"
+      when: cluster_has_zone | bool
+      no_log: false  # Set to true if cluster name contains sensitive information
+
+    - name: Parse cluster name without zone
+      ansible.builtin.set_fact:
+        parts: "{{ cluster_name.split('-') }}"
+        cluster_user: "{{ parts[0] }}"
+        platform: "{{ parts[1] }}"
+        cluster_env: "{{ parts[2] | regex_replace('p', 'prod') | regex_replace('d', 'dev') | regex_replace('t', 'test') }}"
+        region: "{{ parts[3] }}"
+        zone: "all-zones"
+        cluster_id: "{{ parts[4] }}"
+      when: not cluster_has_zone | bool
       no_log: false  # Set to true if cluster name contains sensitive information
 
     - name: Log extracted cluster information
       ansible.builtin.debug:
         verbosity: 1
         msg:
-          - "cluster_user: {{ cluster_user }}"
+          - "Cluster User: {{ cluster_user }}"
           - "Platform: {{ platform }}"
           - "Environment: {{ cluster_env }}"
           - "Region: {{ region }}"

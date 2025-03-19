@@ -8,11 +8,10 @@ tox-ansible>=3.0.0
 virtualenv>=20.25.0
 
 # Ansible Development Tools
-ansible-builder>=3.0.0
-ansible-creator>=1.0.0
-ansible-dev-environment>=1.0.0
-ansible-dev-tools>=1.0.0
-ansible-sign>=1.0.0
+ansible-builder
+ansible-creator
+ansible-dev-environment
+ansible-dev-tools
 
 # Additional Development Tools
 aiohttp>=3.9.0

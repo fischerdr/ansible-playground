@@ -3,4 +3,5 @@
     "ansible.ansible.reuseTerminal": true,
     "ansible.executionEnvironment.image": "development-ee:latest",
     "ansible.python.interpreterPath": "/development/git/ansible-playground/.venv/bin/python",
+    "python.languageServer": "None",
 }

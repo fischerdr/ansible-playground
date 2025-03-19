@@ -20,12 +20,6 @@ ansible-runner
 ansible-navigator
 ansible-compat
 ansible-lint
-ansible-builder
-ansible-creator
-ansible-dev-environment
-ansible-dev-tools
-ansible-sign
-
 
 # Utility Dependencies
 appdirs>=1.4.4

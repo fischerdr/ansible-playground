@@ -28,7 +28,7 @@ The migration process is divided into phases to allow for incremental implementa
 
 ### Phase 0: Assessment and Planning
 
-**Timeline: 2-4 weeks**
+#### Timeline: 2-4 weeks
 
 Before implementing any changes, conduct a thorough assessment of your current environment:
 
@@ -54,7 +54,7 @@ Before implementing any changes, conduct a thorough assessment of your current e
 
 ### Phase 1: Foundation Building
 
-**Timeline: 4-6 weeks**
+#### Timeline: 4-6 weeks
 
 Establish the basic infrastructure and processes needed for secure secret management:
 
@@ -79,9 +79,9 @@ Establish the basic infrastructure and processes needed for secure secret manage
    - Configure basic Vault connection
    - Test connectivity between Ansible and Vault
 
-### Phase 2: Security Hardening
+### Phase 2: Security Hardening - Initial Approach
 
-**Timeline: 6-8 weeks**
+#### Timeline: 6-8 weeks
 
 Enhance the security posture of your Vault and Ansible integration:
 
@@ -107,7 +107,7 @@ Enhance the security posture of your Vault and Ansible integration:
 
 ### Phase 2: Security Hardening (Updated)
 
-**Timeline: 6-8 weeks**
+#### Timeline: 6-8 weeks -Initial Implementation
 
 Implement core security controls:
 
@@ -209,7 +209,7 @@ Implement core security controls:
 
 ### Phase 3: Ansible Tower/RHAAP Integration
 
-**Timeline: 4-6 weeks**
+#### Timeline: 4-6 weeks - Tower/RHAAP Integration
 
 Implement enhanced security in Ansible Tower or Red Hat Ansible Automation Platform:
 
@@ -259,7 +259,7 @@ Implement enhanced security in Ansible Tower or Red Hat Ansible Automation Platf
 
 ### Phase 4: Playbook Refactoring
 
-**Timeline: Ongoing (8-12 weeks initial effort)**
+#### Timeline: Ongoing (8-12 weeks initial effort)
 
 Refactor existing Ansible playbooks to use secure practices:
 
@@ -285,7 +285,7 @@ Refactor existing Ansible playbooks to use secure practices:
 
 ### Phase 5: Audit and Compliance
 
-**Timeline: 4-6 weeks**
+#### Timeline: 4-6 weeks - audit and compliance
 
 Implement comprehensive auditing and monitoring:
 
@@ -344,7 +344,7 @@ Implement comprehensive auditing and monitoring:
 
 ### Phase 6: Disaster Recovery and Business Continuity
 
-**Timeline: 4-6 weeks**
+#### Timeline: 4-6 weeks - disaster recovery and business continuity
 
 Ensure resilience and availability:
 
@@ -476,7 +476,7 @@ The following timeline provides a detailed roadmap for implementing HashiCorp Va
 
 ### Detailed Phase Breakdown
 
-#### Phase 0: Assessment and Planning
+#### Timeline: Phase 0 - Assessment and Planning
 
 - **Duration**: 2-4 weeks
 - **Team Resources**: Security architect, DevOps lead, compliance officer
@@ -490,7 +490,7 @@ The following timeline provides a detailed roadmap for implementing HashiCorp Va
   - Success metrics definition
 - **Completion Criteria**: Migration plan approved by leadership
 
-#### Phase 1: Foundation Building
+#### Timeline: Phase 1 - Foundation Building
 
 - **Duration**: 4-6 weeks
 - **Team Resources**: Infrastructure engineers, Vault administrators, security team
@@ -504,7 +504,7 @@ The following timeline provides a detailed roadmap for implementing HashiCorp Va
   - Backup and recovery procedures
 - **Completion Criteria**: Vault operational with critical secrets migrated
 
-#### Phase 2: Security Hardening
+#### Timeline: Phase 2 - Security Hardening
 
 - **Duration**: 6-8 weeks
 - **Team Resources**: Security engineers, AD administrators, Vault administrators
@@ -518,7 +518,7 @@ The following timeline provides a detailed roadmap for implementing HashiCorp Va
   - Host-based access controls
 - **Completion Criteria**: All security controls implemented and tested
 
-#### Phase 3: Ansible Tower/RHAAP Integration
+#### Timeline: Phase 3 - Ansible Tower/RHAAP Integration
 
 - **Duration**: 4-6 weeks
 - **Team Resources**: Automation engineers, security team
@@ -532,7 +532,7 @@ The following timeline provides a detailed roadmap for implementing HashiCorp Va
   - Integration testing
 - **Completion Criteria**: Tower/RHAAP securely integrated with Vault
 
-#### Phase 4: Playbook Refactoring
+#### Timeline: Phase 4 - Playbook Refactoring
 
 - **Duration**: 8-12 weeks
 - **Team Resources**: Ansible developers, application teams
@@ -546,7 +546,7 @@ The following timeline provides a detailed roadmap for implementing HashiCorp Va
   - Refactored playbooks
 - **Completion Criteria**: All critical playbooks refactored and tested
 
-#### Phase 5: Audit and Compliance
+#### Timeline: Phase 5 - Audit and Compliance
 
 - **Duration**: 4-6 weeks
 - **Team Resources**: Security team, compliance officers, developers
@@ -560,12 +560,12 @@ The following timeline provides a detailed roadmap for implementing HashiCorp Va
   - Documentation for auditors
 - **Completion Criteria**: Comprehensive audit trails and compliance reporting
 
-#### Phase 6: Disaster Recovery
+#### Timeline: Phase 6 - Disaster Recovery and Business Continuity
 
 - **Duration**: 4-6 weeks
-- **Team Resources**: Infrastructure team, security team
+- **Team Resources**: Infrastructure team, security specialists
 - **Risk Level**: Medium
-- **Dependencies**: Audit and compliance implementation
+- **Dependencies**: Fully operational production environment
 - **Key Deliverables**:
   - Fine-tuned HA configuration
   - Automated backup procedures

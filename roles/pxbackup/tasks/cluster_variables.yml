@@ -73,17 +73,17 @@
   register: inventory_response
   no_log: false
 
-- name: "Check inventory response for platform_vault"
-  ansible.builtin.assert:
-    that:
-      inventory_response.json | community.general.json_query('kubernetes_platform.secrets_management.platform_vault[0]') is defined
-    msg:
-      - "Failed to retrieve platform_vault information from inventory"
-      - "Inventory response: {{ inventory_response.json | indent(4) }}"
+- name: "Check if platform_vault exists in inventory response"
+  ansible.builtin.set_fact:
+    platform_vault_exists: "{{ (inventory_response.json | community.general.json_query('kubernetes_platform.secrets_management.platform_vault[0]') is not none) | bool }}"
+
+- name: "Debug platform_vault existence"
+  ansible.builtin.debug:
+    var: platform_vault_exists
+    verbosity: 1
 
 - name: Check inventory for cluster vault information
-  when:
-    - inventory_response.json | community.general.json_query('kubernetes_platform.secrets_management.platform_vault[0]') is defined
+  when: platform_vault_exists
   block:
     - name: "Set Vault configuration facts"
       ansible.builtin.set_fact:
@@ -107,8 +107,7 @@
           Vault Namespace: {{ vault_namespace }}
 
 - name: Set vault information from defaults
-  when:
-    - inventory_response.json | community.general.json_query('kubernetes_platform.secrets_management.platform_vault[0]') is not defined
+  when: not platform_vault_exists
   block:
     - name: Setup Defaults based on cluster_env
       ansible.builtin.set_fact:

@@ -28,5 +28,6 @@
   "sa_role_binding_name": "pxbackup-rolebinding",
   "inventory_url": "https://inventory.example.com",
   "validate_certs": true,
-  "ca_cert_path": "/etc/ssl/certs/ca-certificates.crt"
+  "ca_cert_path": "/etc/ssl/certs/ca-certificates.crt",
+  "cluster_adm_kube_dir": ""
 }

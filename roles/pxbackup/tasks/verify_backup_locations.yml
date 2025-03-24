@@ -123,8 +123,13 @@
   when: locations_to_create is defined and locations_to_create | length > 0
 
 - name: Create Missing Backup Locations
+  when: locations_to_create is defined and locations_to_create | length > 0
   block:
     - name: Create backup location
+      tags:
+        - backup_locations
+        - api_calls
+        - creation
       purepx.px_backup.backup_location:
         operation: CREATE
         api_url: "{{ px_backup_api_url }}"
@@ -146,11 +151,8 @@
       register: backup_location_creation
       loop_control:
         label: "{{ item.name }}"
-      tags:
-        - backup_locations
-        - api_calls
-        - creation
-  
+
+
   rescue:
     - name: Display Backup Location Creation Errors
       ansible.builtin.debug:
@@ -160,15 +162,13 @@
         - error_handling
         - debug
       when: backup_location_creation is defined and backup_location_creation.results is defined
-    
+
     - name: Fail with Error Message
       ansible.builtin.fail:
         msg: "Failed to create required backup locations. See above for details."
       tags:
         - backup_locations
         - error_handling
-  
-  when: locations_to_create is defined and locations_to_create | length > 0
 
 - name: Display Backup Location Creation Results
   ansible.builtin.debug:

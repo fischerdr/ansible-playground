@@ -12,9 +12,36 @@
 - name: Retrieve Master Kubeconfig from Vault
   ansible.builtin.include_tasks:
     file: retrieve_master_kubeconfig.yml
+  when: >
+    not (cluster_adm_kube_dir is defined and 
+         cluster_adm_kube_dir | length > 0 and 
+         lookup('ansible.builtin.fileglob', cluster_adm_kube_dir + '/' + cluster_name) | length > 0)
   tags:
     - always
     - vault
+    - kubeconfig
+    - cluster_setup
+
+# Read kubeconfig from file if it exists
+- name: Read kubeconfig from local file
+  ansible.builtin.slurp:
+    src: "{{ cluster_adm_kube_dir }}/{{ cluster_name }}"
+  register: local_kubeconfig_content
+  when: >
+    cluster_adm_kube_dir is defined and 
+    cluster_adm_kube_dir | length > 0 and 
+    lookup('ansible.builtin.fileglob', cluster_adm_kube_dir + '/' + cluster_name) | length > 0
+  tags:
+    - always
+    - kubeconfig
+    - cluster_setup
+
+- name: Set kubeconfig from local file
+  ansible.builtin.set_fact:
+    kubeconfig_admin: "{{ local_kubeconfig_content.content | b64decode }}"
+  when: local_kubeconfig_content is defined and local_kubeconfig_content.content is defined
+  tags:
+    - always
     - kubeconfig
     - cluster_setup
 

@@ -52,8 +52,8 @@
 
 - name: Check if backup schedule already exists
   ansible.builtin.set_fact:
-    existing_schedule: "{{ backup_schedules_result.backup_schedules | selectattr('metadata.name', 'equalto', schedule_item.name) | list }}"
-    schedule_exists: "{{ (backup_schedules_result.backup_schedules | selectattr('metadata.name', 'equalto', schedule_item.name) | list | length) > 0 }}"
+    existing_schedule: "{{ backup_schedules_result.backup_schedules | selectattr('metadata.name', 'equalto', cluster.name ~ '-' ~ schedule_item.name) | list }}"
+    schedule_exists: "{{ (backup_schedules_result.backup_schedules | selectattr('metadata.name', 'equalto', cluster.name ~ '-' ~ schedule_item.name) | list | length) > 0 }}"
   no_log: true
 
 - name: Create Backup Schedule
@@ -140,23 +140,29 @@
       Unchanged
       {% endif %}
 
-- name: Display Backup Schedule Operation Result
-  ansible.builtin.debug:
-    msg: |
-      Backup Schedule {{ backup_status }}:
-      - Name: {{ schedule_item.name }}
-      - Organization: {{ org_id }}
+- name: Update backup schedule counters
+  ansible.builtin.set_fact:
+    backup_schedules_created: "{{ backup_schedules_created | int + 1 if backup_status == 'Created' else backup_schedules_created | int }}"
+    backup_schedules_updated: "{{ backup_schedules_updated | int + 1 if backup_status == 'Updated' else backup_schedules_updated | int }}"
+    backup_schedules_unchanged: "{{ backup_schedules_unchanged | int + 1 if backup_status == 'Unchanged' else backup_schedules_unchanged | int }}"
+  no_log: true
+
+- name: Prepare schedule result message
+  ansible.builtin.set_fact:
+    schedule_result_message: >-
+      Schedule {{ schedule_item.name }} ({{ backup_status }}):
+      - Full Name: {{ cluster.name }}-{{ schedule_item.name }}
       - Schedule Policy: {{ schedule_policy_ref.name }}
       - Backup Location: {{ backup_location_ref.name }}
-      - Cluster: {{ cluster_ref.name }}
-      - Resource Types: {{ schedule_item.resource_types | default([]) | to_yaml }}
-      {% if schedule_item.ns_label_selectors is defined %}
-      - Namespace Label Selectors: {{ schedule_item.ns_label_selectors }}
-      {% endif %}
       {% if schedule_item.namespaces is defined %}
       - Namespaces: {{ schedule_item.namespaces | to_yaml }}
       {% endif %}
-      {% if schedule_item.exclude_resource_types is defined %}
-      - Excluded Resource Types: {{ schedule_item.exclude_resource_types | to_yaml }}
+      {% if schedule_item.ns_label_selectors is defined %}
+      - Namespace Label Selectors: {{ schedule_item.ns_label_selectors | to_yaml }}
       {% endif %}
-  when: not ansible_check_mode
+  no_log: true
+
+- name: Add schedule result to results list
+  ansible.builtin.set_fact:
+    backup_schedules_results: "{{ backup_schedules_results + [schedule_result_message] }}"
+  no_log: true

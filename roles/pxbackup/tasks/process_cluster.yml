@@ -128,6 +128,13 @@
     # Create cluster backup schedules
     - name: Create Cluster Backup Schedules
       block:
+        - name: Initialize backup schedules results list
+          ansible.builtin.set_fact:
+            backup_schedules_results: []
+            backup_schedules_created: 0
+            backup_schedules_updated: 0
+            backup_schedules_unchanged: 0
+
         - name: Get All Clusters
           purepx.px_backup.cluster:
             operation: INSPECT_ALL
@@ -165,6 +172,21 @@
           loop_control:
             loop_var: schedule_item
             label: "{{ schedule_item.name }}"
+
+        - name: Display All Backup Schedules Results
+          ansible.builtin.debug:
+            msg: |
+              Backup Schedules Summary for Cluster {{ cluster.name }}:
+              Total: {{ backup_schedules | length }}
+              Created: {{ backup_schedules_created }}
+              Updated: {{ backup_schedules_updated }}
+              Unchanged: {{ backup_schedules_unchanged }}
+              
+              Individual Schedule Results:
+              {% for result in backup_schedules_results %}
+              {{ result }}
+              {% endfor %}
+          when: not ansible_check_mode and backup_schedules | length > 0
 
   rescue:
     - name: Log cluster creation failure

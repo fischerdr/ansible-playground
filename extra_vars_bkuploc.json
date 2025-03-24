@@ -47,12 +47,12 @@
       "location_type": "S3",
       "path": "{{ cluster_user }}-{{ cluster_env }}-{{ region_data }}-{{ zone }}",
       "encryption_key": "my-s3-encryption-key",
-      "cloud_cred_name": "s3-{{cluster_user}}-{{ cluster_env }}-{{region_data}}",
+      "cloud_cred_name": "{{ lookup('ansible.builtin.vars', 's3_credentials.users.' + cluster_user + '.' + cluster_env + '.' + region_data + ' | default(s3_credentials.users.' + cluster_user + '.' + cluster_env + '.default) | default(s3_credentials.users.' + cluster_user + '.default) | default(s3_credentials.users.default.' + cluster_env + '.' + region_data + ' | default(s3_credentials.users.default.' + cluster_env + '.default) | default(s3_credentials.users.default.default) | default(s3_credentials.default))') }}",
       "validate_cloud_credential": true,
       "object_lock_enabled": true,
       "s3_config": {
-        "region": "{{ lookup('ansible.builtin.vars', 's3_regions.' + cluster_env + '.' + region_data + ' | default(s3_regions.' + cluster_env + '.default) | default(s3_regions.users.' + cluster_user + '.default) | default(s3_regions.default)') }}",
-        "endpoint": "{{ lookup('ansible.builtin.vars', 's3_endpoints.' + cluster_env + '.' + region_data + ' | default(s3_endpoints.' + cluster_env + '.default) | default(s3_endpoints.users.' + cluster_user + '.default) | default(s3_endpoints.default)') }}",
+        "region": "{{ lookup('ansible.builtin.vars', 's3_regions.users.' + cluster_user + '.' + cluster_env + '.' + region_data + ' | default(s3_regions.users.' + cluster_user + '.' + cluster_env + '.default) | default(s3_regions.users.' + cluster_user + '.default) | default(s3_regions.users.default.' + cluster_env + '.' + region_data + ' | default(s3_regions.users.default.' + cluster_env + '.default) | default(s3_regions.users.default.default) | default(s3_regions.default))') }}",
+        "endpoint": "{{ lookup('ansible.builtin.vars', 's3_endpoints.users.' + cluster_user + '.' + cluster_env + '.' + region_data + ' | default(s3_endpoints.users.' + cluster_user + '.' + cluster_env + '.default) | default(s3_endpoints.users.' + cluster_user + '.default) | default(s3_endpoints.users.default.' + cluster_env + '.' + region_data + ' | default(s3_endpoints.users.default.' + cluster_env + '.default) | default(s3_endpoints.users.default.default) | default(s3_endpoints.default))') }}",
         "disable_ssl": false
       }
     }

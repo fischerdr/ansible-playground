@@ -32,59 +32,130 @@
   "cluster_adm_kube_dir": "",
   "s3_endpoints": {
     "default": "s3.amazonaws.com",
-    "dev": {
-      "default": "s3-devtest.amazonaws.com",
-      "eusw1": "s3-eusw1.amazonaws.com",
-      "eusw2": "s3-eusw2.amazonaws.com",
-      "euse1": "s3-euse1.amazonaws.com",
-      "euse2": "s3-euse2.amazonaws.com"
-    },
-    "test": {
-      "default": "s3-devtest.amazonaws.com",
-      "eusw1": "s3-eusw1.amazonaws.com",
-      "eusw2": "s3-eusw2.amazonaws.com",
-      "euse1": "s3-euse1.amazonaws.com",
-      "euse2": "s3-euse2.amazonaws.com"
-    },
-    "prod": {
-      "default": "s3.amazonaws.com",
-      "eusw1": "s3-eusw1.amazonaws.com",
-      "eusw2": "s3-eusw2.amazonaws.com",
-      "euse1": "s3-euse1.amazonaws.com",
-      "euse2": "s3-euse2.amazonaws.com"
-    },
     "users": {
+      "default": {
+        "default": "s3.amazonaws.com",
+        "dev": {
+          "default": "s3-devtest.amazonaws.com",
+          "eusw1": "s3-eusw1.amazonaws.com",
+          "eusw2": "s3-eusw2.amazonaws.com",
+          "euse1": "s3-euse1.amazonaws.com",
+          "euse2": "s3-euse2.amazonaws.com"
+        },
+        "test": {
+          "default": "s3-devtest.amazonaws.com",
+          "eusw1": "s3-eusw1.amazonaws.com",
+          "eusw2": "s3-eusw2.amazonaws.com",
+          "euse1": "s3-euse1.amazonaws.com",
+          "euse2": "s3-euse2.amazonaws.com"
+        },
+        "prod": {
+          "default": "s3.amazonaws.com",
+          "eusw1": "s3-eusw1.amazonaws.com",
+          "eusw2": "s3-eusw2.amazonaws.com",
+          "euse1": "s3-euse1.amazonaws.com",
+          "euse2": "s3-euse2.amazonaws.com"
+        }
+      },
       "eng": {
-        "default": "s3-eng.amazonaws.com"
+        "default": "s3-eng.amazonaws.com",
+        "dev": {
+          "default": "s3-eng-dev.amazonaws.com",
+          "eusw1": "s3-eng-eusw1.amazonaws.com",
+          "eusw2": "s3-eng-eusw2.amazonaws.com"
+        },
+        "test": {
+          "default": "s3-eng-test.amazonaws.com"
+        },
+        "prod": {
+          "default": "s3-eng.amazonaws.com"
+        }
       }
     }
   },
   "s3_regions": {
     "default": "us-west-2",
-    "dev": {
-      "default": "us-west-2",
-      "eusw1": "us-west-1",
-      "eusw2": "us-west-2",
-      "euse1": "us-east-1",
-      "euse2": "us-east-2"
-    },
-    "test": {
-      "default": "us-west-2",
-      "eusw1": "us-west-1",
-      "eusw2": "us-west-2",
-      "euse1": "us-east-1",
-      "euse2": "us-east-2"
-    },
-    "prod": {
-      "default": "us-west-2",
-      "eusw1": "us-west-1",
-      "eusw2": "us-west-2",
-      "euse1": "us-east-1",
-      "euse2": "us-east-2"
-    },
     "users": {
+      "default": {
+        "default": "us-west-2",
+        "dev": {
+          "default": "us-west-2",
+          "eusw1": "us-west-1",
+          "eusw2": "us-west-2",
+          "euse1": "us-east-1",
+          "euse2": "us-east-2"
+        },
+        "test": {
+          "default": "us-west-2",
+          "eusw1": "us-west-1",
+          "eusw2": "us-west-2",
+          "euse1": "us-east-1",
+          "euse2": "us-east-2"
+        },
+        "prod": {
+          "default": "us-west-2",
+          "eusw1": "us-west-1",
+          "eusw2": "us-west-2",
+          "euse1": "us-east-1",
+          "euse2": "us-east-2"
+        }
+      },
       "eng": {
-        "default": "us-west-2"
+        "default": "us-west-2",
+        "dev": {
+          "default": "us-west-2",
+          "eusw1": "us-west-1",
+          "eusw2": "us-west-2"
+        },
+        "test": {
+          "default": "us-west-2"
+        },
+        "prod": {
+          "default": "us-west-2"
+        }
+      }
+    }
+  },
+  "s3_credentials": {
+    "default": "s3-credentials",
+    "users": {
+      "default": {
+        "default": "s3-default-credentials",
+        "dev": {
+          "default": "s3-default-dev-credentials",
+          "eusw1": "s3-default-dev-eusw1-credentials",
+          "eusw2": "s3-default-dev-eusw2-credentials",
+          "euse1": "s3-default-dev-euse1-credentials",
+          "euse2": "s3-default-dev-euse2-credentials"
+        },
+        "test": {
+          "default": "s3-default-test-credentials",
+          "eusw1": "s3-default-test-eusw1-credentials",
+          "eusw2": "s3-default-test-eusw2-credentials",
+          "euse1": "s3-default-test-euse1-credentials",
+          "euse2": "s3-default-test-euse2-credentials"
+        },
+        "prod": {
+          "default": "s3-default-prod-credentials",
+          "eusw1": "s3-default-prod-eusw1-credentials",
+          "eusw2": "s3-default-prod-eusw2-credentials",
+          "euse1": "s3-default-prod-euse1-credentials",
+          "euse2": "s3-default-prod-euse2-credentials"
+        }
+      },
+      "eng": {
+        "default": "s3-eng-credentials",
+        "dev": {
+          "default": "s3-eng-dev-credentials",
+          "eusw1": "s3-eng-dev-eusw1-credentials",
+          "eusw2": "s3-eng-dev-eusw2-credentials"
+        },
+        "test": {
+          "default": "s3-eng-test-credentials"
+        },
+        "prod": {
+          "default": "s3-eng-prod-credentials"
+        }
       }
     }
   }

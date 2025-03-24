@@ -73,6 +73,10 @@
   register: inventory_response
   no_log: false
 
+- name: "Set inventory region data"
+  ansible.builtin.set_fact:
+    region_data: "{{ inventory_response.json | community.general.json_query('.region') }}"
+
 - name: "Check if platform_vault exists in inventory response"
   ansible.builtin.set_fact:
     platform_vault_exists: "{{ (inventory_response.json | community.general.json_query('kubernetes_platform.secrets_management.platform_vault[0]') is not none) | bool }}"

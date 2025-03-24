@@ -43,16 +43,16 @@
         "project_id": "px-backup-project"
       }
     },    {
-      "name": "{{ cluster_user}}-{{ cluster_env }}-{{ region }}-{{ zone }}",
+      "name": "{{ cluster_user}}-{{ cluster_env }}-{{ region_data }}-{{ zone }}",
       "location_type": "S3",
-      "path": "{{ cluster_user }}-{{ cluster_env }}-{{ region }}-{{ zone }}",
+      "path": "{{ cluster_user }}-{{ cluster_env }}-{{ region_data }}-{{ zone }}",
       "encryption_key": "my-s3-encryption-key",
-      "cloud_cred_name": "s3-credentials-{{ cluster_env }}",
+      "cloud_cred_name": "s3-{{cluster_user}}-{{ cluster_env }}-{{region_data}}",
       "validate_cloud_credential": true,
       "object_lock_enabled": true,
       "s3_config": {
-        "region": "{{ region | default('us-west-2') }}",
-        "endpoint": "{{ if cluster_env == 'dev' or cluster_env == 'test' }}s3-devtest.amazonaws.com{{ elif region is defined and region.startswith('eusw') }}myurl{{ elif region is defined and region.startswith('euse') }}myeasturl{{ else }}s3.amazonaws.com{{ endif }}",
+        "region": "{{ lookup('ansible.builtin.vars', 's3_regions.' + cluster_env + '.' + region_data + ' | default(s3_regions.' + cluster_env + '.default) | default(s3_regions.users.' + cluster_user + '.default) | default(s3_regions.default)') }}",
+        "endpoint": "{{ lookup('ansible.builtin.vars', 's3_endpoints.' + cluster_env + '.' + region_data + ' | default(s3_endpoints.' + cluster_env + '.default) | default(s3_endpoints.users.' + cluster_user + '.default) | default(s3_endpoints.default)') }}",
         "disable_ssl": false
       }
     }

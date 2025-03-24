@@ -29,5 +29,63 @@
   "inventory_url": "https://inventory.example.com",
   "validate_certs": true,
   "ca_cert_path": "/etc/ssl/certs/ca-certificates.crt",
-  "cluster_adm_kube_dir": ""
+  "cluster_adm_kube_dir": "",
+  "s3_endpoints": {
+    "default": "s3.amazonaws.com",
+    "dev": {
+      "default": "s3-devtest.amazonaws.com",
+      "eusw1": "s3-eusw1.amazonaws.com",
+      "eusw2": "s3-eusw2.amazonaws.com",
+      "euse1": "s3-euse1.amazonaws.com",
+      "euse2": "s3-euse2.amazonaws.com"
+    },
+    "test": {
+      "default": "s3-devtest.amazonaws.com",
+      "eusw1": "s3-eusw1.amazonaws.com",
+      "eusw2": "s3-eusw2.amazonaws.com",
+      "euse1": "s3-euse1.amazonaws.com",
+      "euse2": "s3-euse2.amazonaws.com"
+    },
+    "prod": {
+      "default": "s3.amazonaws.com",
+      "eusw1": "s3-eusw1.amazonaws.com",
+      "eusw2": "s3-eusw2.amazonaws.com",
+      "euse1": "s3-euse1.amazonaws.com",
+      "euse2": "s3-euse2.amazonaws.com"
+    },
+    "users": {
+      "eng": {
+        "default": "s3-eng.amazonaws.com"
+      }
+    }
+  },
+  "s3_regions": {
+    "default": "us-west-2",
+    "dev": {
+      "default": "us-west-2",
+      "eusw1": "us-west-1",
+      "eusw2": "us-west-2",
+      "euse1": "us-east-1",
+      "euse2": "us-east-2"
+    },
+    "test": {
+      "default": "us-west-2",
+      "eusw1": "us-west-1",
+      "eusw2": "us-west-2",
+      "euse1": "us-east-1",
+      "euse2": "us-east-2"
+    },
+    "prod": {
+      "default": "us-west-2",
+      "eusw1": "us-west-1",
+      "eusw2": "us-west-2",
+      "euse1": "us-east-1",
+      "euse2": "us-east-2"
+    },
+    "users": {
+      "eng": {
+        "default": "us-west-2"
+      }
+    }
+  }
 }

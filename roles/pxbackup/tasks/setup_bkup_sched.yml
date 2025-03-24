@@ -7,7 +7,6 @@
       - schedule_item.name is defined
       - schedule_item.backup_location is defined
       - schedule_item.schedule_policy is defined
-      - schedule_item.cluster is defined
     fail_msg: "Invalid schedule configuration for {{ schedule_item.name | default('unknown') }}"
 
 - name: Get Schedule Policy Reference

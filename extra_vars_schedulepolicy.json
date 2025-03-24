@@ -11,14 +11,14 @@
       "interval_type": "Daily",
       "interval_count": 1,
       "retention_count": 7,
-      "start_time": "04:00"
+      "start_time": "04:00AM"
     },
     {
       "name": "weekly-retention-4",
       "interval_type": "Weekly",
       "interval_count": 1,
       "retention_count": 4,
-      "start_time": "02:00",
+      "start_time": "02:00AM",
       "days_of_week": ["Sunday"]
     },
     {
@@ -26,7 +26,7 @@
       "interval_type": "Monthly",
       "interval_count": 1,
       "retention_count": 12,
-      "start_time": "01:00",
+      "start_time": "01:00AM",
       "days_of_month": [1]
     },
     {
@@ -34,28 +34,28 @@
       "interval_type": "Daily",
       "interval_count": 1,
       "retention_count": 7,
-      "start_time": "04:00"
+      "start_time": "04:00AM"
     },
     {
       "name": "8am",
       "interval_type": "Daily",
       "interval_count": 1,
       "retention_count": 7,
-      "start_time": "08:00"
+      "start_time": "08:00AM"
     },
     {
       "name": "12pm",
       "interval_type": "Daily",
       "interval_count": 1,
       "retention_count": 7,
-      "start_time": "12:00"
+      "start_time": "12:00PM"
     },
     {
       "name": "4pm",
       "interval_type": "Daily",
       "interval_count": 1,
       "retention_count": 7,
-      "start_time": "16:00"
+      "start_time": "04:00PM"
     }
   ]
 }

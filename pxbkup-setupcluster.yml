@@ -1,0 +1,7 @@
+---
+- name: Configure PX-Backup Clusters
+  hosts: all
+  gather_facts: false
+
+  roles:
+    - role: pxbackup

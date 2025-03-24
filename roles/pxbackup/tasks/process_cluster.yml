@@ -30,18 +30,28 @@
 
 # Then create the cluster in PX-Backup
 - name: Create PX-Backup clusters
+  tags:
+    - cluster_management
+    - api_calls
   block:
     - name: Create or update cluster in PX-Backup
-      ansible.builtin.include_tasks:
-        file: create_update_cluster.yml
       tags:
         - cluster_management
         - api_calls
+      ansible.builtin.include_tasks:
+        file: create_update_cluster.yml
+
 
     # Create cluster backup schedules
     - name: Create Cluster Backup Schedules
+      tags:
+        - backup_schedules
+        - api_calls
       block:
         - name: Get All Clusters
+          tags:
+            - backup_schedules
+            - api_calls
           purepx.px_backup.cluster:
             operation: INSPECT_ALL
             org_id: "{{ org_id }}"
@@ -50,12 +60,12 @@
             validate_certs: "{{ validate_certs | bool }}"
           register: px_clusters_list
           no_log: true  # Since response contains token
-          tags:
-            - cluster_info
-            - api_calls
-            - backup_schedules
 
         - name: Get Backup Locations
+          tags:
+            - backup_locations
+            - api_calls
+            - backup_schedules
           purepx.px_backup.backup_location:
             operation: INSPECT_ALL
             org_id: "{{ org_id }}"
@@ -64,33 +74,32 @@
             validate_certs: "{{ validate_certs | bool }}"
           register: backup_locations_list
           no_log: true  # Since response contains token
-          tags:
-            - backup_locations
-            - api_calls
-            - backup_schedules
 
         # Process schedule policies first
         - name: Process Schedule Policies
-          ansible.builtin.include_tasks:
-            file: setup_schedule_policies.yml
-          when: schedule_policies is defined and schedule_policies | length > 0
           tags:
             - schedule_policies
             - backup_schedules
+          ansible.builtin.include_tasks:
+            file: setup_schedule_policies.yml
+          when: schedule_policies is defined and schedule_policies | length > 0
 
         # Then process backup schedules
         - name: Initialize backup schedules results
+          tags:
+            - backup_schedules
+            - variables
           ansible.builtin.set_fact:
             backup_schedules_results: []
             backup_schedules_created: 0
             backup_schedules_updated: 0
             backup_schedules_unchanged: 0
           when: backup_schedules is defined and backup_schedules | length > 0
-          tags:
-            - backup_schedules
-            - variables
 
         - name: Process Each Backup Schedule
+          tags:
+            - backup_schedules
+            - api_calls
           ansible.builtin.include_tasks:
             file: setup_bkup_sched.yml
           loop: "{{ backup_schedules }}"
@@ -98,11 +107,12 @@
             loop_var: schedule_item
             label: "{{ schedule_item.name }}"
           when: backup_schedules is defined and backup_schedules | length > 0
-          tags:
-            - backup_schedules
-            - api_calls
 
         - name: Display All Backup Schedules Results
+          tags:
+            - backup_schedules
+            - reporting
+            - debug
           ansible.builtin.debug:
             msg: |
               Backup Schedules Summary for Cluster {{ cluster.name }}:
@@ -110,18 +120,13 @@
               Created: {{ backup_schedules_created }}
               Updated: {{ backup_schedules_updated }}
               Unchanged: {{ backup_schedules_unchanged }}
-              
+
               Individual Schedule Results:
               {% for result in backup_schedules_results %}
               {{ result }}
               {% endfor %}
           when: not ansible_check_mode and backup_schedules is defined and backup_schedules | length > 0
-          tags:
-            - backup_schedules
-            - reporting
-            - debug
-      tags:
-        - backup_schedules
+
 
   rescue:
     - name: Log cluster creation failure
@@ -177,5 +182,3 @@
         - always
         - cleanup
         - security
-  tags:
-    - cluster_processing

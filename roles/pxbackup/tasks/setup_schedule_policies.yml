@@ -36,6 +36,9 @@
     - validation
 
 - name: Process Each Schedule Policy
+  tags:
+    - schedule_policies
+    - policy_processing
   loop: "{{ schedule_policies }}"
   loop_control:
     loop_var: policy_item
@@ -43,9 +46,9 @@
   block:
     - name: Check if schedule policy exists
       ansible.builtin.set_fact:
-        existing_policy: "{{ schedule_policies_list.schedule_policies | 
+        existing_policy: "{{ schedule_policies_list.schedule_policies |
                             selectattr('metadata.name', 'equalto', policy_item.name) | list }}"
-        policy_exists: "{{ (schedule_policies_list.schedule_policies | 
+        policy_exists: "{{ (schedule_policies_list.schedule_policies |
                          selectattr('metadata.name', 'equalto', policy_item.name) | list | length) > 0 }}"
       no_log: true
       tags:
@@ -120,13 +123,13 @@
     - name: Update policy counters
       ansible.builtin.set_fact:
         schedule_policies_created: >-
-          {{ schedule_policies_created | int + 1 if policy_status == 'Created' 
+          {{ schedule_policies_created | int + 1 if policy_status == 'Created'
           else schedule_policies_created | int }}
         schedule_policies_updated: >-
-          {{ schedule_policies_updated | int + 1 if policy_status == 'Updated' 
+          {{ schedule_policies_updated | int + 1 if policy_status == 'Updated'
           else schedule_policies_updated | int }}
         schedule_policies_unchanged: >-
-          {{ schedule_policies_unchanged | int + 1 if policy_status == 'Unchanged' 
+          {{ schedule_policies_unchanged | int + 1 if policy_status == 'Unchanged'
           else schedule_policies_unchanged | int }}
       no_log: true
       tags:
@@ -193,8 +196,6 @@
         - schedule_policies
         - cleanup
         - security
-  tags:
-    - schedule_policies
 
 - name: Display Schedule Policies Summary
   ansible.builtin.debug:

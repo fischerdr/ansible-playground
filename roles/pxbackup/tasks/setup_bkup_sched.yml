@@ -19,7 +19,7 @@
       uid: "{{ selected_policy.metadata.uid }}"
   vars:
     selected_policy: >-
-      {{ schedule_policies_list.schedule_policies | 
+      {{ schedule_policies_list.schedule_policies |
       selectattr('metadata.name', 'equalto', schedule_item.schedule_policy) | list | first }}
   failed_when: selected_policy | length == 0
   no_log: true
@@ -34,7 +34,7 @@
       uid: "{{ selected_location.metadata.uid }}"
   vars:
     selected_location: >-
-      {{ backup_locations_list.backup_locations | 
+      {{ backup_locations_list.backup_locations |
       selectattr('metadata.name', 'equalto', schedule_item.backup_location) | list | first }}
   failed_when: selected_location | length == 0
   no_log: true
@@ -49,7 +49,7 @@
       uid: "{{ selected_cluster.metadata.uid }}"
   vars:
     selected_cluster: >-
-      {{ px_clusters_list.clusters | 
+      {{ px_clusters_list.clusters |
       selectattr('metadata.name', 'equalto', cluster.name) | list | first }}
   failed_when: selected_cluster | length == 0
   no_log: true
@@ -73,10 +73,10 @@
 - name: Check if backup schedule already exists
   ansible.builtin.set_fact:
     existing_schedule: >-
-      {{ backup_schedules_result.backup_schedules | 
+      {{ backup_schedules_result.backup_schedules |
       selectattr('metadata.name', 'equalto', cluster.name ~ '-' ~ schedule_item.name) | list }}
     schedule_exists: >-
-      {{ (backup_schedules_result.backup_schedules | 
+      {{ (backup_schedules_result.backup_schedules |
       selectattr('metadata.name', 'equalto', cluster.name ~ '-' ~ schedule_item.name) | list | length) > 0 }}
   no_log: true
   tags:
@@ -181,13 +181,13 @@
 - name: Update backup schedule counters
   ansible.builtin.set_fact:
     backup_schedules_created: >-
-      {{ backup_schedules_created | int + 1 if backup_status == 'Created' 
+      {{ backup_schedules_created | int + 1 if backup_status == 'Created'
       else backup_schedules_created | int }}
     backup_schedules_updated: >-
-      {{ backup_schedules_updated | int + 1 if backup_status == 'Updated' 
+      {{ backup_schedules_updated | int + 1 if backup_status == 'Updated'
       else backup_schedules_updated | int }}
     backup_schedules_unchanged: >-
-      {{ backup_schedules_unchanged | int + 1 if backup_status == 'Unchanged' 
+      {{ backup_schedules_unchanged | int + 1 if backup_status == 'Unchanged'
       else backup_schedules_unchanged | int }}
   no_log: true
   tags:

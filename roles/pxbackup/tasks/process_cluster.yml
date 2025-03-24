@@ -61,6 +61,16 @@
           register: px_clusters_list
           no_log: true  # Since response contains token
 
+        # Verify and create backup locations if needed
+        - name: Verify and Create Required Backup Locations
+          tags:
+            - backup_locations
+            - api_calls
+            - backup_schedules
+          ansible.builtin.include_tasks:
+            file: verify_backup_locations.yml
+          when: backup_schedules is defined and backup_schedules | length > 0
+
         - name: Get Backup Locations
           tags:
             - backup_locations

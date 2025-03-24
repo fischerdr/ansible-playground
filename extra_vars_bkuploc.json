@@ -1,0 +1,47 @@
+{
+  "backup_locations": [
+    {
+      "name": "nfs-backup-location",
+      "location_type": "NFS",
+      "path": "/mnt/backups",
+      "encryption_key": "my-encryption-key",
+      "nfs_config": {
+        "server": "nfs.example.com",
+        "export_path": "/exports/backups"
+      }
+    },
+    {
+      "name": "s3-backup-location",
+      "location_type": "S3",
+      "path": "px-backups",
+      "encryption_key": "my-s3-encryption-key",
+      "cloud_cred_name": "s3-credentials",
+      "validate_cloud_credential": true,
+      "object_lock_enabled": true,
+      "s3_config": {
+        "region": "us-west-2",
+        "endpoint": "s3.amazonaws.com",
+        "disable_ssl": false
+      }
+    },
+    {
+      "name": "azure-backup-location",
+      "location_type": "Azure",
+      "path": "px-azure-backups",
+      "cloud_cred_name": "azure-credentials",
+      "azure_config": {
+        "storage_account": "pxbackupstorage",
+        "resource_group": "px-backup-rg"
+      }
+    },
+    {
+      "name": "google-backup-location",
+      "location_type": "Google",
+      "path": "px-gcp-backups",
+      "cloud_cred_name": "gcp-credentials",
+      "google_config": {
+        "project_id": "px-backup-project"
+      }
+    }
+  ]
+}

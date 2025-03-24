@@ -2,27 +2,47 @@
   "backup_schedules": [
     {
       "name": "all-resource-4am",
-      "backup_location": "cld-devqa-zonea",
+      "backup_location": "zone-a-region-uswest-s3",
       "schedule_policy": "4am",
       "ns_label_selectors": "all/pxbackup.portworx.io=4am"
     },
     {
       "name": "all-resource-8am",
-      "backup_location": "cld-devqa-zonea",
+      "backup_location": "zone-a-region-uswest-s3",
       "schedule_policy": "8am",
       "ns_label_selectors": "all/pxbackup.portworx.io=8am"
     },
     {
       "name": "all-resource-12pm",
-      "backup_location": "cld-devqa-zonea",
+      "backup_location": "zone-a-region-uswest-s3",
       "schedule_policy": "12pm",
       "ns_label_selectors": "all/pxbackup.portworx.io=12pm"
     },
     {
       "name": "all-resource-4pm",
-      "backup_location": "cld-devqa-zonea",
+      "backup_location": "zone-a-region-uswest-s3",
       "schedule_policy": "4pm",
       "ns_label_selectors": "all/pxbackup.portworx.io=4pm"
+    },
+    {
+      "name": "daily-backup",
+      "backup_location": "nfs-backup-location",
+      "schedule_policy": "daily-retention-7d",
+      "resource_types": ["persistentvolumeclaims", "deployments"],
+      "reclaim_policy": "Retain",
+      "namespaces": ["app-namespace", "database-namespace"],
+      "backup_type": "Normal",
+      "suspend": false
+    },
+    {
+      "name": "weekly-backup",
+      "backup_location": "s3-backup-location",
+      "schedule_policy": "weekly-retention-4w",
+      "resource_types": ["persistentvolumeclaims", "statefulsets", "deployments"],
+      "reclaim_policy": "Retain",
+      "namespaces": ["app-namespace", "database-namespace", "monitoring"],
+      "backup_type": "Normal",
+      "suspend": false
     }
   ]
 }

@@ -1,0 +1,7 @@
+{
+  "cluster": {
+    "name": "example-cluster",
+    "kubeconfig": "/path/to/kubeconfig",
+    "type": "Kubernetes"
+  }
+}

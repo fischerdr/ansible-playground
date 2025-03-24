@@ -1,0 +1,104 @@
+{
+  "px_backup_api_url": "https://pxbackup.example.com",
+  "org_id": "default",
+  "validate_certs": false,
+  "schedule_policies": [
+    {
+      "name": "hourly-retention-24",
+      "interval_type": "Hourly",
+      "interval_count": 1,
+      "retention_count": 24
+    },
+    {
+      "name": "daily-retention-7",
+      "interval_type": "Daily",
+      "interval_count": 1,
+      "retention_count": 7,
+      "start_time": "04:00"
+    },
+    {
+      "name": "weekly-retention-4",
+      "interval_type": "Weekly",
+      "interval_count": 1,
+      "retention_count": 4,
+      "start_time": "02:00",
+      "days_of_week": ["Sunday"]
+    },
+    {
+      "name": "monthly-retention-12",
+      "interval_type": "Monthly",
+      "interval_count": 1,
+      "retention_count": 12,
+      "start_time": "01:00",
+      "days_of_month": [1]
+    },
+    {
+      "name": "4am",
+      "interval_type": "Daily",
+      "interval_count": 1,
+      "retention_count": 7,
+      "start_time": "04:00"
+    },
+    {
+      "name": "8am",
+      "interval_type": "Daily",
+      "interval_count": 1,
+      "retention_count": 7,
+      "start_time": "08:00"
+    },
+    {
+      "name": "12pm",
+      "interval_type": "Daily",
+      "interval_count": 1,
+      "retention_count": 7,
+      "start_time": "12:00"
+    },
+    {
+      "name": "4pm",
+      "interval_type": "Daily",
+      "interval_count": 1,
+      "retention_count": 7,
+      "start_time": "16:00"
+    }
+  ],
+  "backup_locations": [
+    {
+      "name": "cld-devqa-zonea"
+    }
+  ],
+  "cluster": {
+    "name": "example-cluster",
+    "kubeconfig": "/path/to/kubeconfig",
+    "type": "Kubernetes"
+  },
+  "backup_schedules": [
+    {
+      "name": "all-resource-4am",
+      "backup_location": "cld-devqa-zonea",
+      "schedule_policy": "4am",
+      "cluster": "example-cluster",
+      "ns_label_selectors": "all/pxbackup.portworx.io=4am"
+    },
+    {
+      "name": "all-resource-8am",
+      "backup_location": "cld-devqa-zonea",
+      "schedule_policy": "8am",
+      "cluster": "example-cluster",
+      "ns_label_selectors": "all/pxbackup.portworx.io=8am"
+    },
+    {
+      "name": "all-resource-12pm",
+      "backup_location": "cld-devqa-zonea",
+      "schedule_policy": "12pm",
+      "cluster": "example-cluster",
+      "ns_label_selectors": "all/pxbackup.portworx.io=12pm"
+    },
+    {
+      "name": "all-resource-4pm",
+      "backup_location": "cld-devqa-zonea",
+      "schedule_policy": "4pm",
+      "cluster": "example-cluster",
+      "ns_label_selectors": "all/pxbackup.portworx.io=4pm"
+    }
+  ]
+}

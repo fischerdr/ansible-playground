@@ -38,47 +38,106 @@
         fail_msg: "Failed to retrieve valid kubeconfig for cluster {{ cluster.name }}"
       no_log: true
 
-    - name: Create cluster in PX-Backup
-      purepx.px_backup.cluster:
-        operation: CREATE
-        api_url: "{{ px_backup_api_url }}"
-        token: "{{ px_backup_token }}"
-        name: "{{ cluster.name }}"
-        org_id: "{{ org_id | default('default') }}"
-        cloud_type: "{{ cluster.cloud_type | default('OTHER') }}"
-        kubeconfig: "{{ kubeconfig_data.data.data.kubeconfig | b64decode }}"
-        cloud_credential_ref: "{{ cluster.cloud_credential_ref | default(omit) }}"
-        platform_credential_ref: "{{ cluster.platform_credential_ref | default(omit) }}"
-        px_config: "{{ cluster.px_config | default(omit) }}"
-        service_token: "{{ cluster.service_token | default(omit) }}"
-        validate_certs: "{{ validate_certs | default(true) }}"
-      register: cluster_creation
-      no_log: true
+    - name: Check if cluster is already present and create/update
+      block:
+        - name: Get All Clusters
+          purepx.px_backup.cluster:
+            operation: INSPECT_ALL
+            org_id: "{{ org_id }}"
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            validate_certs: "{{ validate_certs | bool }}"
+          register: px_clusters_list
+          no_log: true  # Since response contains token
 
-    - name: Verify cluster creation
-      ansible.builtin.assert:
-        that:
-          - cluster_creation is success
-          - cluster_creation.changed is defined
-        fail_msg: "Failed to verify cluster creation status for {{ cluster.name }}"
-        success_msg: "Successfully created cluster {{ cluster.name }} in PX-Backup"
+        - name: Create new cluster in PX-Backup
+          purepx.px_backup.cluster:
+            operation: CREATE
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            name: "{{ cluster.name }}"
+            org_id: "{{ org_id | default('default') }}"
+            cloud_type: "{{ cluster.cloud_type | default('OTHER') }}"
+            kubeconfig: "{{ kubeconfig_data.data.data.kubeconfig | b64decode }}"
+            cloud_credential_ref: "{{ cluster.cloud_credential_ref | default(omit) }}"
+            platform_credential_ref: "{{ cluster.platform_credential_ref | default(omit) }}"
+            px_config: "{{ cluster.px_config | default(omit) }}"
+            service_token: "{{ cluster.service_token | default(omit) }}"
+            validate_certs: "{{ validate_certs | default(true) }}"
+          register: cluster_creation
+          no_log: true
+          when: px_clusters_list.clusters | selectattr('metadata.name', 'equalto', cluster.name) | list | length == 0
 
-    - name: Log cluster creation details
-      ansible.builtin.debug:
-        msg:
-          - "Cluster: {{ cluster.name }}"
-          - "Status: {{ cluster_creation.changed | ternary('Created', 'Already exists') }}"
-          - "Cloud Type: {{ cluster.cloud_type | default('OTHER') }}"
-          - "Organization: {{ org_id | default('default') }}"
-          - "Cloud Credential: {{ cluster.cloud_credential_ref | default('None') }}"
-          - "Platform Credential: {{ cluster.platform_credential_ref | default('None') }}"
-        verbosity: 1
-      when: not ansible_check_mode
-      no_log: false
+        - name: Set existing cluster UID
+          ansible.builtin.set_fact:
+            existing_cluster_uid: "{{ (px_clusters_list.clusters | selectattr('metadata.name', 'equalto', cluster.name) | list | first).metadata.uid }}"
+          when: px_clusters_list.clusters | selectattr('metadata.name', 'equalto', cluster.name) | list | length > 0
+          no_log: true
+
+        - name: Update existing cluster in PX-Backup
+          purepx.px_backup.cluster:
+            operation: UPDATE
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            name: "{{ cluster.name }}"
+            org_id: "{{ org_id | default('default') }}"
+            uid: "{{ existing_cluster_uid }}"
+            cloud_type: "{{ cluster.cloud_type | default('OTHER') }}"
+            kubeconfig: "{{ kubeconfig_data.data.data.kubeconfig | b64decode }}"
+            cloud_credential_ref: "{{ cluster.cloud_credential_ref | default(omit) }}"
+            platform_credential_ref: "{{ cluster.platform_credential_ref | default(omit) }}"
+            px_config: "{{ cluster.px_config | default(omit) }}"
+            service_token: "{{ cluster.service_token | default(omit) }}"
+            validate_certs: "{{ validate_certs | default(true) }}"
+          register: cluster_update
+          no_log: true
+          when: px_clusters_list.clusters | selectattr('metadata.name', 'equalto', cluster.name) | list | length > 0
+
+        - name: Set cluster operation status
+          ansible.builtin.set_fact:
+            cluster_status: >-
+              {% if cluster_creation is defined and cluster_creation.changed | default(false) %}
+              Created
+              {% elif cluster_update is defined and cluster_update.changed | default(false) %}
+              Updated
+              {% else %}
+              Unchanged
+              {% endif %}
+
+        - name: Verify cluster operation
+          ansible.builtin.assert:
+            that:
+              - (cluster_creation is defined and cluster_creation is success) or
+                (cluster_update is defined and cluster_update is success)
+            fail_msg: "Failed to process cluster {{ cluster.name }} in PX-Backup"
+            success_msg: "Successfully {{ cluster_status }} cluster {{ cluster.name }} in PX-Backup"
+
+        - name: Log cluster operation details
+          ansible.builtin.debug:
+            msg:
+              - "Cluster: {{ cluster.name }}"
+              - "Status: {{ cluster_status }}"
+              - "Cloud Type: {{ cluster.cloud_type | default('OTHER') }}"
+              - "Organization: {{ org_id | default('default') }}"
+              - "Cloud Credential: {{ cluster.cloud_credential_ref | default('None') }}"
+              - "Platform Credential: {{ cluster.platform_credential_ref | default('None') }}"
+            verbosity: 1
+          when: not ansible_check_mode
+          no_log: false
 
     # Create cluster backup schedules
     - name: Create Cluster Backup Schedules
       block:
+        - name: Get All Clusters
+          purepx.px_backup.cluster:
+            operation: INSPECT_ALL
+            org_id: "{{ org_id }}"
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            validate_certs: "{{ validate_certs | bool }}"
+          register: px_clusters_list
+          no_log: true  # Since response contains token
+
         - name: Get Schedule Policies
           purepx.px_backup.schedule_policy:
             operation: INSPECT_ALL
@@ -99,19 +158,9 @@
           register: backup_locations_list
           no_log: true  # Since response contains token
 
-        - name: Get Clusters
-          purepx.px_backup.cluster:
-            operation: INSPECT_ALL
-            org_id: "{{ org_id }}"
-            api_url: "{{ px_backup_api_url }}"
-            token: "{{ px_backup_token }}"
-            validate_certs: "{{ validate_certs | bool }}"
-          register: px_clusters_list
-          no_log: true  # Since response contains token
-
         - name: Process Each Backup Schedule
           ansible.builtin.include_tasks:
-            file: setup_bkup_schedpolicy.yml
+            file: setup_bkup_sched.yml
           loop: "{{ backup_schedules }}"
           loop_control:
             loop_var: schedule_item
@@ -126,6 +175,8 @@
           Failed to retrieve kubeconfig from Vault
           {% elif cluster_creation is defined and cluster_creation.failed %}
           {{ cluster_creation.msg }}
+          {% elif cluster_update is defined and cluster_update.failed %}
+          {{ cluster_update.msg }}
           {% else %}
           Unknown error occurred
           {% endif %}
@@ -150,4 +201,5 @@
       ansible.builtin.set_fact:
         kubeconfig_data: null
         cluster_creation: null
+        cluster_update: null
       no_log: true

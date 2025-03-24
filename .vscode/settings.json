@@ -1,7 +1,12 @@
 {
-    "python-envs.pythonProjects": [],
     "ansible.ansible.reuseTerminal": true,
     "ansible.executionEnvironment.image": "development-ee:latest",
     "ansible.python.interpreterPath": "/development/git/ansible-playground/.venv/bin/python",
     "python.languageServer": "None",
+    "ansible.lightspeed.suggestions.enabled": false,
+    "terminal.integrated.focusAfterRun": "terminal",
+    "terminal.integrated.scrollback": 5000,
+    "terminal.integrated.shellIntegration.enabled": true,
+    "chat.experimental.variables.terminal": true,
+
 }

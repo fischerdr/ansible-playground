@@ -3,16 +3,30 @@
 - name: Configure cluster variables
   ansible.builtin.include_tasks:
     file: cluster_variables.yml
+  tags:
+    - always
+    - cluster_setup
+    - variables
 
 # First retrieve the master kubeconfig and create service account
 - name: Retrieve Master Kubeconfig from Vault
   ansible.builtin.include_tasks:
     file: retrieve_master_kubeconfig.yml
+  tags:
+    - always
+    - vault
+    - kubeconfig
+    - cluster_setup
 
 # Create service account and kubeconfig for use in PX-Backup
 - name: Create Service Account and Kubeconfig
   ansible.builtin.include_tasks:
     file: create_sa_kubeconfig.yml
+  tags:
+    - always
+    - kubernetes
+    - service_account
+    - cluster_setup
 
 # Then create the cluster in PX-Backup
 - name: Create PX-Backup clusters
@@ -20,6 +34,9 @@
     - name: Create or update cluster in PX-Backup
       ansible.builtin.include_tasks:
         file: create_update_cluster.yml
+      tags:
+        - cluster_management
+        - api_calls
 
     # Create cluster backup schedules
     - name: Create Cluster Backup Schedules
@@ -33,6 +50,10 @@
             validate_certs: "{{ validate_certs | bool }}"
           register: px_clusters_list
           no_log: true  # Since response contains token
+          tags:
+            - cluster_info
+            - api_calls
+            - backup_schedules
 
         - name: Get Backup Locations
           purepx.px_backup.backup_location:
@@ -43,12 +64,19 @@
             validate_certs: "{{ validate_certs | bool }}"
           register: backup_locations_list
           no_log: true  # Since response contains token
+          tags:
+            - backup_locations
+            - api_calls
+            - backup_schedules
 
         # Process schedule policies first
         - name: Process Schedule Policies
           ansible.builtin.include_tasks:
             file: setup_schedule_policies.yml
           when: schedule_policies is defined and schedule_policies | length > 0
+          tags:
+            - schedule_policies
+            - backup_schedules
 
         # Then process backup schedules
         - name: Initialize backup schedules results
@@ -58,6 +86,9 @@
             backup_schedules_updated: 0
             backup_schedules_unchanged: 0
           when: backup_schedules is defined and backup_schedules | length > 0
+          tags:
+            - backup_schedules
+            - variables
 
         - name: Process Each Backup Schedule
           ansible.builtin.include_tasks:
@@ -67,6 +98,9 @@
             loop_var: schedule_item
             label: "{{ schedule_item.name }}"
           when: backup_schedules is defined and backup_schedules | length > 0
+          tags:
+            - backup_schedules
+            - api_calls
 
         - name: Display All Backup Schedules Results
           ansible.builtin.debug:
@@ -82,6 +116,12 @@
               {{ result }}
               {% endfor %}
           when: not ansible_check_mode and backup_schedules is defined and backup_schedules | length > 0
+          tags:
+            - backup_schedules
+            - reporting
+            - debug
+      tags:
+        - backup_schedules
 
   rescue:
     - name: Log cluster creation failure
@@ -98,20 +138,33 @@
           Unknown error occurred
           {% endif %}
       no_log: true
+      tags:
+        - always
+        - error_handling
 
     - name: Debug cluster creation failure
       ansible.builtin.debug:
         msg: "{{ cluster_error }}"
         verbosity: 1
+      tags:
+        - always
+        - error_handling
+        - debug
 
     - name: Record failed cluster
       ansible.builtin.set_fact:
         failed_clusters: "{{ failed_clusters | default([]) + [cluster.name] }}"
+      tags:
+        - always
+        - error_handling
 
     - name: Fail task with error
       ansible.builtin.fail:
         msg: "{{ cluster_error }}"
       when: fail_on_cluster_error | default(true) | bool
+      tags:
+        - always
+        - error_handling
 
   always:
     - name: Cleanup sensitive variables
@@ -120,3 +173,9 @@
         cluster_creation: null
         cluster_update: null
       no_log: true
+      tags:
+        - always
+        - cleanup
+        - security
+  tags:
+    - cluster_processing

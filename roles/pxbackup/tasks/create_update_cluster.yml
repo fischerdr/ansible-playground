@@ -13,6 +13,11 @@
     ca_cert: "{{ ca_cert_path }}"
   register: kubeconfig_data
   no_log: true
+  tags:
+    - always
+    - vault
+    - kubeconfig
+    - cluster_setup
 
 - name: Validate kubeconfig data
   ansible.builtin.assert:
@@ -21,6 +26,11 @@
       - kubeconfig_data.data.data.kubeconfig | string | length > 0
     fail_msg: "Failed to retrieve valid kubeconfig for cluster {{ cluster.name }}"
   no_log: true
+  tags:
+    - always
+    - validation
+    - kubeconfig
+    - cluster_setup
 
 - name: Get All Clusters
   purepx.px_backup.cluster:
@@ -31,6 +41,10 @@
     validate_certs: "{{ validate_certs | bool }}"
   register: px_clusters_list
   no_log: true  # Since response contains token
+  tags:
+    - always
+    - cluster_info
+    - api_calls
 
 - name: Create new cluster in PX-Backup
   purepx.px_backup.cluster:
@@ -49,12 +63,20 @@
   register: cluster_creation
   no_log: true
   when: px_clusters_list.clusters | selectattr('metadata.name', 'equalto', cluster.name) | list | length == 0
+  tags:
+    - cluster_creation
+    - api_calls
+    - cluster_management
 
 - name: Set existing cluster UID
   ansible.builtin.set_fact:
     existing_cluster_uid: "{{ (px_clusters_list.clusters | selectattr('metadata.name', 'equalto', cluster.name) | list | first).metadata.uid }}"
   when: px_clusters_list.clusters | selectattr('metadata.name', 'equalto', cluster.name) | list | length > 0
   no_log: true
+  tags:
+    - cluster_update
+    - api_calls
+    - cluster_management
 
 - name: Update existing cluster in PX-Backup
   purepx.px_backup.cluster:
@@ -74,6 +96,10 @@
   register: cluster_update
   no_log: true
   when: px_clusters_list.clusters | selectattr('metadata.name', 'equalto', cluster.name) | list | length > 0
+  tags:
+    - cluster_update
+    - api_calls
+    - cluster_management
 
 - name: Set cluster operation status
   ansible.builtin.set_fact:
@@ -85,6 +111,10 @@
       {% else %}
       Unchanged
       {% endif %}
+  tags:
+    - always
+    - status
+    - reporting
 
 - name: Verify cluster operation
   ansible.builtin.assert:
@@ -93,6 +123,10 @@
         (cluster_update is defined and cluster_update is success)
     fail_msg: "Failed to process cluster {{ cluster.name }} in PX-Backup"
     success_msg: "Successfully {{ cluster_status }} cluster {{ cluster.name }} in PX-Backup"
+  tags:
+    - always
+    - validation
+    - reporting
 
 - name: Log cluster operation details
   ansible.builtin.debug:
@@ -106,3 +140,7 @@
     verbosity: 1
   when: not ansible_check_mode
   no_log: false
+  tags:
+    - debug
+    - reporting
+    - cluster_info

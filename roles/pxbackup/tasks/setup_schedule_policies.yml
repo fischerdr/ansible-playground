@@ -7,6 +7,9 @@
     schedule_policies_updated: 0
     schedule_policies_unchanged: 0
     schedule_policies_results: []
+  tags:
+    - schedule_policies
+    - variables
 
 - name: Get All Schedule Policies
   purepx.px_backup.schedule_policy:
@@ -17,6 +20,9 @@
     validate_certs: "{{ validate_certs | bool }}"
   register: schedule_policies_list
   no_log: true  # Since response contains token
+  tags:
+    - schedule_policies
+    - api_calls
 
 - name: Validate Required Schedule Policies
   ansible.builtin.assert:
@@ -25,6 +31,9 @@
       - schedule_policies | length > 0
     fail_msg: "No schedule policies defined for cluster {{ cluster.name }}"
     success_msg: "Found {{ schedule_policies | length }} schedule policies to process"
+  tags:
+    - schedule_policies
+    - validation
 
 - name: Process Each Schedule Policy
   loop: "{{ schedule_policies }}"
@@ -34,9 +43,14 @@
   block:
     - name: Check if schedule policy exists
       ansible.builtin.set_fact:
-        existing_policy: "{{ schedule_policies_list.schedule_policies | selectattr('metadata.name', 'equalto', policy_item.name) | list }}"
-        policy_exists: "{{ (schedule_policies_list.schedule_policies | selectattr('metadata.name', 'equalto', policy_item.name) | list | length) > 0 }}"
+        existing_policy: "{{ schedule_policies_list.schedule_policies | 
+                            selectattr('metadata.name', 'equalto', policy_item.name) | list }}"
+        policy_exists: "{{ (schedule_policies_list.schedule_policies | 
+                         selectattr('metadata.name', 'equalto', policy_item.name) | list | length) > 0 }}"
       no_log: true
+      tags:
+        - schedule_policies
+        - policy_check
 
     - name: Create New Schedule Policy
       purepx.px_backup.schedule_policy:
@@ -58,6 +72,10 @@
       register: policy_create_result
       no_log: true
       when: not policy_exists
+      tags:
+        - schedule_policies
+        - policy_creation
+        - api_calls
 
     - name: Update Existing Schedule Policy
       purepx.px_backup.schedule_policy:
@@ -80,6 +98,10 @@
       register: policy_update_result
       no_log: true
       when: policy_exists
+      tags:
+        - schedule_policies
+        - policy_update
+        - api_calls
 
     - name: Set policy operation status
       ansible.builtin.set_fact:
@@ -91,13 +113,26 @@
           {% else %}
           Unchanged
           {% endif %}
+      tags:
+        - schedule_policies
+        - status
 
     - name: Update policy counters
       ansible.builtin.set_fact:
-        schedule_policies_created: "{{ schedule_policies_created | int + 1 if policy_status == 'Created' else schedule_policies_created | int }}"
-        schedule_policies_updated: "{{ schedule_policies_updated | int + 1 if policy_status == 'Updated' else schedule_policies_updated | int }}"
-        schedule_policies_unchanged: "{{ schedule_policies_unchanged | int + 1 if policy_status == 'Unchanged' else schedule_policies_unchanged | int }}"
+        schedule_policies_created: >-
+          {{ schedule_policies_created | int + 1 if policy_status == 'Created' 
+          else schedule_policies_created | int }}
+        schedule_policies_updated: >-
+          {{ schedule_policies_updated | int + 1 if policy_status == 'Updated' 
+          else schedule_policies_updated | int }}
+        schedule_policies_unchanged: >-
+          {{ schedule_policies_unchanged | int + 1 if policy_status == 'Unchanged' 
+          else schedule_policies_unchanged | int }}
       no_log: true
+      tags:
+        - schedule_policies
+        - status
+        - reporting
 
     - name: Prepare policy result message
       ansible.builtin.set_fact:
@@ -109,11 +144,17 @@
           - Start Time: {{ policy_item.start_time }}
           {% endif %}
       no_log: true
+      tags:
+        - schedule_policies
+        - reporting
 
     - name: Add policy result to results list
       ansible.builtin.set_fact:
         schedule_policies_results: "{{ schedule_policies_results + [policy_result_message] }}"
       no_log: true
+      tags:
+        - schedule_policies
+        - reporting
 
   rescue:
     - name: Log policy operation failure
@@ -128,11 +169,19 @@
           Unknown error occurred
           {% endif %}
       no_log: true
+      tags:
+        - schedule_policies
+        - error_handling
 
     - name: Add failed policy to results
       ansible.builtin.set_fact:
-        schedule_policies_results: "{{ schedule_policies_results + ['Policy ' + policy_item.name + ' (FAILED): ' + policy_error] }}"
+        schedule_policies_results: >-
+          {{ schedule_policies_results + ['Policy ' + policy_item.name + ' (FAILED): ' + policy_error] }}
       no_log: true
+      tags:
+        - schedule_policies
+        - error_handling
+        - reporting
 
   always:
     - name: Cleanup sensitive variables
@@ -140,6 +189,12 @@
         policy_create_result: null
         policy_update_result: null
       no_log: true
+      tags:
+        - schedule_policies
+        - cleanup
+        - security
+  tags:
+    - schedule_policies
 
 - name: Display Schedule Policies Summary
   ansible.builtin.debug:
@@ -155,3 +210,7 @@
       {{ result }}
       {% endfor %}
   when: not ansible_check_mode and schedule_policies | length > 0
+  tags:
+    - schedule_policies
+    - reporting
+    - debug

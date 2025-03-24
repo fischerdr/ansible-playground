@@ -8,6 +8,9 @@
       - schedule_item.backup_location is defined
       - schedule_item.schedule_policy is defined
     fail_msg: "Invalid schedule configuration for {{ schedule_item.name | default('unknown') }}"
+  tags:
+    - backup_schedules
+    - validation
 
 - name: Get Schedule Policy Reference
   ansible.builtin.set_fact:
@@ -15,9 +18,14 @@
       name: "{{ selected_policy.metadata.name }}"
       uid: "{{ selected_policy.metadata.uid }}"
   vars:
-    selected_policy: "{{ schedule_policies_list.schedule_policies | selectattr('metadata.name', 'equalto', schedule_item.schedule_policy) | list | first }}"
+    selected_policy: >-
+      {{ schedule_policies_list.schedule_policies | 
+      selectattr('metadata.name', 'equalto', schedule_item.schedule_policy) | list | first }}
   failed_when: selected_policy | length == 0
   no_log: true
+  tags:
+    - backup_schedules
+    - references
 
 - name: Get Backup Location Reference
   ansible.builtin.set_fact:
@@ -25,9 +33,14 @@
       name: "{{ selected_location.metadata.name }}"
       uid: "{{ selected_location.metadata.uid }}"
   vars:
-    selected_location: "{{ backup_locations_list.backup_locations | selectattr('metadata.name', 'equalto', schedule_item.backup_location) | list | first }}"
+    selected_location: >-
+      {{ backup_locations_list.backup_locations | 
+      selectattr('metadata.name', 'equalto', schedule_item.backup_location) | list | first }}
   failed_when: selected_location | length == 0
   no_log: true
+  tags:
+    - backup_schedules
+    - references
 
 - name: Get Cluster Reference
   ansible.builtin.set_fact:
@@ -35,9 +48,14 @@
       name: "{{ selected_cluster.metadata.name }}"
       uid: "{{ selected_cluster.metadata.uid }}"
   vars:
-    selected_cluster: "{{ px_clusters_list.clusters | selectattr('metadata.name', 'equalto', cluster.name) | list | first }}"
+    selected_cluster: >-
+      {{ px_clusters_list.clusters | 
+      selectattr('metadata.name', 'equalto', cluster.name) | list | first }}
   failed_when: selected_cluster | length == 0
   no_log: true
+  tags:
+    - backup_schedules
+    - references
 
 - name: List All Backup Schedules
   purepx.px_backup.backup_schedule:
@@ -48,12 +66,22 @@
     validate_certs: "{{ validate_certs | bool }}"
   register: backup_schedules_result
   no_log: true  # Prevent token exposure in logs
+  tags:
+    - backup_schedules
+    - api_calls
 
 - name: Check if backup schedule already exists
   ansible.builtin.set_fact:
-    existing_schedule: "{{ backup_schedules_result.backup_schedules | selectattr('metadata.name', 'equalto', cluster.name ~ '-' ~ schedule_item.name) | list }}"
-    schedule_exists: "{{ (backup_schedules_result.backup_schedules | selectattr('metadata.name', 'equalto', cluster.name ~ '-' ~ schedule_item.name) | list | length) > 0 }}"
+    existing_schedule: >-
+      {{ backup_schedules_result.backup_schedules | 
+      selectattr('metadata.name', 'equalto', cluster.name ~ '-' ~ schedule_item.name) | list }}
+    schedule_exists: >-
+      {{ (backup_schedules_result.backup_schedules | 
+      selectattr('metadata.name', 'equalto', cluster.name ~ '-' ~ schedule_item.name) | list | length) > 0 }}
   no_log: true
+  tags:
+    - backup_schedules
+    - schedule_check
 
 - name: Create Backup Schedule
   purepx.px_backup.backup_schedule:
@@ -90,6 +118,10 @@
   register: backup_result
   no_log: true  # Since response contains token
   when: not schedule_exists
+  tags:
+    - backup_schedules
+    - schedule_creation
+    - api_calls
 
 - name: Update Existing Backup Schedule
   purepx.px_backup.backup_schedule:
@@ -127,6 +159,10 @@
   register: backup_update_result
   no_log: true  # Since response contains token
   when: schedule_exists
+  tags:
+    - backup_schedules
+    - schedule_update
+    - api_calls
 
 - name: Set backup operation status
   ansible.builtin.set_fact:
@@ -138,13 +174,26 @@
       {% else %}
       Unchanged
       {% endif %}
+  tags:
+    - backup_schedules
+    - status
 
 - name: Update backup schedule counters
   ansible.builtin.set_fact:
-    backup_schedules_created: "{{ backup_schedules_created | int + 1 if backup_status == 'Created' else backup_schedules_created | int }}"
-    backup_schedules_updated: "{{ backup_schedules_updated | int + 1 if backup_status == 'Updated' else backup_schedules_updated | int }}"
-    backup_schedules_unchanged: "{{ backup_schedules_unchanged | int + 1 if backup_status == 'Unchanged' else backup_schedules_unchanged | int }}"
+    backup_schedules_created: >-
+      {{ backup_schedules_created | int + 1 if backup_status == 'Created' 
+      else backup_schedules_created | int }}
+    backup_schedules_updated: >-
+      {{ backup_schedules_updated | int + 1 if backup_status == 'Updated' 
+      else backup_schedules_updated | int }}
+    backup_schedules_unchanged: >-
+      {{ backup_schedules_unchanged | int + 1 if backup_status == 'Unchanged' 
+      else backup_schedules_unchanged | int }}
   no_log: true
+  tags:
+    - backup_schedules
+    - status
+    - reporting
 
 - name: Prepare schedule result message
   ansible.builtin.set_fact:
@@ -160,8 +209,14 @@
       - Namespace Label Selectors: {{ schedule_item.ns_label_selectors | to_yaml }}
       {% endif %}
   no_log: true
+  tags:
+    - backup_schedules
+    - reporting
 
 - name: Add schedule result to results list
   ansible.builtin.set_fact:
     backup_schedules_results: "{{ backup_schedules_results + [schedule_result_message] }}"
   no_log: true
+  tags:
+    - backup_schedules
+    - reporting

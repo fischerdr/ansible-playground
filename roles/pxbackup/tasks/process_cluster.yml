@@ -128,13 +128,6 @@
     # Create cluster backup schedules
     - name: Create Cluster Backup Schedules
       block:
-        - name: Initialize backup schedules results list
-          ansible.builtin.set_fact:
-            backup_schedules_results: []
-            backup_schedules_created: 0
-            backup_schedules_updated: 0
-            backup_schedules_unchanged: 0
-
         - name: Get All Clusters
           purepx.px_backup.cluster:
             operation: INSPECT_ALL
@@ -143,16 +136,6 @@
             token: "{{ px_backup_token }}"
             validate_certs: "{{ validate_certs | bool }}"
           register: px_clusters_list
-          no_log: true  # Since response contains token
-
-        - name: Get Schedule Policies
-          purepx.px_backup.schedule_policy:
-            operation: INSPECT_ALL
-            org_id: "{{ org_id }}"
-            api_url: "{{ px_backup_api_url }}"
-            token: "{{ px_backup_token }}"
-            validate_certs: "{{ validate_certs | bool }}"
-          register: schedule_policies_list
           no_log: true  # Since response contains token
 
         - name: Get Backup Locations
@@ -165,6 +148,21 @@
           register: backup_locations_list
           no_log: true  # Since response contains token
 
+        # Process schedule policies first
+        - name: Process Schedule Policies
+          ansible.builtin.include_tasks:
+            file: setup_schedule_policies.yml
+          when: schedule_policies is defined and schedule_policies | length > 0
+
+        # Then process backup schedules
+        - name: Initialize backup schedules results
+          ansible.builtin.set_fact:
+            backup_schedules_results: []
+            backup_schedules_created: 0
+            backup_schedules_updated: 0
+            backup_schedules_unchanged: 0
+          when: backup_schedules is defined and backup_schedules | length > 0
+
         - name: Process Each Backup Schedule
           ansible.builtin.include_tasks:
             file: setup_bkup_sched.yml
@@ -172,6 +170,7 @@
           loop_control:
             loop_var: schedule_item
             label: "{{ schedule_item.name }}"
+          when: backup_schedules is defined and backup_schedules | length > 0
 
         - name: Display All Backup Schedules Results
           ansible.builtin.debug:
@@ -186,7 +185,7 @@
               {% for result in backup_schedules_results %}
               {{ result }}
               {% endfor %}
-          when: not ansible_check_mode and backup_schedules | length > 0
+          when: not ansible_check_mode and backup_schedules is defined and backup_schedules | length > 0
 
   rescue:
     - name: Log cluster creation failure

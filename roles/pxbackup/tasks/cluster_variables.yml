@@ -5,11 +5,11 @@
     - name: Validate cluster name format
       ansible.builtin.assert:
         that:
-          - cluster_name is defined
-          - cluster_name is string
+          - cluster.name is defined
+          - cluster.name is string
           - >
-            cluster_name | regex_search('^[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+[abc]-[a-z0-9]+$') is not none or
-            cluster_name | regex_search('^[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-z0-9]+$') is not none
+            cluster.name | regex_search('^[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+[abc]-[a-z0-9]+$') is not none or
+            cluster.name | regex_search('^[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-z0-9]+$') is not none
         fail_msg: >
           "Invalid cluster name format. Expected formats:
            - With zone: <cluster_user>-<platform>-<env>-<region><zone>-<id>
@@ -18,11 +18,11 @@
 
     - name: Determine if cluster name has zone
       ansible.builtin.set_fact:
-        cluster_has_zone: "{{ cluster_name | regex_search('^[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+[abc]-[a-z0-9]+$') is not none }}"
+        cluster_has_zone: "{{ cluster.name | regex_search('^[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+[abc]-[a-z0-9]+$') is not none }}"
 
     - name: Parse cluster name with zone
       ansible.builtin.set_fact:
-        parts: "{{ cluster_name.split('-') }}"
+        parts: "{{ cluster.name.split('-') }}"
         cluster_user: "{{ parts[0] }}"
         platform: "{{ parts[1] }}"
         cluster_env: "{{ parts[2] | regex_replace('p', 'prod') | regex_replace('d', 'dev') | regex_replace('t', 'test') }}"
@@ -35,7 +35,7 @@
 
     - name: Parse cluster name without zone
       ansible.builtin.set_fact:
-        parts: "{{ cluster_name.split('-') }}"
+        parts: "{{ cluster.name.split('-') }}"
         cluster_user: "{{ parts[0] }}"
         platform: "{{ parts[1] }}"
         cluster_env: "{{ parts[2] | regex_replace('p', 'prod') | regex_replace('d', 'dev') | regex_replace('t', 'test') }}"
@@ -63,7 +63,7 @@
 
 - name: "Get cluster info from inventory"
   ansible.builtin.uri:
-    url: "{{ inventory_url }}/{{ cluster_name }}"
+    url: "{{ inventory_url }}/{{ cluster.name }}"
     method: GET
     return_content: true
     validate_certs: "{{ validate_certs }}"
@@ -116,11 +116,11 @@
     - name: Setup Defaults based on cluster_env
       ansible.builtin.set_fact:
         vault_address: >-
-          {%- if cluster_env == 'prod' -%}{{ vault_automation_prod_address }}{%- elif cluster_user == 'eng' -%}{{ vault_automation_eng_address }}{%- elif cluster_env == 'stage' -%}{{ vault_automation_stage_address }}{%- else -%}{{ vault_automation_dev_address }}{%- endif -%}
+          {%- if cluster_env == 'prod' -%}{{ vault_automation_prod_address }}{%- elif cluster_user == 'eng' -%}{{ vault_automation_eng_address }}{%- elif cluster_env == 'test' -%}{{ vault_automation_test_address }}{%- else -%}{{ vault_automation_dev_address }}{%- endif -%}
         vault_namespace: "{{ vault_automation_default_namespace }}"
         vault_mount_point: "{{ vault_automation_config_mount_point }}"
-        vault_default_path: "{{ cluster_user }}/{{ cluster_name }}"
-        kubeconfig_vault_path: "{{ cluster_user }}/{{ cluster_name }}"
+        vault_default_path: "{{ cluster_user }}/{{ cluster.name }}"
+        kubeconfig_vault_path: "{{ cluster_user }}/{{ cluster.name }}"
 
     - name: "Verify Vault configuration facts"
       ansible.builtin.debug:

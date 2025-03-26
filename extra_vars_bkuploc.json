@@ -11,20 +11,6 @@
       }
     },
     {
-      "name": "s3-backup-location",
-      "location_type": "S3",
-      "path": "px-backups",
-      "encryption_key": "my-s3-encryption-key",
-      "cloud_cred_name": "s3-credentials",
-      "validate_cloud_credential": true,
-      "object_lock_enabled": true,
-      "s3_config": {
-        "region": "us-west-2",
-        "endpoint": "s3.amazonaws.com",
-        "disable_ssl": false
-      }
-    },
-    {
       "name": "azure-backup-location",
       "location_type": "Azure",
       "path": "px-azure-backups",
@@ -47,12 +33,12 @@
       "location_type": "S3",
       "path": "{{ cluster_user }}-{{ cluster_env }}-{{ region_data }}-{{ zone }}",
       "encryption_key": "my-s3-encryption-key",
-      "cloud_cred_name": "{{ lookup('ansible.builtin.vars', 's3_credentials.users.' + cluster_user + '.' + cluster_env + '.' + region_data + ' | default(s3_credentials.users.' + cluster_user + '.' + cluster_env + '.default) | default(s3_credentials.users.' + cluster_user + '.default) | default(s3_credentials.users.default.' + cluster_env + '.' + region_data + ' | default(s3_credentials.users.default.' + cluster_env + '.default) | default(s3_credentials.users.default.default) | default(s3_credentials.default))') }}",
+      "cloud_cred_name": "{{ s3_credentials | hierarchical_lookup(cluster_user, cluster_env, region_data) }}",
       "validate_cloud_credential": true,
       "object_lock_enabled": true,
       "s3_config": {
-        "region": "{{ lookup('ansible.builtin.vars', 's3_regions.users.' + cluster_user + '.' + cluster_env + '.' + region_data + ' | default(s3_regions.users.' + cluster_user + '.' + cluster_env + '.default) | default(s3_regions.users.' + cluster_user + '.default) | default(s3_regions.users.default.' + cluster_env + '.' + region_data + ' | default(s3_regions.users.default.' + cluster_env + '.default) | default(s3_regions.users.default.default) | default(s3_regions.default))') }}",
-        "endpoint": "{{ lookup('ansible.builtin.vars', 's3_endpoints.users.' + cluster_user + '.' + cluster_env + '.' + region_data + ' | default(s3_endpoints.users.' + cluster_user + '.' + cluster_env + '.default) | default(s3_endpoints.users.' + cluster_user + '.default) | default(s3_endpoints.users.default.' + cluster_env + '.' + region_data + ' | default(s3_endpoints.users.default.' + cluster_env + '.default) | default(s3_endpoints.users.default.default) | default(s3_endpoints.default))') }}",
+        "region": "{{ s3_regions | hierarchical_lookup(cluster_user, cluster_env, region_data) }}",
+        "endpoint": "{{ s3_endpoints | hierarchical_lookup(cluster_user, cluster_env, region_data) }}",
         "disable_ssl": false
       }
     }

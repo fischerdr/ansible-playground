@@ -29,7 +29,7 @@ validate_certs: true  # Optional: Whether to validate Vault SSL certificates
 # Environment-specific Vault addresses
 vault_automation_prod_address: ""  # Required: Production Vault address
 vault_automation_dev_address: ""   # Required: Development Vault address
-vault_automation_stage_address: "" # Required: Staging Vault address
+vault_automation_test_address: "" # Required: Staging Vault address
 vault_automation_eng_address: ""   # Required: Engineering Vault address
 
 # Vault paths and mount points
@@ -100,7 +100,7 @@ clusters: []
 #     skip_sa_creation: false             # Optional: Skip service account creation
 
 # Cluster name components (set by cluster_variables.yml)
-# cluster_name format: <cluster_user>-<platform>-<env>-<region><zone>-<id>
+# cluster.name format: <cluster_user>-<platform>-<env>-<region><zone>-<id>
 # Example: ansible-infrastructure-d-eusw1a-4
 cluster_user: ""      # First component of cluster name
 platform: ""         # Second component of cluster name

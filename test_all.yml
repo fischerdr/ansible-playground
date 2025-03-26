@@ -1,0 +1,13 @@
+---
+- name: Test playbook targeting all hosts
+  hosts: all
+  gather_facts: true
+
+  tasks:
+    - name: Display hostname
+      ansible.builtin.debug:
+        msg: "Running on host: {{ inventory_hostname }}"
+    
+    - name: Show connection type
+      ansible.builtin.debug:
+        msg: "Connection type: {{ ansible_connection }}"

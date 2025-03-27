@@ -1,0 +1,68 @@
+---
+- name: Map NFS PersistentVolumes to Namespaces
+  hosts: localhost
+  gather_facts: false
+  vars:
+    cluster_adm_kube_dir: "{{ playbook_dir | dirname }}/tmp/cache/kube_config"
+    cluster: { "name":"cld-paas-d-eusw1c-4"}
+
+  tasks:
+    - name: "Show Cluster"
+      ansible.builtin.debug:
+        msg: "Cluster {{ cluster.name }} Kube_adm_dir: {{ cluster_adm_kube_dir }}"
+
+      # Read kubeconfig from file if it exists
+    - name: Read kubeconfig from local file
+      ansible.builtin.slurp:
+        src: "{{ cluster_adm_kube_dir }}/{{ cluster.name }}.kubeconfig"
+      register: local_kubeconfig_content
+      when: cluster_adm_kube_dir is defined and cluster_adm_kube_dir | length > 0 and lookup('ansible.builtin.fileglob', cluster_adm_kube_dir + '/' + cluster.name + '.kubeconfig') | length > 0
+      no_log: true
+
+    # Set local file if found instead
+    - name: Set kubeconfig from local file
+      ansible.builtin.set_fact:
+        kubeconfig_admin: "{{ local_kubeconfig_content.content | b64decode }}"
+      when: local_kubeconfig_content is defined and local_kubeconfig_content.content is defined
+      no_log: true
+
+    - name: Get all PersistentVolumes
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kubeconfig: "{{ kubeconfig_admin | from_yaml }}"
+        kind: PersistentVolume
+      register: pv_result
+      no_log: true
+
+    - name: Get all PersistentVolumeClaims
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kubeconfig: "{{ kubeconfig_admin | from_yaml }}"
+        kind: PersistentVolumeClaim
+      register: pvc_result
+      no_log: true
+
+    - name: Build a map of PVs to Namespaces
+      set_fact:
+        pv_to_ns_map: >-
+          {{
+            pvc_result.resources | items2dict(
+              key_name='spec.volumeName',
+              value_name='metadata.namespace'
+            )
+          }}
+
+    - name: Filter NFS PVs and map to namespaces
+      set_fact:
+        nfs_pv_mapping: >-
+          {{
+            pv_result.resources | selectattr('spec.nfs', 'defined') | map(
+              attribute='metadata.name'
+            ) | list | items2dict(
+              key_name='',
+              value_name=pv_to_ns_map
+            )
+          }}
+    - name: Output NFS PV to Namespace Mapping
+      debug:
+        msg: "{{ nfs_pv_mapping }}"

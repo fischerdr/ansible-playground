@@ -1,78 +1,44 @@
 {
-"schedule_policies": [
+  "schedule_policies": [
     {
       "name": "hourly-retention-24",
-      "schedule_policy": {
-        "interval": {
-          "minutes": 60,
-          "retain": 24
-        }
-      }
+      "schedule_policy": { "interval": { "minutes": 60, "retain": 24 } }
     },
     {
       "name": "daily-retention-7",
-      "schedule_policy": {
-        "daily": {
-          "time": "04:00AM",
-          "retain": 7
-        }
-      }
+      "schedule_policy": { "daily": { "time": "04:00AM", "retain": 7 } }
     },
     {
       "name": "weekly-retention-4",
-      "schedule_policy": {
-        "weekly": {
-          "day": "Sunday",
-          "time": "02:00AM",
-          "retain": 4
-        }
-      }
+      "schedule_policy": { "weekly": { "day": "Sunday", "time": "02:00AM", "retain": 4 } }
     },
     {
       "name": "monthly-retention-12",
-      "schedule_policy": {
-        "monthly": {
-          "date": 1,
-          "time": "01:00AM",
-          "retain": 12
-        }
-      }
+      "schedule_policy": { "monthly": { "date": 1, "time": "01:00AM", "retain": 12 } }
+    },
+    {
+      "name": "12am",
+      "schedule_policy": { "daily": { "time": "12:00am", "retain": 7 } }
     },
     {
       "name": "4am",
-      "schedule_policy": {
-        "daily": {
-          "time": "04:00AM",
-          "retain": 7
-        }
-      }
+      "schedule_policy": { "daily": { "time": "04:00AM", "retain": 7 } }
     },
     {
       "name": "8am",
-      "schedule_policy": {
-        "daily": {
-          "time": "08:00AM",
-          "retain": 7
-        }
-      }
+      "schedule_policy": { "daily": { "time": "08:00AM", "retain": 7 } }
     },
     {
       "name": "12pm",
-      "schedule_policy": {
-        "daily": {
-          "time": "12:00PM",
-          "retain": 7
-        }
-      }
+      "schedule_policy": { "daily": { "time": "12:00PM", "retain": 7 } }
     },
     {
       "name": "4pm",
-      "schedule_policy": {
-        "daily": {
-          "time": "04:00PM",
-          "retain": 7
-        }
-      }
+      "schedule_policy": { "daily": { "time": "04:00PM", "retain": 7 } }
+    },
+    {
+      "name": "8pm",
+      "schedule_policy": { "daily": { "time": "08:00PM", "retain": 7 } }
     }
   ]
 }

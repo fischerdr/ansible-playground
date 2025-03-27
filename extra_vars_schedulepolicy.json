@@ -2,60 +2,77 @@
 "schedule_policies": [
     {
       "name": "hourly-retention-24",
-      "interval_type": "Hourly",
-      "interval_count": 1,
-      "retention_count": 24
+      "schedule_policy": {
+        "interval": {
+          "minutes": 60,
+          "retain": 24
+        }
+      }
     },
     {
       "name": "daily-retention-7",
-      "interval_type": "Daily",
-      "interval_count": 1,
-      "retention_count": 7,
-      "start_time": "04:00AM"
+      "schedule_policy": {
+        "daily": {
+          "time": "04:00AM",
+          "retain": 7
+        }
+      }
     },
     {
       "name": "weekly-retention-4",
-      "interval_type": "Weekly",
-      "interval_count": 1,
-      "retention_count": 4,
-      "start_time": "02:00AM",
-      "days_of_week": ["Sunday"]
+      "schedule_policy": {
+        "weekly": {
+          "day": "Sunday",
+          "time": "02:00AM",
+          "retain": 4
+        }
+      }
     },
     {
       "name": "monthly-retention-12",
-      "interval_type": "Monthly",
-      "interval_count": 1,
-      "retention_count": 12,
-      "start_time": "01:00AM",
-      "days_of_month": [1]
+      "schedule_policy": {
+        "monthly": {
+          "date": 1,
+          "time": "01:00AM",
+          "retain": 12
+        }
+      }
     },
     {
       "name": "4am",
-      "interval_type": "Daily",
-      "interval_count": 1,
-      "retention_count": 7,
-      "start_time": "04:00AM"
+      "schedule_policy": {
+        "daily": {
+          "time": "04:00AM",
+          "retain": 7
+        }
+      }
     },
     {
       "name": "8am",
-      "interval_type": "Daily",
-      "interval_count": 1,
-      "retention_count": 7,
-      "start_time": "08:00AM"
+      "schedule_policy": {
+        "daily": {
+          "time": "08:00AM",
+          "retain": 7
+        }
+      }
     },
     {
       "name": "12pm",
-      "interval_type": "Daily",
-      "interval_count": 1,
-      "retention_count": 7,
-      "start_time": "12:00PM"
+      "schedule_policy": {
+        "daily": {
+          "time": "12:00PM",
+          "retain": 7
+        }
+      }
     },
     {
       "name": "4pm",
-      "interval_type": "Daily",
-      "interval_count": 1,
-      "retention_count": 7,
-      "start_time": "04:00PM"
+      "schedule_policy": {
+        "daily": {
+          "time": "04:00PM",
+          "retain": 7
+        }
+      }
     }
   ]
 }

@@ -39,17 +39,11 @@
   tags:
     - schedule_policies
     - policy_processing
-  loop: "{{ schedule_policies }}"
-  loop_control:
-    loop_var: policy_item
-    label: "{{ policy_item.name }}"
   block:
     - name: Check if schedule policy exists
       ansible.builtin.set_fact:
-        existing_policy: "{{ schedule_policies_list.schedule_policies |
-                            selectattr('metadata.name', 'equalto', policy_item.name) | list }}"
-        policy_exists: "{{ (schedule_policies_list.schedule_policies |
-                         selectattr('metadata.name', 'equalto', policy_item.name) | list | length) > 0 }}"
+        existing_policy: "{{ schedule_policies_list.schedule_policies | selectattr('metadata.name', 'equalto', policy_item.name) | list }}"
+        policy_exists: "{{ (schedule_policies_list.schedule_policies | selectattr('metadata.name', 'equalto', policy_item.name) | list | length) > 0 }}"
       no_log: true
       tags:
         - schedule_policies
@@ -63,14 +57,8 @@
         validate_certs: "{{ validate_certs | bool }}"
         name: "{{ policy_item.name }}"
         org_id: "{{ org_id }}"
-        interval_type: "{{ policy_item.interval_type | default('Hourly') }}"
-        interval_count: "{{ policy_item.interval_count | default(1) }}"
-        retention_count: "{{ policy_item.retention_count | default(24) }}"
-        start_time: "{{ policy_item.start_time | default(omit) }}"
-        days_of_week: "{{ policy_item.days_of_week | default(omit) }}"
-        days_of_month: "{{ policy_item.days_of_month | default(omit) }}"
-        weeks_of_month: "{{ policy_item.weeks_of_month | default(omit) }}"
-        months_of_year: "{{ policy_item.months_of_year | default(omit) }}"
+        schedule_policy: "{{ policy_item.schedule_policy }}"
+        labels: "{{ policy_item.labels | default(omit) }}"
         ownership: "{{ policy_item.ownership | default(omit) }}"
       register: policy_create_result
       no_log: true
@@ -89,14 +77,8 @@
         name: "{{ policy_item.name }}"
         org_id: "{{ org_id }}"
         uid: "{{ existing_policy[0].metadata.uid }}"
-        interval_type: "{{ policy_item.interval_type | default('Hourly') }}"
-        interval_count: "{{ policy_item.interval_count | default(1) }}"
-        retention_count: "{{ policy_item.retention_count | default(24) }}"
-        start_time: "{{ policy_item.start_time | default(omit) }}"
-        days_of_week: "{{ policy_item.days_of_week | default(omit) }}"
-        days_of_month: "{{ policy_item.days_of_month | default(omit) }}"
-        weeks_of_month: "{{ policy_item.weeks_of_month | default(omit) }}"
-        months_of_year: "{{ policy_item.months_of_year | default(omit) }}"
+        schedule_policy: "{{ policy_item.schedule_policy }}"
+        labels: "{{ policy_item.labels | default(omit) }}"
         ownership: "{{ policy_item.ownership | default(omit) }}"
       register: policy_update_result
       no_log: true
@@ -141,10 +123,21 @@
       ansible.builtin.set_fact:
         policy_result_message: >-
           Policy {{ policy_item.name }} ({{ policy_status }}):
-          - Interval: {{ policy_item.interval_type | default('Hourly') }} / {{ policy_item.interval_count | default(1) }}
-          - Retention: {{ policy_item.retention_count | default(24) }} backups
-          {% if policy_item.start_time is defined %}
-          - Start Time: {{ policy_item.start_time }}
+          {% if policy_item.schedule_policy.interval is defined %}
+          - Interval: Hourly / {{ policy_item.schedule_policy.interval.minutes | default(60) }} minutes
+          - Retention: {{ policy_item.schedule_policy.interval.retain | default(24) }} backups
+          {% elif policy_item.schedule_policy.daily is defined %}
+          - Interval: Daily
+          - Retention: {{ policy_item.schedule_policy.daily.retain | default(7) }} backups
+          - Start Time: {{ policy_item.schedule_policy.daily.time | default('00:00') }}
+          {% elif policy_item.schedule_policy.weekly is defined %}
+          - Interval: Weekly ({{ policy_item.schedule_policy.weekly.day | default('Monday') }})
+          - Retention: {{ policy_item.schedule_policy.weekly.retain | default(4) }} backups
+          - Start Time: {{ policy_item.schedule_policy.weekly.time | default('00:00') }}
+          {% elif policy_item.schedule_policy.monthly is defined %}
+          - Interval: Monthly (Day {{ policy_item.schedule_policy.monthly.date | default(1) }})
+          - Retention: {{ policy_item.schedule_policy.monthly.retain | default(12) }} backups
+          - Start Time: {{ policy_item.schedule_policy.monthly.time | default('00:00') }}
           {% endif %}
       no_log: true
       tags:

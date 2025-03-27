@@ -69,33 +69,18 @@
         nfs_pvs: "{{ pv_result.resources | selectattr('spec.nfs', 'defined') | map(attribute='metadata.name') | list }}"
       no_log: true
 
-    - name: Build PV-to-namespace mapping
-      ansible.builtin.set_fact:
-        pv_to_ns_map: "{{ pv_to_ns_map | combine({item.spec.volumeName: item.metadata.namespace}) }}"
-      loop: "{{ pvc_result.resources }}"
-      loop_control:
-        label: "{{ item.metadata.name }}"
-      no_log: true
-      when: item.spec.volumeName is defined and item.metadata.namespace is defined
-
-    - name: Build namespace-to-PV mapping
-      ansible.builtin.set_fact:
-        ns_to_pv_map: "{{ ns_to_pv_map | default({}) | combine({item.metadata.namespace: (ns_to_pv_map[item.metadata.namespace] | default([]) + [item.spec.volumeName])}, recursive=true) }}"
-      loop: "{{ pvc_result.resources }}"
-      loop_control:
-        label: "{{ item.metadata.name }}"
-      no_log: true
-      when: item.spec.volumeName is defined and item.metadata.namespace is defined
-
+    # Simplified approach - directly identify namespaces using NFS PVs
     - name: Find namespaces using NFS PVs
       ansible.builtin.set_fact:
-        namespaces_using_nfs_pv: "{{ namespaces_using_nfs_pv + [item.key] }}"
-      loop: "{{ ns_to_pv_map | dict2items }}"
+        namespaces_using_nfs_pv: "{{ namespaces_using_nfs_pv + [item.metadata.namespace] }}"
+      loop: "{{ pvc_result.resources }}"
       loop_control:
-        label: "{{ item.key }}"
+        label: "{{ item.metadata.namespace }}"
       no_log: true
       when: >
-        item.value | select('in', nfs_pvs) | list | length > 0
+        item.spec.volumeName is defined and 
+        item.metadata.namespace is defined and
+        item.spec.volumeName in nfs_pvs
 
     - name: Get all namespace names
       ansible.builtin.set_fact:

@@ -16,23 +16,38 @@
       ansible.builtin.slurp:
         src: "{{ cluster_adm_kube_dir }}/{{ cluster.name }}.kubeconfig"
       register: local_kubeconfig_content
-      when: cluster_adm_kube_dir is defined and cluster_adm_kube_dir | length > 0 and lookup('ansible.builtin.fileglob', cluster_adm_kube_dir + '/' + cluster.name + '.kubeconfig') | length > 0
       no_log: true
+      when: cluster_adm_kube_dir is defined and cluster_adm_kube_dir | length > 0 and lookup('ansible.builtin.fileglob', cluster_adm_kube_dir + '/' + cluster.name + '.kubeconfig') | length > 0
 
     # Set local file if found instead
     - name: Set kubeconfig from local file
       ansible.builtin.set_fact:
         kubeconfig_admin: "{{ local_kubeconfig_content.content | b64decode }}"
-      when: local_kubeconfig_content is defined and local_kubeconfig_content.content is defined
       no_log: true
+      when: local_kubeconfig_content is defined and local_kubeconfig_content.content is defined
 
     - name: Get all PersistentVolumes
       kubernetes.core.k8s_info:
         api_version: v1
         kubeconfig: "{{ kubeconfig_admin | from_yaml }}"
         kind: PersistentVolume
+      no_log: false
       register: pv_result
-      no_log: true
+
+    - name: "Display pv names and api"
+      ansible.builtin.debug:
+        msg: "name: {{ item.metadata.name }} api version: {{ item.metadata.namespace }}"
+      loop: "{{ pv_result.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
+    - name: "Display pv names and api"
+      ansible.builtin.debug:
+        msg: "name: {{ item.metadata.name }} api version: {{ item.bob }}"
+      loop: "{{ pv_result.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
 
     - name: Get all PersistentVolumeClaims
       kubernetes.core.k8s_info:
@@ -40,29 +55,36 @@
         kubeconfig: "{{ kubeconfig_admin | from_yaml }}"
         kind: PersistentVolumeClaim
       register: pvc_result
-      no_log: true
 
-    - name: Build a map of PVs to Namespaces
+    - name: Initialize empty PV-to-namespace dictionary
       set_fact:
-        pv_to_ns_map: >-
-          {{
-            pvc_result.resources | items2dict(
-              key_name='spec.volumeName',
-              value_name='metadata.namespace'
-            )
-          }}
+        pv_to_ns_map: {}
 
-    - name: Filter NFS PVs and map to namespaces
+    - name: Build PV-to-namespace mapping
       set_fact:
-        nfs_pv_mapping: >-
-          {{
-            pv_result.resources | selectattr('spec.nfs', 'defined') | map(
-              attribute='metadata.name'
-            ) | list | items2dict(
-              key_name='',
-              value_name=pv_to_ns_map
-            )
-          }}
-    - name: Output NFS PV to Namespace Mapping
+        pv_to_ns_map: "{{ pv_to_ns_map | combine({item.spec.volumeName: item.metadata.namespace}) }}"
+      loop: "{{ pvc_result.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when: item.spec.volumeName is defined and item.metadata.namespace is defined
+
+    - name: Filter NFS PVs
+      set_fact:
+        nfs_pvs: "{{ pv_result.resources | selectattr('spec.nfs', 'defined') | map(attribute='metadata.name') | list }}"
+
+    - name: Initialize empty NFS PV mapping
+      set_fact:
+        nfs_pv_mapping: {}
+
+    - name: Map NFS PVs to their namespaces
+      set_fact:
+        nfs_pv_mapping: "{{ nfs_pv_mapping | combine({item: pv_to_ns_map[item] | default('Unknown')}) }}"
+      loop: "{{ nfs_pvs }}"
+  
+    - name: Display Final Pretty Output
       debug:
-        msg: "{{ nfs_pv_mapping }}"
+        msg: >-
+          NFS PersistentVolumes Mapping:
+          {%- for pv, ns in nfs_pv_mapping.items() %}
+          - PV: {{ pv }} → Namespace: {{ ns }}
+          {%- endfor %}

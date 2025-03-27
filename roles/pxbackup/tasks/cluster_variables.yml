@@ -20,6 +20,11 @@
       ansible.builtin.set_fact:
         cluster_has_zone: "{{ cluster.name | regex_search('^[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+[abc]-[a-z0-9]+$') is not none }}"
 
+    - name: Define parts
+      ansible.builtin.set_fact:
+        parts: "{{ cluster.name.split('-') }}"
+      no_log: false
+
     - name: Parse cluster name with zone
       ansible.builtin.set_fact:
         parts: "{{ cluster.name.split('-') }}"
@@ -71,11 +76,11 @@
     headers:
       Accept: "application/json"
   register: inventory_response
-  no_log: false
+  no_log: true
 
 - name: "Set inventory region data"
   ansible.builtin.set_fact:
-    region_data: "{{ inventory_response.json | community.general.json_query('.region') }}"
+    region_data: "{{ inventory_response.json | community.general.json_query('region') }}"
 
 - name: "Check if platform_vault exists in inventory response"
   ansible.builtin.set_fact:
@@ -93,7 +98,7 @@
       ansible.builtin.set_fact:
         vault_address: "{{ inventory_response.json | community.general.json_query('kubernetes_platform.secrets_management.platform_vault[0].address') }}"
         vault_namespace: "{{ inventory_response.json | community.general.json_query('kubernetes_platform.secrets_management.platform_vault[0].namespace') }}"
-        vault_default_path_full: "{{ inventory_response.json | community.general.json_query('kubernetes_platform.secrets_management.platform_vault[0].secrets_paths') }}"
+        vault_default_path_full: "{{ inventory_response.json | community.general.json_query('kubernetes_platform.secrets_management.platform_vault[0].default_path') }}"
 
     - name: "Set Vault mount point and paths"
       ansible.builtin.set_fact:

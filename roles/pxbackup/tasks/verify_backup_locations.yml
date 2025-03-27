@@ -1,4 +1,12 @@
 ---
+- name: "Debug display backup_locations"
+  ansible.builtin.debug:
+    msg: |
+      {{ s3_credentials[cluster_user][cluster_env][region_data] }}
+      {{ s3_regions[cluster_user][cluster_env][region_data] }}
+      {{ s3_endpoints[cluster_user][cluster_env][region_data] }}
+      {{ backup_locations }}
+
 # Tasks for verifying and creating backup locations if needed
 - name: Get Existing Backup Locations
   tags:
@@ -42,7 +50,6 @@
     - backup_locations
     - variables
   when:
-    - backup_locations is not defined or backup_locations | length == 0
     - backup_schedules is defined and backup_schedules | length > 0
 
 - name: Use Defined Backup Locations if Available
@@ -54,30 +61,28 @@
     - variables
   when: backup_locations is defined and backup_locations | length > 0
 
+- name: Initialize updated backup locations
+  ansible.builtin.set_fact:
+    updated_backup_locations: []
+
 - name: Update Cloud Credential References with UIDs
   ansible.builtin.set_fact:
-    required_backup_locations: "{{ required_backup_locations | map('update_cloud_cred', cloud_credentials_list.cloud_credentials) | list }}"
+    updated_backup_locations: "{{ updated_backup_locations + [item | combine({'cloud_credential_ref': {'cloud_credential_name': found_cred.metadata.name, 'cloud_credential_uid': found_cred.metadata.uid}})] }}"
+  loop: "{{ required_backup_locations }}"
   vars:
-    update_cloud_cred: >-
-      {% macro update_cred(item, creds) %}
-      {% if item.cloud_cred_name is defined %}
-        {% set found_cred = creds | selectattr('metadata.name', 'equalto', item.cloud_cred_name) | list | first | default({}) %}
-        {% if found_cred and found_cred.metadata is defined %}
-          {% set _ = item.update({'cloud_credential_ref': {'name': found_cred.metadata.name, 'uid': found_cred.metadata.uid}}) %}
-        {% endif %}
-      {% endif %}
-      {{ item }}
-      {% endmacro %}
-      {{ update_cred(item, cloud_credentials_list.cloud_credentials) }}
-  tags:
-    - backup_locations
-    - variables
-    - cloud_credentials
-  when:
-    - cloud_credentials_list is defined
-    - cloud_credentials_list.cloud_credentials is defined
-    - required_backup_locations is defined
-    - required_backup_locations | length > 0
+    found_cred: >-
+      {{
+        (cloud_credentials_list.cloud_credentials | selectattr('metadata.name', 'equalto', item.cloud_cred_name) | list | first)
+        if item.cloud_cred_name is defined else {}
+      }}
+  no_log: true
+  when: found_cred != {}
+
+- name: Finalize required_backup_locations
+  ansible.builtin.set_fact:
+    required_backup_locations: "{{ updated_backup_locations }}"
+  no_log: true
+  when: updated_backup_locations | length > 0
 
 - name: Identify Missing Backup Locations
   ansible.builtin.set_fact:

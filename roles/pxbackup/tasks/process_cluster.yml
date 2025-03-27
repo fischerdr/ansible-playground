@@ -117,6 +117,10 @@
           tags:
             - schedule_policies
             - backup_schedules
+          loop: "{{ schedule_policies }}"
+          loop_control:
+            loop_var: policy_item
+            label: "{{ policy_item.name }}"
           ansible.builtin.include_tasks:
             file: setup_schedule_policies.yml
           when: schedule_policies is defined and schedule_policies | length > 0

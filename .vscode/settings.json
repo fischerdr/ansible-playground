@@ -1,7 +1,7 @@
 {
     "ansible.ansible.reuseTerminal": true,
     "ansible.executionEnvironment.image": "development-ee:latest",
-    "ansible.python.interpreterPath": "/Users/dfisc5/git/ansible-playground/.venv/bin/python",
+    "ansible.python.interpreterPath": "/development/git/ansible-playground/.venv/bin/python",
     "python.languageServer": "None",
     "ansible.lightspeed.suggestions.enabled": false,
     "terminal.integrated.focusAfterRun": "terminal",

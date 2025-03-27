@@ -31,23 +31,8 @@
         api_version: v1
         kubeconfig: "{{ kubeconfig_admin | from_yaml }}"
         kind: PersistentVolume
-      no_log: false
+      no_log: true
       register: pv_result
-
-    - name: "Display pv names and api"
-      ansible.builtin.debug:
-        msg: "name: {{ item.metadata.name }} api version: {{ item.metadata.namespace }}"
-      loop: "{{ pv_result.resources }}"
-      loop_control:
-        label: "{{ item.metadata.name }}"
-
-    - name: "Display pv names and api"
-      ansible.builtin.debug:
-        msg: "name: {{ item.metadata.name }} api version: {{ item.bob }}"
-      loop: "{{ pv_result.resources }}"
-      loop_control:
-        label: "{{ item.metadata.name }}"
-
 
     - name: Get all PersistentVolumeClaims
       kubernetes.core.k8s_info:
@@ -55,36 +40,127 @@
         kubeconfig: "{{ kubeconfig_admin | from_yaml }}"
         kind: PersistentVolumeClaim
       register: pvc_result
+      no_log: true
 
     - name: Initialize empty PV-to-namespace dictionary
-      set_fact:
+      ansible.builtin.set_fact:
         pv_to_ns_map: {}
 
     - name: Build PV-to-namespace mapping
-      set_fact:
+      ansible.builtin.set_fact:
         pv_to_ns_map: "{{ pv_to_ns_map | combine({item.spec.volumeName: item.metadata.namespace}) }}"
       loop: "{{ pvc_result.resources }}"
       loop_control:
         label: "{{ item.metadata.name }}"
+      no_log: true
       when: item.spec.volumeName is defined and item.metadata.namespace is defined
 
     - name: Filter NFS PVs
-      set_fact:
+      ansible.builtin.set_fact:
         nfs_pvs: "{{ pv_result.resources | selectattr('spec.nfs', 'defined') | map(attribute='metadata.name') | list }}"
+      no_log: true
 
     - name: Initialize empty NFS PV mapping
-      set_fact:
+      ansible.builtin.set_fact:
         nfs_pv_mapping: {}
 
     - name: Map NFS PVs to their namespaces
-      set_fact:
+      ansible.builtin.set_fact:
         nfs_pv_mapping: "{{ nfs_pv_mapping | combine({item: pv_to_ns_map[item] | default('Unknown')}) }}"
       loop: "{{ nfs_pvs }}"
-  
+      loop_control:
+        label: "{{ item }}"
+      no_log: true
+
     - name: Display Final Pretty Output
-      debug:
+      ansible.builtin.debug:
         msg: >-
           NFS PersistentVolumes Mapping:
           {%- for pv, ns in nfs_pv_mapping.items() %}
           - PV: {{ pv }} → Namespace: {{ ns }}
           {%- endfor %}
+
+    - name: Get unique namespaces from NFS PV mapping
+      ansible.builtin.set_fact:
+        unique_namespaces: "{{ nfs_pv_mapping.values() | list | unique }}"
+      no_log: true
+
+    - name: Get all namespaces with their labels
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kubeconfig: "{{ kubeconfig_admin | from_yaml }}"
+        kind: Namespace
+      register: namespace_result
+      no_log: true
+
+    - name: Filter namespaces with pxbackup=default label
+      ansible.builtin.set_fact:
+        pxbackup_default_namespaces: "{{ namespace_result.resources | selectattr('metadata.labels.pxbackup', 'defined') | selectattr('metadata.labels.pxbackup', 'equalto', 'default') | map(attribute='metadata.name') | list }}"
+      no_log: true
+
+    - name: Initialize namespaces needing backup schedule
+      ansible.builtin.set_fact:
+        namespaces_needing_schedule: []
+      no_log: true
+
+    - name: Find namespaces without resources/pxbackup.portworx.io label
+      ansible.builtin.set_fact:
+        namespaces_needing_schedule: "{{ namespaces_needing_schedule + [item] }}"
+      loop: "{{ pxbackup_default_namespaces }}"
+      when: >
+        item in unique_namespaces and
+        (namespace_result.resources | selectattr('metadata.name', 'equalto', item) | first).metadata.labels is defined and
+        'resources/pxbackup.portworx.io' not in (namespace_result.resources | selectattr('metadata.name', 'equalto', item) | first).metadata.labels
+      loop_control:
+        label: "{{ item }}"
+      no_log: true
+
+    - name: Display namespaces needing backup schedule
+      ansible.builtin.debug:
+        msg: >-
+          Namespaces needing backup schedule:
+          {%- for ns in namespaces_needing_schedule %}
+          - {{ ns }}
+          {%- endfor %}
+
+    - name: Assign random backup schedule to namespaces
+      ansible.builtin.set_fact:
+        assigned_schedules: "{{ assigned_schedules | default({}) | combine({item: backup_schedules[item | hash('sha1') | int % backup_schedules | length]}) }}"
+      loop: "{{ namespaces_needing_schedule }}"
+      vars:
+        backup_schedules:
+          - "resources/pxbackup.portworx.io=4am"
+          - "resources/pxbackup.portworx.io=8am"
+          - "resources/pxbackup.portworx.io=12am"
+          - "resources/pxbackup.portworx.io=4pm"
+          - "resources/pxbackup.portworx.io=8pm"
+          - "resources/pxbackup.portworx.io=12pm"
+      loop_control:
+        label: "{{ item }}"
+      no_log: true
+
+    - name: Display assigned backup schedules
+      ansible.builtin.debug:
+        msg: >-
+          Assigned backup schedules:
+          {%- for ns, schedule in assigned_schedules.items() %}
+          - Namespace: {{ ns }} → Schedule: {{ schedule }}
+          {%- endfor %}
+
+    # Uncomment the following task to actually apply the labels to the namespaces
+    # - name: Apply backup schedule labels to namespaces
+    #   kubernetes.core.k8s:
+    #     api_version: v1
+    #     kubeconfig: "{{ kubeconfig_admin | from_yaml }}"
+    #     kind: Namespace
+    #     name: "{{ item.key }}"
+    #     state: present
+    #     merge_type: merge
+    #     definition:
+    #       metadata:
+    #         labels:
+    #           "{{ item.value.split('=')[0] }}": "{{ item.value.split('=')[1] }}"
+    #   loop: "{{ assigned_schedules | dict2items }}"
+    #   loop_control:
+    #     label: "{{ item.key }}"
+    #   no_log: true

@@ -110,3 +110,4 @@ cython_debug/
 /context
 .ansible/.lock
 .DS_Store
+.vscode/settings.json

@@ -1,12 +1,4 @@
 ---
-- name: "Debug display backup_locations"
-  ansible.builtin.debug:
-    msg: |
-      {{ s3_credentials[cluster_user][cluster_env][region_data] }}
-      {{ s3_regions[cluster_user][cluster_env][region_data] }}
-      {{ s3_endpoints[cluster_user][cluster_env][region_data] }}
-      {{ backup_locations }}
-
 # Tasks for verifying and creating backup locations if needed
 - name: Get Existing Backup Locations
   tags:

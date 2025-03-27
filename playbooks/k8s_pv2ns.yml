@@ -5,13 +5,28 @@
   vars:
     cluster_adm_kube_dir: "{{ playbook_dir | dirname }}/tmp/cache/kube_config"
     cluster: { "name":"cld-paas-d-eusw1c-4"}
+    backup_schedules:
+      - "resources/pxbackup.portworx.io=4am"
+      - "resources/pxbackup.portworx.io=8am"
+      - "resources/pxbackup.portworx.io=12am"
+      - "resources/pxbackup.portworx.io=4pm"
+      - "resources/pxbackup.portworx.io=8pm"
+      - "resources/pxbackup.portworx.io=12pm"
+    assigned_schedules: {}  # Initialize empty dictionary
+    pxbackup_default_namespaces: []
+    unique_namespaces: []
+    namespaces_needing_schedule: []
+    pv_to_ns_map: {}
+    nfs_pvs: []
+    nfs_pv_mapping: {}
+
 
   tasks:
     - name: "Show Cluster"
       ansible.builtin.debug:
         msg: "Cluster {{ cluster.name }} Kube_adm_dir: {{ cluster_adm_kube_dir }}"
 
-      # Read kubeconfig from file if it exists
+    # Read kubeconfig from file if it exists
     - name: Read kubeconfig from local file
       ansible.builtin.slurp:
         src: "{{ cluster_adm_kube_dir }}/{{ cluster.name }}.kubeconfig"
@@ -42,10 +57,6 @@
       register: pvc_result
       no_log: true
 
-    - name: Initialize empty PV-to-namespace dictionary
-      ansible.builtin.set_fact:
-        pv_to_ns_map: {}
-
     - name: Build PV-to-namespace mapping
       ansible.builtin.set_fact:
         pv_to_ns_map: "{{ pv_to_ns_map | combine({item.spec.volumeName: item.metadata.namespace}) }}"
@@ -59,10 +70,6 @@
       ansible.builtin.set_fact:
         nfs_pvs: "{{ pv_result.resources | selectattr('spec.nfs', 'defined') | map(attribute='metadata.name') | list }}"
       no_log: true
-
-    - name: Initialize empty NFS PV mapping
-      ansible.builtin.set_fact:
-        nfs_pv_mapping: {}
 
     - name: Map NFS PVs to their namespaces
       ansible.builtin.set_fact:
@@ -98,11 +105,6 @@
         pxbackup_default_namespaces: "{{ namespace_result.resources | selectattr('metadata.labels.pxbackup', 'defined') | selectattr('metadata.labels.pxbackup', 'equalto', 'default') | map(attribute='metadata.name') | list }}"
       no_log: true
 
-    - name: Initialize namespaces needing backup schedule
-      ansible.builtin.set_fact:
-        namespaces_needing_schedule: []
-      no_log: true
-
     - name: Find namespaces without resources/pxbackup.portworx.io label
       ansible.builtin.set_fact:
         namespaces_needing_schedule: "{{ namespaces_needing_schedule + [item] }}"
@@ -127,14 +129,6 @@
       ansible.builtin.set_fact:
         assigned_schedules: "{{ assigned_schedules | default({}) | combine({item: backup_schedules[item | hash('sha1') | int % backup_schedules | length]}) }}"
       loop: "{{ namespaces_needing_schedule }}"
-      vars:
-        backup_schedules:
-          - "resources/pxbackup.portworx.io=4am"
-          - "resources/pxbackup.portworx.io=8am"
-          - "resources/pxbackup.portworx.io=12am"
-          - "resources/pxbackup.portworx.io=4pm"
-          - "resources/pxbackup.portworx.io=8pm"
-          - "resources/pxbackup.portworx.io=12pm"
       loop_control:
         label: "{{ item }}"
       no_log: true

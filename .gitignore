@@ -109,3 +109,4 @@ cython_debug/
 .tox/*
 /context
 .ansible/.lock
+.DS_Store

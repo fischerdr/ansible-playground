@@ -82,10 +82,8 @@
     - name: Display Final Pretty Output
       ansible.builtin.debug:
         msg: >-
-          NFS PersistentVolumes Mapping:
-          {%- for pv, ns in nfs_pv_mapping.items() %}
-          - PV: {{ pv }} → Namespace: {{ ns }}
-          {%- endfor %}
+          NFS PersistentVolumes Mapping:{%- for pv, ns in nfs_pv_mapping.items() %}
+          - PV: {{ pv }} → Namespace: {{ ns }}{%- endfor %}
 
     - name: Get unique namespaces from NFS PV mapping
       ansible.builtin.set_fact:
@@ -120,10 +118,8 @@
     - name: Display namespaces needing backup schedule
       ansible.builtin.debug:
         msg: >-
-          Namespaces needing backup schedule:
-          {%- for ns in namespaces_needing_schedule %}
-          - {{ ns }}
-          {%- endfor %}
+          Namespaces needing backup schedule:{%- for ns in namespaces_needing_schedule %}
+          - {{ ns }}{%- endfor %}
 
     - name: Assign random backup schedule to namespaces
       ansible.builtin.set_fact:
@@ -136,10 +132,8 @@
     - name: Display assigned backup schedules
       ansible.builtin.debug:
         msg: >-
-          Assigned backup schedules:
-          {%- for ns, schedule in assigned_schedules.items() %}
-          - Namespace: {{ ns }} → Schedule: {{ schedule }}
-          {%- endfor %}
+          Assigned backup schedules:{%- for ns, schedule in assigned_schedules.items() %}
+          - Namespace: {{ ns }} → Schedule: {{ schedule }}{%- endfor %}
 
     # Uncomment the following task to actually apply the labels to the namespaces
     # - name: Apply backup schedule labels to namespaces

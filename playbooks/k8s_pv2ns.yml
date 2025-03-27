@@ -19,6 +19,7 @@
     pv_to_ns_map: {}
     nfs_pvs: []
     nfs_pv_mapping: {}
+    namespaces_with_all_label: []
 
 
   tasks:
@@ -81,7 +82,7 @@
 
     - name: Display Final Pretty Output
       ansible.builtin.debug:
-        msg: >-
+        msg: |
           NFS PersistentVolumes Mapping:{%- for pv, ns in nfs_pv_mapping.items() %}
           - PV: {{ pv }} → Namespace: {{ ns }}{%- endfor %}
 
@@ -98,26 +99,61 @@
       register: namespace_result
       no_log: true
 
-    - name: Filter namespaces with pxbackup=default label
-      ansible.builtin.set_fact:
-        pxbackup_default_namespaces: "{{ namespace_result.resources | selectattr('metadata.labels.pxbackup', 'defined') | selectattr('metadata.labels.pxbackup', 'equalto', 'default') | map(attribute='metadata.name') | list }}"
-      no_log: true
-
     - name: Find namespaces without resources/pxbackup.portworx.io label
       ansible.builtin.set_fact:
         namespaces_needing_schedule: "{{ namespaces_needing_schedule + [item] }}"
-      loop: "{{ pxbackup_default_namespaces }}"
+      loop: "{{ unique_namespaces }}"
       when: >
-        item in unique_namespaces and
+        item != 'Unknown' and
         (namespace_result.resources | selectattr('metadata.name', 'equalto', item) | first).metadata.labels is defined and
+        (namespace_result.resources | selectattr('metadata.name', 'equalto', item) | first).metadata.labels.pxbackup is defined and
+        (namespace_result.resources | selectattr('metadata.name', 'equalto', item) | first).metadata.labels.pxbackup == 'default' and
         'resources/pxbackup.portworx.io' not in (namespace_result.resources | selectattr('metadata.name', 'equalto', item) | first).metadata.labels
       loop_control:
         label: "{{ item }}"
       no_log: true
 
+    - name: Find namespaces with all/pxbackup.portworx.io label
+      ansible.builtin.set_fact:
+        namespaces_with_all_label: "{{ namespaces_with_all_label | default([]) + [item] }}"
+      loop: "{{ unique_namespaces }}"
+      when: >
+        item != 'Unknown' and
+        (namespace_result.resources | selectattr('metadata.name', 'equalto', item) | first).metadata.labels is defined and
+        'all/pxbackup.portworx.io' in (namespace_result.resources | selectattr('metadata.name', 'equalto', item) | first).metadata.labels
+      loop_control:
+        label: "{{ item }}"
+      no_log: true
+
+    - name: Display namespaces with all/pxbackup.portworx.io label
+      ansible.builtin.debug:
+        msg: |
+          Namespaces with all/pxbackup.portworx.io label:{%- for ns in namespaces_with_all_label | default([]) %}
+          - {{ ns }}{%- endfor %}
+      when: namespaces_with_all_label is defined and namespaces_with_all_label | length > 0
+
+    # Uncomment the following task to remove the all/pxbackup.portworx.io label
+    # - name: Remove all/pxbackup.portworx.io label from namespaces
+    #   kubernetes.core.k8s:
+    #     api_version: v1
+    #     kubeconfig: "{{ kubeconfig_admin | from_yaml }}"
+    #     kind: Namespace
+    #     name: "{{ item }}"
+    #     state: present
+    #     merge_type: strategic-merge
+    #     definition:
+    #       metadata:
+    #         labels:
+    #           "all/pxbackup.portworx.io": null
+    #   loop: "{{ namespaces_with_all_label | default([]) }}"
+    #   loop_control:
+    #     label: "{{ item }}"
+    #   no_log: true
+    #   when: namespaces_with_all_label is defined and namespaces_with_all_label | length > 0
+
     - name: Display namespaces needing backup schedule
       ansible.builtin.debug:
-        msg: >-
+        msg: |
           Namespaces needing backup schedule:{%- for ns in namespaces_needing_schedule %}
           - {{ ns }}{%- endfor %}
 
@@ -131,7 +167,7 @@
 
     - name: Display assigned backup schedules
       ansible.builtin.debug:
-        msg: >-
+        msg: |
           Assigned backup schedules:{%- for ns, schedule in assigned_schedules.items() %}
           - Namespace: {{ ns }} → Schedule: {{ schedule }}{%- endfor %}
 

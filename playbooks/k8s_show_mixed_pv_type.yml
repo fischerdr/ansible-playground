@@ -10,6 +10,7 @@
     pvc_to_pv_map: {}
     ns_to_pv_types: {}
     mixed_pv_namespaces: []
+    output_filename: "{{cluster.name}}_ns_pv_{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}.json"
 
   tasks:
     - name: "Show Cluster"
@@ -150,10 +151,10 @@
     - name: Write namespace data to JSON file with timestamp in filename
       ansible.builtin.copy:
         content: "{{ output_data | to_nice_json }}"
-        dest: "{{ playbook_dir | dirname }}/tmp/output/namespace_pv_types_{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}.json"
+        dest: "{{ playbook_dir | dirname }}/tmp/output/{{ output_filename }}"
         mode: '0644'
       no_log: false
 
     - name: Display path to output file
       ansible.builtin.debug:
-        msg: "JSON output written to: {{ playbook_dir | dirname }}/tmp/output/namespace_pv_types_{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}.json"
+        msg: "JSON output written to: {{ playbook_dir | dirname }}/tmp/output/{{ output_filename }}"

@@ -115,16 +115,45 @@
 
           Total count: {{ mixed_pv_namespaces | length }}
 
-    - name: Display detailed PV type usage by namespace
-      ansible.builtin.debug:
-        msg: |
-          Detailed PV type usage by namespace:
-          {%- for ns, types in ns_to_pv_types.items() %}
-          {%- if types.nfs or types.non_nfs %}
+#    - name: Display detailed PV type usage by namespace
+#      ansible.builtin.debug:
+#        msg: |
+#          Detailed PV type usage by namespace:
+#          {%- for ns, types in ns_to_pv_types.items() %}
+#          {%- if types.nfs or types.non_nfs %}
+#          - {{ ns }}:
+#              NFS PVs: {{ types.nfs }}
+#              Non-NFS PVs: {{ types.non_nfs }}
+#          {%- endif %}
+#          {%- endfor %}
+#      when: mixed_pv_namespaces | length > 0
 
-          - {{ ns }}:
-              NFS PVs: {{ types.nfs }}
-              Non-NFS PVs: {{ types.non_nfs }}
-          {%- endif %}
-          {%- endfor %}
-      when: mixed_pv_namespaces | length > 0
+    - name: Create list of namespaces with only non-NFS PVs
+      ansible.builtin.set_fact:
+        non_nfs_only_namespaces: "{{ ns_to_pv_types | dict2items | selectattr('value.non_nfs', 'true') | selectattr('value.nfs', 'false') | map(attribute='key') | list | sort }}"
+      no_log: true
+
+    - name: Prepare JSON output data
+      ansible.builtin.set_fact:
+        output_data:
+          mixed: "{{ mixed_pv_namespaces | sort }}"
+          non_nfs: "{{ non_nfs_only_namespaces }}"
+      no_log: true
+
+    - name: Create output directory if it doesn't exist
+      ansible.builtin.file:
+        path: "{{ playbook_dir | dirname }}/tmp/output"
+        state: directory
+        mode: '0755'
+      no_log: true
+
+    - name: Write namespace data to JSON file
+      ansible.builtin.copy:
+        content: "{{ output_data | to_nice_json }}"
+        dest: "{{ playbook_dir | dirname }}/tmp/output/namespace_pv_types.json"
+        mode: '0644'
+      no_log: false
+
+    - name: Display path to output file
+      ansible.builtin.debug:
+        msg: "JSON output written to: {{ playbook_dir | dirname }}/tmp/output/namespace_pv_types.json"

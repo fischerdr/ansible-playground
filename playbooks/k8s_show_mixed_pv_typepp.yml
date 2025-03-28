@@ -119,32 +119,23 @@
       ansible.builtin.set_fact:
         ns_to_pv_types: >-
           {% set ns_dict = {} %}
-          {% set namespaces = [] %}
-          {% for pvc_key in pvc_to_pv_map | default({}) %}
-            {% set namespace = pvc_key.split('/')[0] %}
-            {% if namespace not in namespaces %}
-              {% set _ = namespaces.append(namespace) %}
-            {% endif %}
-          {% endfor %}
-          {% for namespace in namespaces %}
-            {% set has_nfs_pv = false %}
-            {% set has_non_nfs_pv = false %}
-            {% for pvc_key, pv_name in pvc_to_pv_map.items() %}
-              {% if pvc_key.startswith(namespace + '/') %}
-                {% if pv_name in nfs_pvs %}
-                  {% set has_nfs_pv = true %}
-                {% endif %}
-                {% if pv_name in non_nfs_pvs %}
-                  {% set has_non_nfs_pv = true %}
-                {% endif %}
+          {% for ns_name, ns_data in ns_to_pv_types.items() %}
+            {% set has_nfs = false %}
+            {% set has_non_nfs = false %}
+            {% for pvc_key, pv_name in pvc_to_pv_map.items() if pvc_key.split('/')[0] == ns_name %}
+              {% if pv_name in nfs_pvs %}
+                {% set has_nfs = true %}
+              {% endif %}
+              {% if pv_name in non_nfs_pvs %}
+                {% set has_non_nfs = true %}
+              {% endif %}
+              {% if has_nfs and has_non_nfs %}
+                {% break %}
               {% endif %}
             {% endfor %}
-            {% set _ = ns_dict.update({namespace: {
-                'nfs': ns_to_pv_types[namespace]['nfs'] or has_nfs_pv,
-                'non_nfs': ns_to_pv_types[namespace]['non_nfs'] or has_non_nfs_pv
-              }}) %}
+            {% set _ = ns_dict.update({ns_name: {'nfs': has_nfs, 'non_nfs': has_non_nfs}}) %}
           {% endfor %}
-          {{ ns_to_pv_types | combine(ns_dict) }}
+          {{ ns_dict }}
       no_log: true
       when: parallel_processing | bool
 

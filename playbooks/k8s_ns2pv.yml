@@ -78,7 +78,7 @@
         label: "{{ item.metadata.namespace }}"
       no_log: true
       when: >
-        item.spec.volumeName is defined and 
+        item.spec.volumeName is defined and
         item.metadata.namespace is defined and
         item.spec.volumeName in nfs_pvs
 

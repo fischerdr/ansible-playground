@@ -1,0 +1,123 @@
+---
+- name: Identify Namespaces with Mixed PV Types (NFS and Others)
+  hosts: localhost
+  gather_facts: false
+  vars:
+    cluster_adm_kube_dir: "{{ playbook_dir | dirname }}/tmp/cache/kube_config"
+    cluster: { "name": "cld-paas-d-eusw1c-4" }
+    nfs_pvs: []
+    other_pvs: []
+    pvc_to_pv_map: {}
+    ns_to_pv_types: {}
+    mixed_pv_namespaces: []
+
+  tasks:
+    - name: "Show Cluster"
+      ansible.builtin.debug:
+        msg: "Cluster {{ cluster.name }} Kube_adm_dir: {{ cluster_adm_kube_dir }}"
+
+    # Read kubeconfig from file if it exists
+    - name: Read kubeconfig from local file
+      ansible.builtin.slurp:
+        src: "{{ cluster_adm_kube_dir }}/{{ cluster.name }}.kubeconfig"
+      register: local_kubeconfig_content
+      no_log: true
+      when: cluster_adm_kube_dir is defined and
+            cluster_adm_kube_dir | length > 0 and
+            lookup('ansible.builtin.fileglob', cluster_adm_kube_dir + '/' + cluster.name + '.kubeconfig') | length > 0
+
+    # Set local file if found instead
+    - name: Set kubeconfig from local file
+      ansible.builtin.set_fact:
+        kubeconfig_admin: "{{ local_kubeconfig_content.content | b64decode }}"
+      no_log: true
+      when: local_kubeconfig_content is defined and local_kubeconfig_content.content is defined
+
+    - name: Get all PersistentVolumes
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kubeconfig: "{{ kubeconfig_admin | from_yaml }}"
+        kind: PersistentVolume
+      no_log: true
+      register: pv_result
+
+    - name: Categorize PersistentVolumes by type
+      ansible.builtin.set_fact:
+        nfs_pvs: "{{ nfs_pvs + [item.metadata.name] }}"
+      loop: "{{ pv_result.resources | default([]) }}"
+      when: item.spec.nfs is defined
+      no_log: true
+
+    - name: Categorize non-NFS PersistentVolumes
+      ansible.builtin.set_fact:
+        other_pvs: "{{ other_pvs + [item.metadata.name] }}"
+      loop: "{{ pv_result.resources | default([]) }}"
+      when: item.spec.nfs is not defined
+      no_log: true
+
+    - name: Get all PersistentVolumeClaims
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kubeconfig: "{{ kubeconfig_admin | from_yaml }}"
+        kind: PersistentVolumeClaim
+        namespace: "{{ item }}"
+      loop: "{{ query('kubernetes.core.k8s', kubeconfig=kubeconfig_admin | from_yaml, kind='Namespace', api_version='v1') | map(attribute='metadata.name') | list }}"
+      register: pvc_result
+      no_log: true
+
+    - name: Map PVCs to PVs
+      ansible.builtin.set_fact:
+        pvc_to_pv_map: "{{ pvc_to_pv_map | combine({(item.metadata.namespace + '/' + item.metadata.name): item.spec.volumeName}) }}"
+      loop: "{{ pvc_result.results | map(attribute='resources') | flatten | default([]) }}"
+      when: item.spec.volumeName is defined
+      no_log: true
+
+    - name: Initialize namespace to PV types mapping
+      ansible.builtin.set_fact:
+        ns_to_pv_types: "{{ ns_to_pv_types | combine({item: {'nfs': false, 'other': false}}) }}"
+      loop: "{{ query('kubernetes.core.k8s', kubeconfig=kubeconfig_admin | from_yaml, kind='Namespace', api_version='v1') | map(attribute='metadata.name') | list }}"
+      no_log: true
+
+    - name: Identify PV types used by each namespace
+      ansible.builtin.set_fact:
+        ns_to_pv_types: >-
+          {{ ns_to_pv_types | combine({
+              item.split('/')[0]: {
+                'nfs': ns_to_pv_types[item.split('/')[0]]['nfs'] or (pvc_to_pv_map[item] in nfs_pvs),
+                'other': ns_to_pv_types[item.split('/')[0]]['other'] or (pvc_to_pv_map[item] in other_pvs)
+              }
+            })
+          }}
+      loop: "{{ pvc_to_pv_map.keys() | list }}"
+      no_log: true
+
+    - name: Identify namespaces with both NFS and other PV types
+      ansible.builtin.set_fact:
+        mixed_pv_namespaces: "{{ mixed_pv_namespaces + [item.key] }}"
+      loop: "{{ ns_to_pv_types | dict2items }}"
+      when: item.value.nfs and item.value.other
+      no_log: true
+
+    - name: Display namespaces with mixed PV types
+      ansible.builtin.debug:
+        msg: |
+          Namespaces with both NFS and other PV types:
+          {%- for ns in mixed_pv_namespaces | sort %}
+
+          - {{ ns }}
+          {%- endfor %}
+
+          Total count: {{ mixed_pv_namespaces | length }}
+
+    - name: Display detailed PV type usage by namespace
+      ansible.builtin.debug:
+        msg: |
+          Detailed PV type usage by namespace:
+          {%- for ns, types in ns_to_pv_types.items() %}
+          {%- if types.nfs or types.other %}
+          - {{ ns }}:
+              NFS PVs: {{ types.nfs }}
+              Other PVs: {{ types.other }}
+          {%- endif %}
+          {%- endfor %}
+      when: mixed_pv_namespaces | length > 0

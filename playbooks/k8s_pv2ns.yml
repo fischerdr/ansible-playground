@@ -72,15 +72,17 @@
         label: "{{ item.metadata.name }}"
       no_log: true
       when: >
-        item.spec.volumeName is defined and 
+        item.spec.volumeName is defined and
         item.metadata.namespace is defined and
         item.spec.volumeName in nfs_pvs
 
     - name: Display Final Pretty Output
       ansible.builtin.debug:
         msg: |
-          NFS PersistentVolumes Mapping:{%- for pv, ns in nfs_pv_mapping.items() %}
-          - PV: {{ pv }} → Namespace: {{ ns }}{%- endfor %}
+          NFS PersistentVolumes Mapping:
+          {%- for pv, ns in nfs_pv_mapping.items() %}
+          - PV: {{ pv }} → Namespace: {{ ns }}
+          {%- endfor %}
 
     - name: Get unique namespaces from NFS PV mapping
       ansible.builtin.set_fact:
@@ -125,7 +127,9 @@
       ansible.builtin.debug:
         msg: |
           Namespaces with all/pxbackup.portworx.io label:{%- for ns in namespaces_with_all_label | default([]) %}
-          - {{ ns }}{%- endfor %}
+
+          - {{ ns }}
+          {%- endfor %}
       when: namespaces_with_all_label is defined and namespaces_with_all_label | length > 0
 
     # Uncomment the following task to remove the all/pxbackup.portworx.io label
@@ -151,7 +155,9 @@
       ansible.builtin.debug:
         msg: |
           Namespaces needing backup schedule:{%- for ns in namespaces_needing_schedule %}
-          - {{ ns }}{%- endfor %}
+
+          - {{ ns }}
+          {%- endfor %}
 
     - name: Assign random backup schedule to namespaces
       ansible.builtin.set_fact:
@@ -165,7 +171,9 @@
       ansible.builtin.debug:
         msg: |
           Assigned backup schedules:{%- for ns, schedule in assigned_schedules.items() %}
-          - Namespace: {{ ns }} → Schedule: {{ schedule }}{%- endfor %}
+
+          - Namespace: {{ ns }} → Schedule: {{ schedule }}
+          {%- endfor %}
 
     # Uncomment the following task to actually apply the labels to the namespaces
     # - name: Apply backup schedule labels to namespaces

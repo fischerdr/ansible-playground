@@ -95,8 +95,11 @@
     - name: Display namespaces without NFS PVs
       ansible.builtin.debug:
         msg: |
-          Namespaces without NFS PVs:{%- for ns in namespaces_without_nfs_pv %}
-          - {{ ns }}{%- endfor %}
+          Namespaces without NFS PVs:
+          {%- for ns in namespaces_without_nfs_pv %}
+
+          - {{ ns }}
+          {%- endfor %}
 
     - name: Filter namespaces with pxbackup=default label
       ansible.builtin.set_fact:
@@ -118,8 +121,11 @@
     - name: Display namespaces needing all/pxbackup.portworx.io label
       ansible.builtin.debug:
         msg: |
-          Namespaces needing all/pxbackup.portworx.io label:{%- for ns in namespaces_needing_all_label %}
-          - {{ ns }}{%- endfor %}
+          Namespaces needing all/pxbackup.portworx.io label:
+          {%- for ns in namespaces_needing_all_label %}
+
+          - {{ ns }}
+          {%- endfor %}
 
     - name: Assign random backup schedule to namespaces
       ansible.builtin.set_fact:
@@ -132,8 +138,11 @@
     - name: Display assigned backup schedules
       ansible.builtin.debug:
         msg: |
-          Assigned backup schedules:{%- for ns, schedule in assigned_schedules.items() %}
-          - Namespace: {{ ns }} → Schedule: {{ schedule }}{%- endfor %}
+          Assigned backup schedules:
+          {%- for ns, schedule in assigned_schedules.items() %}
+
+          - Namespace: {{ ns }} → Schedule: {{ schedule }}
+          {%- endfor %}
 
     # Uncomment the following task to actually apply the labels to the namespaces
     # - name: Apply all/pxbackup.portworx.io labels to namespaces

@@ -82,8 +82,20 @@
 
     - name: Create PVC to PV mapping and initialize namespace PV types in one task
       ansible.builtin.set_fact:
-        pvc_to_pv_map: "{{ dict(pvc_result.resources | default([]) | selectattr('spec.volumeName', 'defined') | map(attribute='metadata') | map('combine', {'key': '/'}) | map('community.general.dict_kv', 'key', 'namespace', 'name') | map('extract', ['key', 'spec.volumeName']) | list) }}"
-        ns_to_pv_types: "{{ dict(namespace_result.resources | default([]) | map(attribute='metadata.name') | map('zip', namespace_result.resources | default([]) | map(attribute='metadata.name') | map('community.general.dict_kv', 'nfs', false, 'non_nfs', false)) | list) }}"
+        pvc_to_pv_map: >-
+          {% set pvc_map = {} %}
+          {% for pvc in pvc_result.resources | default([]) %}
+            {% if pvc.spec.volumeName is defined %}
+              {% set _ = pvc_map.update({(pvc.metadata.namespace + '/' + pvc.metadata.name): pvc.spec.volumeName}) %}
+            {% endif %}
+          {% endfor %}
+          {{ pvc_map }}
+        ns_to_pv_types: >-
+          {% set ns_types = {} %}
+          {% for ns in namespace_result.resources | default([]) %}
+            {% set _ = ns_types.update({ns.metadata.name: {'nfs': false, 'non_nfs': false}}) %}
+          {% endfor %}
+          {{ ns_types }}
       no_log: true
       when: parallel_processing | bool
 
@@ -107,13 +119,30 @@
       ansible.builtin.set_fact:
         ns_to_pv_types: >-
           {% set ns_dict = {} %}
-          {% for namespace in (pvc_to_pv_map.keys() | map('split', '/') | map('first') | unique | list) %}
-          {% set _ = ns_dict.update({namespace: {
-              'nfs': ns_to_pv_types[namespace]['nfs'] or
-                     (pvc_to_pv_map.values() | select('in', nfs_pvs) | list | length > 0),
-              'non_nfs': ns_to_pv_types[namespace]['non_nfs'] or
-                         (pvc_to_pv_map.values() | select('in', non_nfs_pvs) | list | length > 0)
-            }}) %}
+          {% set namespaces = [] %}
+          {% for pvc_key in pvc_to_pv_map | default({}) %}
+            {% set namespace = pvc_key.split('/')[0] %}
+            {% if namespace not in namespaces %}
+              {% set _ = namespaces.append(namespace) %}
+            {% endif %}
+          {% endfor %}
+          {% for namespace in namespaces %}
+            {% set has_nfs_pv = false %}
+            {% set has_non_nfs_pv = false %}
+            {% for pvc_key, pv_name in pvc_to_pv_map.items() %}
+              {% if pvc_key.startswith(namespace + '/') %}
+                {% if pv_name in nfs_pvs %}
+                  {% set has_nfs_pv = true %}
+                {% endif %}
+                {% if pv_name in non_nfs_pvs %}
+                  {% set has_non_nfs_pv = true %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+            {% set _ = ns_dict.update({namespace: {
+                'nfs': ns_to_pv_types[namespace]['nfs'] or has_nfs_pv,
+                'non_nfs': ns_to_pv_types[namespace]['non_nfs'] or has_non_nfs_pv
+              }}) %}
           {% endfor %}
           {{ ns_to_pv_types | combine(ns_dict) }}
       no_log: true
@@ -169,13 +198,13 @@
         mode: '0755'
       no_log: true
 
-    - name: Write namespace data to JSON file
+    - name: Write namespace data to JSON file with timestamp in filename
       ansible.builtin.copy:
         content: "{{ output_data | to_nice_json }}"
-        dest: "{{ playbook_dir | dirname }}/tmp/output/namespace_pv_types.json"
+        dest: "{{ playbook_dir | dirname }}/tmp/output/namespace_pv_types_{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}.json"
         mode: '0644'
       no_log: false
 
     - name: Display path to output file
       ansible.builtin.debug:
-        msg: "JSON output written to: {{ playbook_dir | dirname }}/tmp/output/namespace_pv_types.json"
+        msg: "JSON output written to: {{ playbook_dir | dirname }}/tmp/output/namespace_pv_types_{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}.json"

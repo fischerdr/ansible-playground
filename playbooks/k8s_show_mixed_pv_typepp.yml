@@ -115,43 +115,29 @@
       no_log: true
 
     # Optimize the namespace PV type identification
-    - name: Identify PV types used by each namespace (optimized)
+    - name: Create a list of namespaces from PVCs
       ansible.builtin.set_fact:
-        ns_to_pv_types: >-
-          {% set ns_dict = {} %}
-          {% for ns_name, ns_data in ns_to_pv_types.items() %}
-            {% set has_nfs = false %}
-            {% set has_non_nfs = false %}
-            {% for pvc_key, pv_name in pvc_to_pv_map.items() if pvc_key.split('/')[0] == ns_name %}
-              {% if pv_name in nfs_pvs %}
-                {% set has_nfs = true %}
-              {% endif %}
-              {% if pv_name in non_nfs_pvs %}
-                {% set has_non_nfs = true %}
-              {% endif %}
-              {% if has_nfs and has_non_nfs %}
-                {% break %}
-              {% endif %}
-            {% endfor %}
-            {% set _ = ns_dict.update({ns_name: {'nfs': has_nfs, 'non_nfs': has_non_nfs}}) %}
-          {% endfor %}
-          {{ ns_dict }}
-      no_log: true
+        namespace_list: "{{ pvc_to_pv_map.keys() | map('split', '/') | map('first') | unique | list }}"
       when: parallel_processing | bool
+      no_log: true
 
-    # Fallback to original approach
-    - name: Identify PV types used by each namespace (traditional)
+    - name: Initialize namespace PV types
       ansible.builtin.set_fact:
-        ns_to_pv_types: >-
-          {{ ns_to_pv_types | combine({
-              item.split('/')[0]: {
-                'nfs': ns_to_pv_types[item.split('/')[0]]['nfs'] or (pvc_to_pv_map[item] in nfs_pvs),
-                'non_nfs': ns_to_pv_types[item.split('/')[0]]['non_nfs'] or (pvc_to_pv_map[item] in non_nfs_pvs)
-              }
-            })
-          }}
+        ns_to_pv_types: "{{ ns_to_pv_types | combine({item: {'nfs': false, 'non_nfs': false}}) }}"
+      loop: "{{ namespace_list | default([]) }}"
+      when: parallel_processing | bool
+      no_log: true
+
+    - name: Check PV types for each PVC
+      ansible.builtin.set_fact:
+        ns_to_pv_types: "{{ ns_to_pv_types | combine({
+            item.split('/')[0]: {
+              'nfs': ns_to_pv_types[item.split('/')[0]]['nfs'] or (pvc_to_pv_map[item] in nfs_pvs),
+              'non_nfs': ns_to_pv_types[item.split('/')[0]]['non_nfs'] or (pvc_to_pv_map[item] in non_nfs_pvs)
+            }
+          }) }}"
       loop: "{{ pvc_to_pv_map.keys() | list }}"
-      when: not parallel_processing | bool
+      when: parallel_processing | bool
       no_log: true
 
     - name: Identify namespaces with both NFS and non-NFS PV types

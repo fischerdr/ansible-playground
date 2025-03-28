@@ -55,27 +55,33 @@
       when: item.spec.nfs is not defined
       no_log: true
 
-    - name: Get all PersistentVolumeClaims
+    - name: Get all namespaces
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kubeconfig: "{{ kubeconfig_admin | from_yaml }}"
+        kind: Namespace
+      register: namespace_result
+      no_log: true
+
+    - name: Get all PersistentVolumeClaims across all namespaces
       kubernetes.core.k8s_info:
         api_version: v1
         kubeconfig: "{{ kubeconfig_admin | from_yaml }}"
         kind: PersistentVolumeClaim
-        namespace: "{{ item }}"
-      loop: "{{ query('kubernetes.core.k8s', kubeconfig=kubeconfig_admin | from_yaml, kind='Namespace', api_version='v1') | map(attribute='metadata.name') | list }}"
       register: pvc_result
       no_log: true
 
     - name: Map PVCs to PVs
       ansible.builtin.set_fact:
         pvc_to_pv_map: "{{ pvc_to_pv_map | combine({(item.metadata.namespace + '/' + item.metadata.name): item.spec.volumeName}) }}"
-      loop: "{{ pvc_result.results | map(attribute='resources') | flatten | default([]) }}"
+      loop: "{{ pvc_result.resources | default([]) }}"
       when: item.spec.volumeName is defined
       no_log: true
 
     - name: Initialize namespace to PV types mapping
       ansible.builtin.set_fact:
-        ns_to_pv_types: "{{ ns_to_pv_types | combine({item: {'nfs': false, 'other': false}}) }}"
-      loop: "{{ query('kubernetes.core.k8s', kubeconfig=kubeconfig_admin | from_yaml, kind='Namespace', api_version='v1') | map(attribute='metadata.name') | list }}"
+        ns_to_pv_types: "{{ ns_to_pv_types | combine({item.metadata.name: {'nfs': false, 'other': false}}) }}"
+      loop: "{{ namespace_result.resources | default([]) }}"
       no_log: true
 
     - name: Identify PV types used by each namespace

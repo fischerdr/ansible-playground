@@ -1,12 +1,12 @@
 ---
-- name: Identify Namespaces with Mixed PV Types (NFS and Others)
+- name: Identify Namespaces with Mixed PV Types (NFS and Non-NFS)
   hosts: localhost
   gather_facts: false
   vars:
     cluster_adm_kube_dir: "{{ playbook_dir | dirname }}/tmp/cache/kube_config"
     cluster: { "name": "cld-paas-d-eusw1c-4" }
     nfs_pvs: []
-    other_pvs: []
+    non_nfs_pvs: []
     pvc_to_pv_map: {}
     ns_to_pv_types: {}
     mixed_pv_namespaces: []
@@ -50,7 +50,7 @@
 
     - name: Categorize non-NFS PersistentVolumes
       ansible.builtin.set_fact:
-        other_pvs: "{{ other_pvs + [item.metadata.name] }}"
+        non_nfs_pvs: "{{ non_nfs_pvs + [item.metadata.name] }}"
       loop: "{{ pv_result.resources | default([]) }}"
       when: item.spec.nfs is not defined
       no_log: true
@@ -80,7 +80,7 @@
 
     - name: Initialize namespace to PV types mapping
       ansible.builtin.set_fact:
-        ns_to_pv_types: "{{ ns_to_pv_types | combine({item.metadata.name: {'nfs': false, 'other': false}}) }}"
+        ns_to_pv_types: "{{ ns_to_pv_types | combine({item.metadata.name: {'nfs': false, 'non_nfs': false}}) }}"
       loop: "{{ namespace_result.resources | default([]) }}"
       no_log: true
 
@@ -90,24 +90,24 @@
           {{ ns_to_pv_types | combine({
               item.split('/')[0]: {
                 'nfs': ns_to_pv_types[item.split('/')[0]]['nfs'] or (pvc_to_pv_map[item] in nfs_pvs),
-                'other': ns_to_pv_types[item.split('/')[0]]['other'] or (pvc_to_pv_map[item] in other_pvs)
+                'non_nfs': ns_to_pv_types[item.split('/')[0]]['non_nfs'] or (pvc_to_pv_map[item] in non_nfs_pvs)
               }
             })
           }}
       loop: "{{ pvc_to_pv_map.keys() | list }}"
       no_log: true
 
-    - name: Identify namespaces with both NFS and other PV types
+    - name: Identify namespaces with both NFS and non-NFS PV types
       ansible.builtin.set_fact:
         mixed_pv_namespaces: "{{ mixed_pv_namespaces + [item.key] }}"
       loop: "{{ ns_to_pv_types | dict2items }}"
-      when: item.value.nfs and item.value.other
+      when: item.value.nfs and item.value.non_nfs
       no_log: true
 
     - name: Display namespaces with mixed PV types
       ansible.builtin.debug:
         msg: |
-          Namespaces with both NFS and other PV types:
+          Namespaces with both NFS and non-NFS PV types:
           {%- for ns in mixed_pv_namespaces | sort %}
 
           - {{ ns }}
@@ -120,10 +120,11 @@
         msg: |
           Detailed PV type usage by namespace:
           {%- for ns, types in ns_to_pv_types.items() %}
-          {%- if types.nfs or types.other %}
+          {%- if types.nfs or types.non_nfs %}
+
           - {{ ns }}:
               NFS PVs: {{ types.nfs }}
-              Other PVs: {{ types.other }}
+              Non-NFS PVs: {{ types.non_nfs }}
           {%- endif %}
           {%- endfor %}
       when: mixed_pv_namespaces | length > 0

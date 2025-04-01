@@ -30,7 +30,8 @@
         parts: "{{ cluster.name.split('-') }}"
         cluster_user: "{{ parts[0] }}"
         platform: "{{ parts[1] }}"
-        cluster_env: "{{ parts[2] | regex_replace('p', 'prod') | regex_replace('d', 'dev') | regex_replace('t', 'test') }}"
+        cluster_env: >-
+          {%- if parts[2] == 'p' -%}prod{%- elif parts[2] == 't' -%}test{%- elif parts[2] == 'd' -%}dev{%- else -%}{{ parts[2] }}{%- endif -%}
         region_zone: "{{ parts[3] }}"
         region: "{{ parts[3] | regex_replace('[abc]$', '') }}"
         zone: "{{ 'zone-' + (parts[3] | regex_search('[abc]$') | default('')) }}"
@@ -43,7 +44,8 @@
         parts: "{{ cluster.name.split('-') }}"
         cluster_user: "{{ parts[0] }}"
         platform: "{{ parts[1] }}"
-        cluster_env: "{{ parts[2] | regex_replace('p', 'prod') | regex_replace('d', 'dev') | regex_replace('t', 'test') }}"
+        cluster_env: >-
+          {%- if parts[2] == 'p' -%}prod{%- elif parts[2] == 't' -%}test{%- elif parts[2] == 'd' -%}dev{%- else -%}{{ parts[2] }}{%- endif -%}
         region: "{{ parts[3] }}"
         zone: "all-zones"
         cluster_id: "{{ parts[4] }}"

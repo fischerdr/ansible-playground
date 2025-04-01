@@ -23,29 +23,29 @@ This project contains Ansible playbooks and roles for managing Kubernetes cluste
 
 1. Clone the repository:
 
-```bash
-git clone <repository-url>
-cd ansible-playground
-```
+    ```bash
+    git clone <repository-url>
+    cd ansible-playground
+    ```
 
 2. Install Python dependencies:
 
-```bash
-python -m pip install -r requirements.txt
-```
+    ```bash
+    python -m pip install -r requirements.txt
+    ```
 
 3. Install Ansible collections:
 
-```bash
-ansible-galaxy collection install -r requirements.yml
-```
+    ```bash
+    ansible-galaxy collection install -r requirements.yml
+    ```
 
 4. Build the execution environment:
 
-```bash
-chmod +x build.sh
-./build.sh
-```
+    ```bash
+    chmod +x build.sh
+    ./build.sh
+    ```
 
 ## Configuration
 

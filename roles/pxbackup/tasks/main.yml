@@ -17,6 +17,34 @@
   ansible.builtin.include_tasks:
     file: auth.yml
 
+# Process schedule policies first
+- name: Process Schedule Policies
+  tags:
+    - schedule_policies
+    - backup_schedules
+  loop: "{{ schedule_policies }}"
+  loop_control:
+    loop_var: policy_item
+    label: "{{ policy_item.name }}"
+  ansible.builtin.include_tasks:
+    file: setup_schedule_policies.yml
+  when: schedule_policies is defined and schedule_policies | length > 0
+
+# Verify and create required backup locations
+- name: Verify and Create Required Backup Locations
+  tags:
+    - backup_locations
+    - api_calls
+    - backup_schedules
+  ansible.builtin.include_tasks:
+    file: verify_backup_locations.yml
+  when: backup_schedules is defined and backup_schedules | length > 0
+  loop: "{{ clusters }}"
+  loop_control:
+    loop_var: cluster
+    label: "{{ cluster.name }}"
+
+# Process clusters
 - name: Process Clusters
   ansible.builtin.include_tasks:
     file: process_cluster.yml

@@ -18,12 +18,8 @@
           ansible.builtin.assert:
             that:
               - px_backup_api_url is defined
-              - px_backup_api_url | string | length > 0
-              - px_backup_token is defined
-              - px_backup_token | string | length > 0
               - org_id is defined
-              - org_id | string | length > 0
-            fail_msg: "Required variables are not set. Please ensure px_backup_api_url, px_backup_token, and org_id are defined."
+            fail_msg: "Required variables are not set. Please ensure px_backup_api_url and org_id are defined."
             success_msg: "All required variables are properly set"
 
         - name: Login and Fetch PX-Backup Token
@@ -57,12 +53,13 @@
             name: "{{ item.metadata.name }}"
             uid: "{{ item.metadata.uid }}"
             suspend: "{{ suspend_all_schedules | bool }}"
+            owner: "{{ item.metadata.ownership.owner }}"
             cluster_ref: "{{ item.backup_schedule_info.cluster_ref.name }}"
             schedule_policy_ref: "{{ item.backup_schedule_info.schedule_policy_ref.name }}"
             backup_location_ref: "{{ item.backup_schedule_info.backup_location_ref.name }}"
             target_namespace: "{{ item.backup_schedule_info.target_namespace | default(omit) }}"
             ns_label_selectors: "{{ item.backup_schedule_info.ns_label_selectors | default(omit) }}"
-            reclaim_policy: "{{ item.backup_schedule_info.reclaim_policy | default(omit) }}"
+            reclaim_policy: "{{ item.backup_schedule_info.reclaim_policy | default('Retain') }}"
           register: update_results
           loop: "{{ backup_schedules_result.backup_schedules }}"
           loop_control:

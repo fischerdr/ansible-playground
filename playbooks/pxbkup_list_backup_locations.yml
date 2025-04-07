@@ -1,0 +1,69 @@
+---
+# Description: Lists all PX-Backup locations from the specified PX-Backup instance
+
+- name: List and Display PX-Backup Locations
+  hosts: all
+  gather_facts: false
+
+  vars:
+    # Default to secure HTTPS validation
+    validate_certs: true
+
+  tasks:
+    - name: Manage PX-Backup Location Operations
+      block:
+        - name: Validate Required Variables
+          ansible.builtin.assert:
+            that:
+              - px_backup_api_url is defined
+              - org_id is defined
+            fail_msg: "Required variables are not set. Please ensure px_backup_api_url and org_id are defined."
+            success_msg: "All required variables are properly set"
+
+        - name: Login and Fetch PX-Backup Token
+          ansible.builtin.include_role:
+            name: common
+            tasks_from: pxbkup_auth.yml
+
+        - name: List All Backup Locations
+          purepx.px_backup.backup_location:
+            operation: INSPECT_ALL
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            org_id: "{{ org_id }}"
+            validate_certs: "{{ validate_certs | bool }}"
+          register: backup_locations_result
+          no_log: true  # Prevent token exposure in logs
+
+        - name: Display Backup Locations Information
+          ansible.builtin.debug:
+            msg: |
+              Total Backup Locations Found: {{ backup_locations_result.backup_locations | length }}
+              {% for location in backup_locations_result.backup_locations %}
+              Location {{ loop.index }}:
+                Name: {{ location.metadata.name }}
+                UID: {{ location.metadata.uid }}
+                Type: {{ location.backup_location_info.type }}
+                Created: {{ location.metadata.create_time }}
+              {% endfor %}
+          when: not backup_locations_result.failed
+
+      rescue:
+        - name: Log Error Details
+          ansible.builtin.debug:
+            msg: "Error occurred during PX-Backup operations: {{ ansible_failed_result }}"
+
+        - name: Set Error Flag
+          ansible.builtin.set_fact:
+            px_backup_operation_failed: true
+
+      always:
+        - name: Cleanup Operations Status
+          ansible.builtin.debug:
+            msg: >-
+              PX-Backup Location Operation completed.
+              {% if px_backup_operation_failed | default(false) %}
+              Status: Failed - Please check error details above
+              {% else %}
+              Status: Successful
+              {% endif %}

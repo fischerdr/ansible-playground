@@ -1,0 +1,72 @@
+---
+# Description: Lists all PX-Backup backups from the specified PX-Backup instance
+
+- name: List and Display PX-Backup Backups
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    # Default to secure HTTPS validation
+    validate_certs: true
+
+  tasks:
+    - name: Manage PX-Backup Backup Operations
+      block:
+        - name: Validate Required Variables
+          ansible.builtin.assert:
+            that:
+              - px_backup_api_url is defined
+              - org_id is defined
+            fail_msg: "Required variables are not set. Please ensure px_backup_api_url and org_id are defined."
+            success_msg: "All required variables are properly set"
+
+        - name: Login and Fetch PX-Backup Token
+          ansible.builtin.include_role:
+            name: common
+            tasks_from: pxbkup_auth.yml
+
+        - name: List All Backups
+          purepx.px_backup.backup:
+            operation: INSPECT_ALL
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            org_id: "{{ org_id }}"
+            validate_certs: "{{ validate_certs | bool }}"
+          register: backup_results
+          no_log: true  # Prevent token exposure in logs
+
+        - name: Display Backup Information
+          ansible.builtin.debug:
+            msg: |
+              Total Backups Found: {{ backup_results.backups | length }}
+              {% for backup in backup_results.backups %}
+              Backup {{ loop.index }}:
+                Name: {{ backup.metadata.name }}
+                UID: {{ backup.metadata.uid }}
+                Cluster: {{ backup.backup_info.cluster_ref.name | default('N/A') }}
+                Backup Location: {{ backup.backup_info.backup_location_ref.name | default('N/A') }}
+                Backup Type: {{ backup.backup_info.backup_type.type | default('N/A') }}
+                Status: {{ backup.backup_info.status | default('N/A') }}
+                Created: {{ backup.metadata.create_time }}
+              {% endfor %}
+          when: not backup_results.failed
+
+      rescue:
+        - name: Log Error Details
+          ansible.builtin.debug:
+            msg: "Error occurred during PX-Backup operations: {{ ansible_failed_result }}"
+
+        - name: Set Error Flag
+          ansible.builtin.set_fact:
+            px_backup_operation_failed: true
+
+      always:
+        - name: Cleanup Operations Status
+          ansible.builtin.debug:
+            msg: >-
+              PX-Backup Backup Operation completed.
+              {% if px_backup_operation_failed | default(false) %}
+              Status: Failed - Please check error details above
+              {% else %}
+              Status: Successful
+              {% endif %}

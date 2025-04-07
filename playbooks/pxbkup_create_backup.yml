@@ -1,0 +1,137 @@
+---
+# Description: Creates a backup in PX-Backup
+
+- name: Create PX-Backup Backup
+  hosts: all
+  gather_facts: false
+
+  vars:
+    # Default to secure HTTPS validation
+    validate_certs: true
+
+  tasks:
+    - name: Manage PX-Backup Backup Creation
+      block:
+        - name: Validate Required Variables
+          ansible.builtin.assert:
+            that:
+              - px_backup_api_url is defined
+              - org_id is defined
+              - backup_name is defined
+              - backup_location_name is defined
+              - cluster_name is defined
+            fail_msg: "Required variables are not set. Please ensure px_backup_api_url, org_id, backup_name, backup_location_name, and cluster_name are defined."
+            success_msg: "All required variables are properly set"
+
+        - name: Login and Fetch PX-Backup Token
+          ansible.builtin.include_role:
+            name: common
+            tasks_from: pxbkup_auth.yml
+
+        - name: List All Backup Locations
+          purepx.px_backup.backup_location:
+            operation: INSPECT_ALL
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            org_id: "{{ org_id }}"
+            validate_certs: "{{ validate_certs | bool }}"
+          register: backup_locations_result
+          no_log: true  # Prevent token exposure in logs
+
+        - name: Find Backup Location UID
+          ansible.builtin.set_fact:
+            backup_location_uid: "{{ (backup_locations_result.backup_locations | selectattr('metadata.name', 'equalto', backup_location_name) | list | first).metadata.uid }}"
+          when: backup_locations_result.backup_locations | selectattr('metadata.name', 'equalto', backup_location_name) | list | length > 0
+
+        - name: Fail If Backup Location Not Found
+          ansible.builtin.fail:
+            msg: "Backup location with name '{{ backup_location_name }}' not found. Please check the name and try again."
+          when: backup_location_uid is not defined
+
+        - name: List All Clusters
+          purepx.px_backup.cluster:
+            operation: INSPECT_ALL
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            org_id: "{{ org_id }}"
+            validate_certs: "{{ validate_certs | bool }}"
+          register: clusters_result
+          no_log: true  # Prevent token exposure in logs
+
+        - name: Find Cluster UID
+          ansible.builtin.set_fact:
+            cluster_uid: "{{ (clusters_result.clusters | selectattr('metadata.name', 'equalto', cluster_name) | list | first).metadata.uid }}"
+          when: clusters_result.clusters | selectattr('metadata.name', 'equalto', cluster_name) | list | length > 0
+
+        - name: Fail If Cluster Not Found
+          ansible.builtin.fail:
+            msg: "Cluster with name '{{ cluster_name }}' not found. Please check the name and try again."
+          when: cluster_uid is not defined
+
+        - name: Display Found References
+          ansible.builtin.debug:
+            msg: |
+              Found Backup Location: {{ backup_location_name }} (UID: {{ backup_location_uid }})
+              Found Cluster: {{ cluster_name }} (UID: {{ cluster_uid }})
+
+        - name: Create Backup
+          purepx.px_backup.backup:
+            operation: CREATE
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            name: "{{ backup_name }}"
+            org_id: "{{ org_id }}"
+            validate_certs: "{{ validate_certs | bool }}"
+            backup_location_ref:
+              name: "{{ backup_location_name }}"
+              uid: "{{ backup_location_uid }}"
+            cluster_ref:
+              name: "{{ cluster_name }}"
+              uid: "{{ cluster_uid }}"
+            namespaces: "{{ namespaces | default([]) }}"
+            backup_type: "{{ backup_type | default('Normal') }}"
+            # Optional parameters
+            label_selectors: "{{ label_selectors | default(omit) }}"
+            resource_types: "{{ resource_types | default(omit) }}"
+            pre_exec_rule_ref: "{{ pre_exec_rule_ref | default(omit) }}"
+            post_exec_rule_ref: "{{ post_exec_rule_ref | default(omit) }}"
+            include_resources: "{{ include_resources | default(omit) }}"
+            exclude_resource_types: "{{ exclude_resource_types | default(omit) }}"
+            ns_label_selectors: "{{ ns_label_selectors | default(omit) }}"
+            backup_object_type: "{{ backup_object_type | default(omit) }}"
+            skip_vm_auto_exec_rules: "{{ skip_vm_auto_exec_rules | default(omit) }}"
+            volume_snapshot_class_mapping: "{{ volume_snapshot_class_mapping | default(omit) }}"
+            direct_kdmp: "{{ direct_kdmp | default(omit) }}"
+            labels: "{{ labels | default(omit) }}"
+          register: backup_result
+          no_log: true  # Prevent token exposure in logs
+
+        - name: Display Backup Creation Results
+          ansible.builtin.debug:
+            msg: |
+              Backup Creation Results:
+              Name: {{ backup_result.backup.metadata.name }}
+              UID: {{ backup_result.backup.metadata.uid }}
+              Status: {{ backup_result.backup.backup_info.status | default('In Progress') }}
+              Created: {{ backup_result.backup.metadata.create_time }}
+          when: not backup_result.failed
+
+      rescue:
+        - name: Log Error Details
+          ansible.builtin.debug:
+            msg: "Error occurred during PX-Backup operations: {{ ansible_failed_result }}"
+
+        - name: Set Error Flag
+          ansible.builtin.set_fact:
+            px_backup_operation_failed: true
+
+      always:
+        - name: Cleanup Operations Status
+          ansible.builtin.debug:
+            msg: >-
+              PX-Backup Backup Creation completed.
+              {% if px_backup_operation_failed | default(false) %}
+              Status: Failed - Please check error details above
+              {% else %}
+              Status: Successful
+              {% endif %}

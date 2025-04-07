@@ -28,14 +28,10 @@
       ansible.builtin.assert:
         that:
           - px_backup_api_url is defined
-          - px_backup_api_url | string | length > 0
-          - px_backup_token is defined
-          - px_backup_token | string | length > 0
           - org_id is defined
-          - org_id | string | length > 0
           - backup_schedules is defined
           - backup_schedules | length > 0
-        fail_msg: "Required variables are not set. Please ensure px_backup_api_url, px_backup_token, org_id, and backup_schedules are defined."
+        fail_msg: "Required variables are not set. Please ensure px_backup_api_url, org_id, and backup_schedules are defined."
         success_msg: "All required variables are properly set"
 
     - name: Login and Fetch PX-Backup Token

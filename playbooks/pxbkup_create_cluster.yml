@@ -8,12 +8,10 @@
       ansible.builtin.assert:
         that:
           - px_backup_api_url is defined
-          - px_backup_api_url | string | length > 0
           - org_id is defined
-          - org_id | string | length > 0
           - clusters is defined
           - clusters | length > 0
-        fail_msg: "Required variables are not set. Please ensure all required variables are defined."
+        fail_msg: "Required variables are not set. Please ensure px_backup_api_url, org_id, and clusters are defined."
         success_msg: "All required variables are properly set"
 
     - name: Login and Fetch PX-Backup Token
@@ -27,7 +25,7 @@
           community.hashi_vault.vault_kv2_get:
             url: "{{ vault_address }}"
             namespace: "{{ vault_automation_default_namespace }}"
-            path: "{{ vault_automation_config_path }}{{ item.name }}/{{ item.name }}.pxbkup"
+            path: "{{ vault_automation_config_path }}/{{ item.name }}/{{ item.name }}.pxbkup"
             engine_mount_point: "{{ vault_automation_config_mount_point }}"
             auth_method: token
             token: "{{ vault_token }}"

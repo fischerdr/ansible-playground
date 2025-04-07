@@ -47,7 +47,7 @@
     validate_certs: "{{ validate_certs | bool }}"
     name: "{{ schedule_item.name }}"
     org_id: "{{ org_id }}"
-    reclaim_policy: "{{ schedule_item.reclaim_policy | default('Delete') }}"
+    reclaim_policy: "{{ schedule_item.reclaim_policy | default('Retain') }}"
     resource_types: "{{ schedule_item.resource_types | default(omit) }}"
     schedule_policy_ref: "{{ schedule_policy_ref }}"
     backup_location_ref: "{{ backup_location_ref }}"
@@ -83,7 +83,7 @@
       - Schedule Policy: {{ schedule_policy_ref.name }}
       - Backup Location: {{ backup_location_ref.name }}
       - Cluster: {{ cluster_ref.name }}
-      - Resource Types: {{ schedule_item.resource_types | to_yaml }}
+      - Resource Types: {{ schedule_item.resource_types | default([]) | to_yaml }}
       {% if schedule_item.ns_label_selectors is defined %}
       - Namespace Label Selectors: {{ schedule_item.ns_label_selectors }}
       {% endif %}

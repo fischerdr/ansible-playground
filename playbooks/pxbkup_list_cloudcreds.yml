@@ -1,86 +1,66 @@
 ---
-# Playbook to verify PX Backup cloud credentials
-# This playbook uses the pxpure collection to verify cloud credentials
+# Description: Lists all PX-Backup cloud credentials from the specified PX-Backup instance
 
-- name: Verify PX Backup Cloud Credentials
-  hosts: localhost
+- name: List and Display PX-Backup Cloud Credentials
+  hosts: all
   gather_facts: false
-  vars:
-    include_secrets: false
-    # Common variables used across all playbooks
-    px_backup_api_url: "https://px-backup-svc-exposed.com"
-    org_id: "default"
-    pxcentral_auth_url: "https://px-auth-svc-exposed.com"
-    pxcentral_client_id: "client_id"
-    pxcentral_username: "username"
-    pxcentral_password: "password"
-    token_duration: "365d"
 
   tasks:
-    - name: Login to Px-Backup using username and password
-      ansible.builtin.assert:
-        that:
-          - pxcentral_auth_url is defined
-          - pxcentral_client_id is defined
-          - pxcentral_username is defined
-          - pxcentral_password is defined
-        fail_msg: "Required variables must be defined"
+    - name: Manage PX-Backup Cloud Credentials Operations
+      block:
+        - name: Validate Required Variables
+          ansible.builtin.assert:
+            that:
+              - px_backup_api_url is defined
+              - org_id is defined
+            fail_msg: "Required variables are not set. Please ensure px_backup_api_url and org_id are defined."
+            success_msg: "All required variables are properly set"
 
-    - name: Request bearer token
-      purepx.px_backup.auth:
-        auth_url: "{{ pxcentral_auth_url }}"
-        client_id: "{{ pxcentral_client_id }}"
-        username: "{{ pxcentral_username }}"
-        password: "{{ pxcentral_password }}"
-        token_duration: "{{ token_duration | default('7d') }}"
-      register: token_response
-      check_mode: false
-      when: px_backup_token is not defined # Fetch token only if it's not already set
-      no_log: true  # Hide sensitive information in logs
+        - name: Login and Fetch PX-Backup Token
+          ansible.builtin.include_role:
+            name: common
+            tasks_from: pxbkup_auth.yml
 
-    # Set token fact only if we got a valid response
-    - name: Set token fact
-      ansible.builtin.set_fact:
-        px_backup_token: "{{ token_response.access_token }}"
-      when:
-        - token_response is defined
-        - token_response.access_token is defined
-        - token_response.access_token | length > 0
-      no_log: true  # Hide sensitive information in logs
+        - name: List All Cloud Credentials
+          purepx.px_backup.cloud_credential:
+            operation: INSPECT_ALL
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            org_id: "{{ org_id }}"
+            validate_certs: "{{ validate_certs | default(true) | bool }}"
+            include_secrets: "{{ include_secrets | default(false) | bool }}"
+          register: cloud_creds_result
+          no_log: true  # Prevent token exposure in logs
 
-    # Verify we have a valid token
-    - name: Verify token is set
-      ansible.builtin.assert:
-        that:
-          - px_backup_token is defined
-          - px_backup_token | length > 0
-        fail_msg: "Failed to obtain valid authentication token"
+        - name: Display Cloud Credentials Information
+          ansible.builtin.debug:
+            msg: |
+              Total Cloud Credentials Found: {{ cloud_creds_result.cloud_credentials | length }}
+              {% for cred in cloud_creds_result.cloud_credentials %}
+              Cloud Credential {{ loop.index }}:
+                Name: {{ cred.metadata.name }}
+                UID: {{ cred.metadata.uid }}
+                Type: {{ cred.cloud_credential_info.type | default('N/A') }}
+                Created: {{ cred.metadata.create_time }}
+              {% endfor %}
+          when: not cloud_creds_result.failed
 
-    - name: Verify cloud credentials exist
-      ansible.builtin.assert:
-        that:
-          - pxbackup_cloud_access_key is defined
-          - pxbackup_cloud_secret_key is defined
-        fail_msg: "Required cloud credentials are not defined"
-        success_msg: "Cloud credentials are properly defined"
-      no_log: true
+      rescue:
+        - name: Log Error Details
+          ansible.builtin.debug:
+            msg: "Error occurred during PX-Backup operations: {{ ansible_failed_result }}"
 
-    - name: Cloud Credential Enumerate call
-      purepx.px_backup.cloud_credential:
-        operation: INSPECT_ALL
-        api_url: "{{ px_backup_api_url }}"
-        token: "{{ px_backup_token }}"
-        org_id: "{{ org_id | default('default') }}"
-        include_secrets: "{{ include_secrets }}"
-      register: cloud_creds_result
-      no_log: true
+        - name: Set Error Flag
+          ansible.builtin.set_fact:
+            px_backup_operation_failed: true
 
-    - name: Display cloud credentials status
-      ansible.builtin.debug:
-        msg: "Cloud credentials are valid"
-      when: cloud_creds_result is success
-
-    - name: Fail if cloud credentials are invalid
-      ansible.builtin.fail:
-        msg: "Cloud credentials validation failed"
-      when: cloud_creds_result is failed
+      always:
+        - name: Cleanup Operations Status
+          ansible.builtin.debug:
+            msg: >-
+              PX-Backup Cloud Credentials Operation completed.
+              {% if px_backup_operation_failed | default(false) %}
+              Status: Failed - Please check error details above
+              {% else %}
+              Status: Successful
+              {% endif %}

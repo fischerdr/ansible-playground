@@ -5,9 +5,6 @@
   hosts: all
   gather_facts: false
 
-  vars:
-    # Default to secure HTTPS validation
-    validate_certs: true
 
   tasks:
     - name: Manage PX-Backup Cluster Operations

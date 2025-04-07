@@ -54,12 +54,20 @@
             uid: "{{ item.metadata.uid }}"
             suspend: "{{ suspend_all_schedules | bool }}"
             owner: "{{ item.metadata.ownership.owner }}"
-            cluster_ref: "{{ item.backup_schedule_info.cluster_ref.name }}"
-            schedule_policy_ref: "{{ item.backup_schedule_info.schedule_policy_ref.name }}"
-            backup_location_ref: "{{ item.backup_schedule_info.backup_location_ref.name }}"
+            cluster_ref:
+              name: "{{ item.backup_schedule_info.cluster_ref.name }}"
+              uid: "{{ item.backup_schedule_info.cluster_ref.uid }}"
+            schedule_policy_ref:
+              name: "{{ item.backup_schedule_info.schedule_policy_ref.name }}"
+              uid: "{{ item.backup_schedule_info.schedule_policy_ref.uid }}"
+            backup_location_ref:
+              name: "{{ item.backup_schedule_info.backup_location_ref.name }}"
+              uid: "{{ item.backup_schedule_info.backup_location_ref.uid }}"
             target_namespace: "{{ item.backup_schedule_info.target_namespace | default(omit) }}"
             ns_label_selectors: "{{ item.backup_schedule_info.ns_label_selectors | default(omit) }}"
             reclaim_policy: "{{ item.backup_schedule_info.reclaim_policy | default('Retain') }}"
+            backup_type: "{{ item.backup_schedule_info.backup_type.type }}"
+            namespaces: "{{ item.backup_schedule_info.namespaces | default(omit) }}"
           register: update_results
           loop: "{{ backup_schedules_result.backup_schedules }}"
           loop_control:

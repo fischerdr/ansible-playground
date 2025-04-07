@@ -63,7 +63,6 @@
             backup_location_ref:
               name: "{{ item.backup_schedule_info.backup_location_ref.name }}"
               uid: "{{ item.backup_schedule_info.backup_location_ref.uid }}"
-            target_namespace: "{{ item.backup_schedule_info.target_namespace | default(omit) }}"
             ns_label_selectors: "{{ item.backup_schedule_info.ns_label_selectors | default(omit) }}"
             reclaim_policy: "{{ item.backup_schedule_info.reclaim_policy | default('Retain') }}"
             backup_type: "{{ item.backup_schedule_info.backup_type.type }}"

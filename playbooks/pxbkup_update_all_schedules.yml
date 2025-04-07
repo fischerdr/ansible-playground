@@ -47,10 +47,6 @@
               Total Backup Schedules Found: {{ backup_schedules_result.backup_schedules | length }}
               Will update all schedules to suspend: {{ suspend_all_schedules | bool }}
 
-        - name: Prepare Schedule Update List
-          ansible.builtin.set_fact:
-            schedules_to_update: "{{ backup_schedules_result.backup_schedules | map('combine', {'suspend': suspend_all_schedules}) | list }}"
-
         - name: Update All Backup Schedules
           purepx.px_backup.backup_schedule:
             operation: UPDATE
@@ -61,11 +57,12 @@
             name: "{{ item.metadata.name }}"
             uid: "{{ item.metadata.uid }}"
             suspend: "{{ suspend_all_schedules | bool }}"
-            cluster_ref: "{{ item.backup_schedule_info.cluster }}"
+            cluster_ref: "{{ item.backup_schedule_info.cluster_ref.name }}"
             schedule_policy_ref: "{{ item.backup_schedule_info.schedule_policy_ref.name }}"
             backup_location_ref: "{{ item.backup_schedule_info.backup_location_ref.name }}"
-            pre_exec_rule_ref: "{{ item.backup_schedule_info.pre_exec_rule_ref.name | default(omit) }}"
-            post_exec_rule_ref: "{{ item.backup_schedule_info.post_exec_rule_ref.name | default(omit) }}"
+            target_namespace: "{{ item.backup_schedule_info.target_namespace | default(omit) }}"
+            ns_label_selectors: "{{ item.backup_schedule_info.ns_label_selectors | default(omit) }}"
+            reclaim_policy: "{{ item.backup_schedule_info.reclaim_policy | default(omit) }}"
           register: update_results
           loop: "{{ backup_schedules_result.backup_schedules }}"
           loop_control:

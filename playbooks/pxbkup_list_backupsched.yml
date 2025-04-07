@@ -50,7 +50,7 @@
                 UID: {{ schedule.metadata.uid }}
                 Cluster: {{ schedule.backup_schedule_info.cluster }}
                 Target Namespace: {{ schedule.backup_schedule_info.target_namespace }}
-                NS Label Selectors: {{ schedule.backup_schedule_info.ns_label_selectors }}
+                NS Label Selectors: {{ schedule.backup_schedule_info.ns_label_selectors | default(omit) }}
                 Schedule Policy: {{ schedule.backup_schedule_info.schedule_policy_ref.name }}
                 Backup Location: {{ schedule.backup_schedule_info.backup_location_ref.name }}
                 Backup Type: {{ schedule.backup_schedule_info.backup_type.type }}

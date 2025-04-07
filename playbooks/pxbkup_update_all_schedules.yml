@@ -1,0 +1,114 @@
+---
+# Description: Updates all PX-Backup schedules to suspend or resume based on a variable
+
+- name: Update All PX-Backup Schedules Suspend Status
+  hosts: all
+  gather_facts: false
+
+  vars:
+    # Default to secure HTTPS validation
+    validate_certs: true
+    # Default suspend status (can be overridden via command line)
+    suspend_all_schedules: false
+
+  tasks:
+    - name: Manage PX-Backup Schedule Operations
+      block:
+        - name: Validate Required Variables
+          ansible.builtin.assert:
+            that:
+              - px_backup_api_url is defined
+              - px_backup_api_url | string | length > 0
+              - px_backup_token is defined
+              - px_backup_token | string | length > 0
+              - org_id is defined
+              - org_id | string | length > 0
+            fail_msg: "Required variables are not set. Please ensure px_backup_api_url, px_backup_token, and org_id are defined."
+            success_msg: "All required variables are properly set"
+
+        - name: Login and Fetch PX-Backup Token
+          ansible.builtin.include_role:
+            name: common
+            tasks_from: pxbkup_auth.yml
+
+        - name: List All Backup Schedules
+          purepx.px_backup.backup_schedule:
+            operation: INSPECT_ALL
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            org_id: "{{ org_id }}"
+            validate_certs: "{{ validate_certs | bool }}"
+          register: backup_schedules_result
+          no_log: true  # Prevent token exposure in logs
+
+        - name: Display Backup Schedules Information Before Update
+          ansible.builtin.debug:
+            msg: |
+              Total Backup Schedules Found: {{ backup_schedules_result.backup_schedules | length }}
+              Will update all schedules to suspend: {{ suspend_all_schedules | bool }}
+
+        - name: Prepare Schedule Update List
+          ansible.builtin.set_fact:
+            schedules_to_update: "{{ backup_schedules_result.backup_schedules | map('combine', {'suspend': suspend_all_schedules}) | list }}"
+
+        - name: Update All Backup Schedules
+          purepx.px_backup.backup_schedule:
+            operation: UPDATE
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            org_id: "{{ org_id }}"
+            validate_certs: "{{ validate_certs | bool }}"
+            name: "{{ item.metadata.name }}"
+            uid: "{{ item.metadata.uid }}"
+            suspend: "{{ suspend_all_schedules | bool }}"
+            cluster_ref: "{{ item.backup_schedule_info.cluster }}"
+            schedule_policy_ref: "{{ item.backup_schedule_info.schedule_policy_ref.name }}"
+            backup_location_ref: "{{ item.backup_schedule_info.backup_location_ref.name }}"
+            pre_exec_rule_ref: "{{ item.backup_schedule_info.pre_exec_rule_ref.name | default(omit) }}"
+            post_exec_rule_ref: "{{ item.backup_schedule_info.post_exec_rule_ref.name | default(omit) }}"
+          register: update_results
+          loop: "{{ backup_schedules_result.backup_schedules }}"
+          loop_control:
+            label: "{{ item.metadata.name }}"
+
+        - name: Display Update Results
+          ansible.builtin.debug:
+            msg: |
+              Update Results:
+              ----------------------------------------
+              Schedule: {{ item.item.metadata.name }}
+              Suspend Status: {{ suspend_all_schedules | bool }}
+              Update Status: {{ 'Success' if item is changed else 'No changes needed' }}
+              ----------------------------------------
+          loop: "{{ update_results.results }}"
+          loop_control:
+            label: "{{ item.item.metadata.name }}"
+
+        - name: Summarize Update Operation
+          ansible.builtin.debug:
+            msg:
+              - "Update Summary:"
+              - "Total attempted: {{ update_results.results | length }}"
+              - "Successfully updated: {{ update_results.results | selectattr('changed', 'true') | list | length }}"
+              - "Failed updates: {{ update_results.results | selectattr('failed', 'defined') | selectattr('failed', 'true') | list | length }}"
+              - "Updated schedules: {{ update_results.results | selectattr('changed', 'true') | map(attribute='item.metadata.name') | list }}"
+
+      rescue:
+        - name: Log Error Details
+          ansible.builtin.debug:
+            msg: "Error occurred during PX-Backup operations: {{ ansible_failed_result }}"
+
+        - name: Set Error Flag
+          ansible.builtin.set_fact:
+            px_backup_operation_failed: true
+
+      always:
+        - name: Cleanup Operations Status
+          ansible.builtin.debug:
+            msg: >-
+              PX-Backup Schedule Update Operation completed.
+              {% if px_backup_operation_failed | default(false) %}
+              Status: Failed - Please check error details above
+              {% else %}
+              Status: Successful
+              {% endif %}

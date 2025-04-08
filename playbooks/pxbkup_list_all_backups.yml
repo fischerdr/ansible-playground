@@ -8,6 +8,8 @@
   vars:
     # Default to secure HTTPS validation
     validate_certs: true
+    # Initialize empty list for storing matched clusters
+    matched_clusters: []
 
   tasks:
     - name: Manage PX-Backup Backup Operations
@@ -17,58 +19,95 @@
             that:
               - px_backup_api_url is defined
               - org_id is defined
-              - cluster_name is defined or cluster_uid is defined
-            fail_msg: "Required variables are not set. Please ensure px_backup_api_url, org_id, and either cluster_name or cluster_uid are defined."
+            fail_msg: "Required variables are not set. Please ensure px_backup_api_url and org_id are defined."
             success_msg: "All required variables are properly set"
-
-        - name: Set Empty Cluster UID Filter if Not Provided
-          ansible.builtin.set_fact:
-            cluster_uid_filter: ""
-          when: cluster_uid is not defined
-
-        - name: Set Empty Cluster Name Filter if Not Provided
-          ansible.builtin.set_fact:
-            cluster_name_filter: ""
-          when: cluster_name is not defined
-
-        - name: Set Actual Cluster Name Filter if Provided
-          ansible.builtin.set_fact:
-            cluster_name_filter: "{{ cluster_name }}"
-          when: cluster_name is defined
-
-        - name: Set Actual Cluster UID Filter if Provided
-          ansible.builtin.set_fact:
-            cluster_uid_filter: "{{ cluster_uid }}"
-          when: cluster_uid is defined
 
         - name: Login and Fetch PX-Backup Token
           ansible.builtin.include_role:
             name: common
             tasks_from: pxbkup_auth.yml
 
-        - name: List All Backups
+        - name: Get List of All Clusters
+          purepx.px_backup.cluster:
+            operation: INSPECT_ALL
+            api_url: "{{ px_backup_api_url }}"
+            token: "{{ px_backup_token }}"
+            org_id: "{{ org_id }}"
+            validate_certs: "{{ validate_certs | default(true) | bool }}"
+          register: cluster_results
+          no_log: true  # Prevent token exposure in logs
+
+        - name: Filter Clusters Based on Name Pattern
+          ansible.builtin.set_fact:
+            matched_clusters: >-
+              {% if cluster_name is defined %}
+              {{ matched_clusters + [{'name': item.metadata.name, 'uid': item.metadata.uid}] }}
+              {% endif %}
+          loop: "{{ cluster_results.clusters }}"
+          when: cluster_name is defined and (item.metadata.name is match(cluster_name))
+          loop_control:
+            label: "{{ item.metadata.name }}"
+
+        - name: Filter Clusters Based on UID
+          ansible.builtin.set_fact:
+            matched_clusters: >-
+              {% if cluster_uid is defined %}
+              {{ matched_clusters + [{'name': item.metadata.name, 'uid': item.metadata.uid}] }}
+              {% endif %}
+          loop: "{{ cluster_results.clusters }}"
+          when: cluster_uid is defined and (item.metadata.uid == cluster_uid)
+          loop_control:
+            label: "{{ item.metadata.uid }}"
+
+        - name: Display Matched Clusters
+          ansible.builtin.debug:
+            msg: |
+              Found {{ matched_clusters | length }} clusters matching criteria:
+              {% for cluster in matched_clusters %}
+              - {{ cluster.name }} ({{ cluster.uid }})
+              {% endfor %}
+
+        - name: Fail If No Clusters Found
+          ansible.builtin.fail:
+            msg: "No clusters found matching the specified criteria"
+          when: matched_clusters | length == 0
+
+        - name: Initialize Empty List for All Backups
+          ansible.builtin.set_fact:
+            all_backups: []
+
+        - name: Get Backups for Each Matched Cluster
           purepx.px_backup.backup:
             operation: INSPECT_ALL
             api_url: "{{ px_backup_api_url }}"
             token: "{{ px_backup_token }}"
             org_id: "{{ org_id }}"
             validate_certs: "{{ validate_certs | default(true) | bool }}"
-            cluster_name_filter: "{{ cluster_name_filter }}"
-            cluster_uid_filter: "{{ cluster_uid_filter }}"
+            cluster_name_filter: "{{ item.name }}"
+            cluster_uid_filter: "{{ item.uid }}"
             # Optional parameters
             include_detailed_resources: "{{ include_detailed_resources | default(false) | bool }}"
             name_filter: "{{ name_filter | default(omit) }}"
             max_objects: "{{ max_objects | default(omit) }}"
             owners: "{{ owners | default(omit) }}"
             status: "{{ status | default(omit) }}"
-          register: backup_results
+          loop: "{{ matched_clusters }}"
+          register: backup_results_per_cluster
           no_log: true  # Prevent token exposure in logs
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Combine All Backup Results
+          ansible.builtin.set_fact:
+            all_backups: "{{ all_backups + item.backups }}"
+          loop: "{{ backup_results_per_cluster.results | map(attribute='backups') | list }}"
+          when: backup_results_per_cluster.results is defined
 
         - name: Display Backup Information
           ansible.builtin.debug:
             msg: |
-              Total Backups Found: {{ backup_results.backups | length }}
-              {% for backup in backup_results.backups %}
+              Total Backups Found: {{ all_backups | length }}
+              {% for backup in all_backups %}
               Backup {{ loop.index }}:
                 Name: {{ backup.metadata.name }}
                 UID: {{ backup.metadata.uid }}
@@ -78,7 +117,6 @@
                 Status: {{ backup.backup_info.status | default('N/A') }}
                 Created: {{ backup.metadata.create_time }}
               {% endfor %}
-          when: not backup_results.failed
 
       rescue:
         - name: Log Error Details

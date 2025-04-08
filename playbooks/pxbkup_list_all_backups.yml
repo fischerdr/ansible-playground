@@ -39,10 +39,7 @@
 
         - name: Filter Clusters Based on Name Pattern
           ansible.builtin.set_fact:
-            matched_clusters: >-
-              {% if cluster_name is defined %}
-              {{ matched_clusters + [{'name': item.metadata.name, 'uid': item.metadata.uid}] }}
-              {% endif %}
+            matched_clusters: "{{ matched_clusters + [{'name': item.metadata.name, 'uid': item.metadata.uid}] }}"
           loop: "{{ cluster_results.clusters }}"
           when: cluster_name is defined and (item.metadata.name is match(cluster_name))
           loop_control:
@@ -50,10 +47,7 @@
 
         - name: Filter Clusters Based on UID
           ansible.builtin.set_fact:
-            matched_clusters: >-
-              {% if cluster_uid is defined %}
-              {{ matched_clusters + [{'name': item.metadata.name, 'uid': item.metadata.uid}] }}
-              {% endif %}
+            matched_clusters: "{{ matched_clusters + [{'name': item.metadata.name, 'uid': item.metadata.uid}] }}"
           loop: "{{ cluster_results.clusters }}"
           when: cluster_uid is defined and (item.metadata.uid == cluster_uid)
           loop_control:
@@ -99,7 +93,7 @@
 
         - name: Combine All Backup Results
           ansible.builtin.set_fact:
-            all_backups: "{{ all_backups + item.backups }}"
+            all_backups: "{{ all_backups + item }}"
           loop: "{{ backup_results_per_cluster.results | map(attribute='backups') | list }}"
           when: backup_results_per_cluster.results is defined
 

@@ -95,6 +95,7 @@
           ansible.builtin.set_fact:
             all_backups: "{{ all_backups + item }}"
           loop: "{{ backup_results_per_cluster.results | map(attribute='backups') | list }}"
+          no_log: true  # Prevent token exposure in logs
           when: backup_results_per_cluster.results is defined
 
         - name: Display Backup Information

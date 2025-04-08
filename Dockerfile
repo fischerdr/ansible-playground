@@ -11,7 +11,6 @@ ENV PYTHONUNBUFFERED=1 \
 # Install system dependencies
 RUN dnf -y update && \
     dnf -y install \
-    epel-release \
     git-core \
     python3.12 \
     python3.12-devel \

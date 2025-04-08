@@ -17,9 +17,29 @@
             that:
               - px_backup_api_url is defined
               - org_id is defined
-              - (cluster_name is defined) or (cluster_uid is defined)
+              - cluster_name is defined or cluster_uid is defined
             fail_msg: "Required variables are not set. Please ensure px_backup_api_url, org_id, and either cluster_name or cluster_uid are defined."
             success_msg: "All required variables are properly set"
+
+        - name: Set Empty Cluster UID Filter if Not Provided
+          ansible.builtin.set_fact:
+            cluster_uid_filter: ""
+          when: cluster_uid is not defined
+
+        - name: Set Empty Cluster Name Filter if Not Provided
+          ansible.builtin.set_fact:
+            cluster_name_filter: ""
+          when: cluster_name is not defined
+
+        - name: Set Actual Cluster Name Filter if Provided
+          ansible.builtin.set_fact:
+            cluster_name_filter: "{{ cluster_name }}"
+          when: cluster_name is defined
+
+        - name: Set Actual Cluster UID Filter if Provided
+          ansible.builtin.set_fact:
+            cluster_uid_filter: "{{ cluster_uid }}"
+          when: cluster_uid is defined
 
         - name: Login and Fetch PX-Backup Token
           ansible.builtin.include_role:
@@ -33,8 +53,8 @@
             token: "{{ px_backup_token }}"
             org_id: "{{ org_id }}"
             validate_certs: "{{ validate_certs | default(true) | bool }}"
-            cluster_name_filter: "{{ cluster_name | default(omit) }}"
-            cluster_uid_filter: "{{ cluster_uid | default(omit) }}"
+            cluster_name_filter: "{{ cluster_name_filter }}"
+            cluster_uid_filter: "{{ cluster_uid_filter }}"
             # Optional parameters
             include_detailed_resources: "{{ include_detailed_resources | default(false) | bool }}"
             name_filter: "{{ name_filter | default(omit) }}"

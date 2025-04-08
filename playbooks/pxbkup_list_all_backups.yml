@@ -2,7 +2,7 @@
 # Description: Lists all PX-Backup backups from the specified PX-Backup instance
 
 - name: List and Display PX-Backup Backups
-  hosts: localhost
+  hosts: all
   gather_facts: false
 
   vars:
@@ -17,7 +17,8 @@
             that:
               - px_backup_api_url is defined
               - org_id is defined
-            fail_msg: "Required variables are not set. Please ensure px_backup_api_url and org_id are defined."
+              - (cluster_name is defined) or (cluster_uid is defined)
+            fail_msg: "Required variables are not set. Please ensure px_backup_api_url, org_id, and either cluster_name or cluster_uid are defined."
             success_msg: "All required variables are properly set"
 
         - name: Login and Fetch PX-Backup Token
@@ -31,7 +32,15 @@
             api_url: "{{ px_backup_api_url }}"
             token: "{{ px_backup_token }}"
             org_id: "{{ org_id }}"
-            validate_certs: "{{ validate_certs | bool }}"
+            validate_certs: "{{ validate_certs | default(true) | bool }}"
+            cluster_name_filter: "{{ cluster_name | default(omit) }}"
+            cluster_uid_filter: "{{ cluster_uid | default(omit) }}"
+            # Optional parameters
+            include_detailed_resources: "{{ include_detailed_resources | default(false) | bool }}"
+            name_filter: "{{ name_filter | default(omit) }}"
+            max_objects: "{{ max_objects | default(omit) }}"
+            owners: "{{ owners | default(omit) }}"
+            status: "{{ status | default(omit) }}"
           register: backup_results
           no_log: true  # Prevent token exposure in logs
 

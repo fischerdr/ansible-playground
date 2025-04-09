@@ -3,6 +3,7 @@
 # Documentation: https://ansible-navigator.readthedocs.io/en/latest/settings/
 
 ansible-navigator:
+
   # Execution Environment settings
   execution-environment:
     enabled: true
@@ -10,6 +11,9 @@ ansible-navigator:
     image: development-ee:latest
     pull:
       policy: missing
+    volume-mounts:
+      - src: ~/.vault-token
+        dest: ~/.vault-token
 
   # Ansible settings
   ansible:
@@ -24,6 +28,6 @@ ansible-navigator:
 
   # Logging settings
   logging:
-    level: info
+    level: debug
     append: true
-    file: "ansible-navigator.log"
+    file: "./logs/ansible-navigator.log"

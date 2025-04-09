@@ -17,6 +17,20 @@
   ansible.builtin.include_tasks:
     file: auth.yml
 
+# Create service account and kubeconfig for use in PX-Backup
+- name: Create Service Account and Kubeconfig
+  tags:
+    - always
+    - kubernetes
+    - service_account
+    - cluster_setup
+  ansible.builtin.include_tasks:
+    file: create_sa_kubeconfig.yml
+  loop: "{{ clusters }}"
+  loop_control:
+    loop_var: cluster
+    label: "{{ cluster.name }}"
+
 # Process schedule policies first
 - name: Process Schedule Policies
   tags:
@@ -34,8 +48,6 @@
 - name: Verify and Create Required Backup Locations
   tags:
     - backup_locations
-    - api_calls
-    - backup_schedules
   ansible.builtin.include_tasks:
     file: verify_backup_locations.yml
   when: backup_schedules is defined and backup_schedules | length > 0

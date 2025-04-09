@@ -8,17 +8,7 @@
     - cluster_setup
     - variables
 
-# Create service account and kubeconfig for use in PX-Backup
-- name: Create Service Account and Kubeconfig
-  ansible.builtin.include_tasks:
-    file: create_sa_kubeconfig.yml
-  tags:
-    - always
-    - kubernetes
-    - service_account
-    - cluster_setup
-
-# Then create the cluster in PX-Backup
+# Create or update cluster in PX-Backup and backup schedules
 - name: Create PX-Backup clusters
   tags:
     - cluster_management
@@ -30,7 +20,6 @@
         - api_calls
       ansible.builtin.include_tasks:
         file: create_update_cluster.yml
-
 
     # Create cluster backup schedules
     - name: Create Cluster Backup Schedules

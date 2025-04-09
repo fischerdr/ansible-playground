@@ -59,6 +59,7 @@ dependencies:
 
     # Utilities
     unzip [platform:rpm]
+    which [platform:rpm]
 
 # Additional build steps
 additional_build_steps:
@@ -68,6 +69,9 @@ additional_build_steps:
 
   append_final:
     - RUN dnf -y update && dnf clean all
+
+    # Remove Python 3.9 if present
+    - RUN dnf -y remove python3.9 python3.9-devel || true
 
     # Ansible configuration
     - ENV ANSIBLE_FORCE_COLOR=1
@@ -96,6 +100,18 @@ additional_build_steps:
     # SymLink `python` -> `python3.11`
     - RUN alternatives --install /usr/bin/python python /usr/bin/python3.11 311
     - RUN alternatives --set python /usr/bin/python3.11
+    - RUN alternatives --remove python /usr/bin/python3.9 || true
+
+    # Update python3 symlink to point to python3.11
+    - RUN ln -sf /usr/bin/python3.11 /usr/bin/python3
+
+    # Verify Python version and symlinks
+    - RUN python3 --version && python --version && which python3 && which python
+
+    # Display user and home directory information
+    - RUN id
+    - RUN pwd
+    - RUN echo $HOME
 
     # Development tools (only for dev environment)
     - RUN if [ "$BUILD_ENV" = "development" ]; then dnf -y install vim nano jq && python3.11 -m pip install -r requirements-dev.txt; fi

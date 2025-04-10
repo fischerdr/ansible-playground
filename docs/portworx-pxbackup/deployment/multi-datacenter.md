@@ -28,16 +28,19 @@ A typical enterprise deployment spans multiple datacenters, with PXBackup managi
 ### Centralized Management Model
 
 In this model:
+
 - PXBackup is deployed in a primary datacenter
 - Application clusters in all datacenters connect to this central instance
 - Backup storage can be local to each datacenter or centralized
 
 **Advantages:**
+
 - Simplified management through a single control plane
 - Consistent policies across all locations
 - Reduced operational overhead
 
 **Disadvantages:**
+
 - Single point of failure for management plane
 - Dependency on cross-datacenter networking
 - Potentially higher latency for remote clusters
@@ -45,16 +48,19 @@ In this model:
 ### Distributed Management Model
 
 In this model:
+
 - PXBackup is deployed in each datacenter
 - Each instance manages local application clusters
 - Federation provides a global view across instances
 
 **Advantages:**
+
 - Higher availability during network partitions
 - Lower latency for backup operations
 - Compliance with strict data sovereignty requirements
 
 **Disadvantages:**
+
 - More complex to manage
 - Potential for policy inconsistencies
 - Higher resource requirements
@@ -62,16 +68,19 @@ In this model:
 ### Hybrid Model (Recommended)
 
 In this model:
+
 - Primary PXBackup instance in main datacenter
 - Secondary standby instances in other datacenters
 - Synchronized configuration and metadata
 
 **Advantages:**
+
 - Balance of centralized management and resilience
 - Failover capabilities during outages
 - Optimized performance for local operations
 
 **Disadvantages:**
+
 - More complex initial setup
 - Requires synchronization mechanisms
 
@@ -243,6 +252,7 @@ spec:
 ### Health Checks
 
 Implement regular health checks for:
+
 - PXBackup components in each datacenter
 - Network connectivity between datacenters
 - Storage access and availability
@@ -251,6 +261,7 @@ Implement regular health checks for:
 ### Alerting Strategy
 
 Configure alerts for:
+
 - Failed backups in any datacenter
 - Network connectivity issues
 - Storage capacity thresholds
@@ -261,6 +272,7 @@ Configure alerts for:
 ### Datacenter Failure Scenarios
 
 Plan for different failure scenarios:
+
 - **Management Datacenter Failure**: Procedures to activate secondary PXBackup
 - **Application Datacenter Failure**: Restore procedures to alternate datacenter
 - **Storage Datacenter Failure**: Procedures to access backup data from alternate locations
@@ -268,6 +280,7 @@ Plan for different failure scenarios:
 ### Recovery Process
 
 Document specific procedures for:
+
 1. Assessing the failure scope
 2. Activating secondary management if needed
 3. Identifying available backup locations
@@ -285,7 +298,8 @@ Document specific procedures for:
 ### Documentation
 
 Maintain comprehensive documentation for:
+
 - Network topology between datacenters
 - Storage configuration and access methods
 - Authentication and authorization requirements
-- Step-by-step recovery procedures for various scenarios 
+- Step-by-step recovery procedures for various scenarios

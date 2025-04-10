@@ -92,27 +92,9 @@ helm repo update
 helm install px-backup portworx/px-backup \
     --namespace px-backup \
     --create-namespace \
-    --set oidc.centralOIDC.enabled=true \
-    --set persistentStorage.enabled=true \
     --set persistentStorage.storageClassName=<your-storage-class> \
     --set storkRequired=true
 ```
-
-### Operator-based Installation
-
-For Kubernetes environments using operators:
-
-```bash
-# Install the Portworx Operator
-kubectl apply -f https://install.portworx.com/operator
-
-# Create PXBackup custom resource
-kubectl apply -f px-backup-cr.yaml
-```
-
-### Portworx Central
-
-PXBackup can also be deployed through the Portworx Central web interface, which simplifies the process but may offer less customization for enterprise deployments.
 
 ## Deployment Procedure
 
@@ -183,38 +165,88 @@ For enterprises with multiple datacenters, consider the following approach:
 
 After installing PXBackup, complete the following configuration steps:
 
-### 1. Register Kubernetes Clusters
+### Using the ansible pxbackup role deploy clusters
 
-```bash
-# From the PXBackup UI or via API:
-# Add each application cluster using kubeconfig or service account credentials
-```
+The PX-Backup Ansible role automates the deployment and configuration of Portworx PX-Backup in Kubernetes environments. Follow these steps to use the role:
 
-### 2. Configure Backup Locations
+1. **Create a playbook** (e.g., `pxbkup-setupcluster.yml`):
 
-```bash
-# Create backup locations pointing to S3 or NFS storage
-```
+   ```yaml
+   ---
+   - name: Configure PX-Backup Clusters
+     hosts: all
+     gather_facts: false
+   
+     roles:
+       - role: pxbackup
+   ```
 
-### 3. Set Up Backup Rules
+2. **Configure variables** in `extra_vars.json`:
 
-```bash
-# Create pre/post-exec rules for application-consistent backups
-```
+   ```json
+   {
+     "px_backup_api_url": "https://pxbackup.example.com",
+     "pxcentral_auth_url": "https://pxbackup.example.com/auth",
+     "pxcentral_client_id": "px-backup-client",
+     "pxcentral_username": "admin",
+     "pxcentral_password": "{{ vault_pxcentral_password }}",
+     "org_id": "default",
+     
+     "vault_token_path": "/run/secrets/vault-token",
+     "vault_automation_prod_address": "https://vault-prod.example.com",
+     "vault_automation_dev_address": "https://vault-dev.example.com",
+     "vault_automation_default_namespace": "automation",
+     "vault_automation_config_path": "kubernetes/",
+     "vault_automation_config_mount_point": "secret"
+   }
+   ```
 
-### 4. Configure Backup Schedules
+3. **Define clusters** in `extra_vars_clusters.json`:
 
-```bash
-# Define schedule policies for different applications
-# Implement retention policies
-```
+   ```json
+   {
+     "clusters": [
+       {
+         "name": "user1-platform-p-usw2a-1",
+         "description": "Production Cluster US West 2 Zone A",
+         "cloud_type": "AWS",
+         "px_config": {
+           "storage_classes": ["portworx-db-sc", "portworx-file-sc"],
+           "namespaces": ["prod-apps", "monitoring"]
+         }
+       }
+     ]
+   }
+   ```
 
-### 5. Configure Monitoring and Alerts
+4. **Run the playbook**:
 
-```bash
-# Set up monitoring for PXBackup components
-# Configure alerts for backup failures
-```
+   ```bash
+   ansible-playbook pxbkup-setupcluster.yml -e @extra_vars.json -e @extra_vars_clusters.json
+   ```
+
+5. **Optional: Configure backup schedules** in `extra_vars_bkupsched.json`:
+
+   ```json
+   {
+     "backup_schedules": [
+       {
+         "name": "daily-backup",
+         "backup_location": "s3-backup-location",
+         "schedule_policy": "daily-retention-7",
+         "namespaces": ["app-namespace", "database-namespace"]
+       }
+     ]
+   }
+   ```
+
+6. **Optional: Run with backup schedules**:
+
+   ```bash
+   ansible-playbook pxbkup-setupcluster.yml -e @extra_vars.json -e @extra_vars_clusters.json -e @extra_vars_bkupsched.json
+   ```
+
+For more detailed information, refer to the [PX-Backup Role documentation](../../roles/pxbackup/README.md).
 
 ## Deployment Validation
 
@@ -275,4 +307,4 @@ Common deployment issues and solutions:
 - Verify storage connectivity and permissions
 - Check for application-specific issues
 
-For more detailed troubleshooting, refer to the [Portworx documentation](https://docs.portworx.com/portworx-backup-on-prem/). 
+For more detailed troubleshooting, refer to the [Portworx documentation](https://docs.portworx.com/portworx-backup-on-prem/).

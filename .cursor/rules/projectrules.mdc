@@ -1,9 +1,15 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# Your rule content
 This project uses tasks to talk to kubernetes and vault and portworx backup
 Do not make changes to code that i didnt ask for
-this code will be run from ansible-runner and will be executed on the target system
+this code will be run from ansible-runner or ansible-navigator and will be executed on the target system
 the execution environment is defined in the execution-environment.yml
 the container runtime is defined in the execution-environment.yml and should be set to docker
-images used can be centos streamor fedora stream
 Ansible Navigator can be run using docker
 Ansible: Use collections and roles from collections/ and roles/
 Ansible: Use inventory from inventory/

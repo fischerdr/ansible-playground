@@ -1,0 +1,63 @@
+---
+# Playbook: k8s_resource_inventory.yml
+# Description: Scans Kubernetes namespaces and counts core resources and CRDs
+# Author: Ansible Assistant
+# Date: 2024
+
+# Main play
+- name: Collect Kubernetes Resource Inventory
+  hosts: localhost
+  gather_facts: false
+  # Include variables from vars/main.yml
+  vars_files:
+    - vars/main.yml  # For any additional variables
+
+  tasks:
+    - name: "Show Cluster"
+      ansible.builtin.debug:
+        msg: "Cluster {{ cluster.name }} Kube_adm_dir: {{ cluster_adm_kube_dir }}"
+
+    # Read kubeconfig from file if it exists
+    - name: Read kubeconfig from local file
+      ansible.builtin.slurp:
+        src: "{{ cluster_adm_kube_dir }}/{{ cluster.name }}.kubeconfig"
+      register: local_kubeconfig_content
+      no_log: true
+      when: cluster_adm_kube_dir is defined and
+            cluster_adm_kube_dir | length > 0 and
+            lookup('ansible.builtin.fileglob', cluster_adm_kube_dir + '/' + cluster.name + '.kubeconfig') | length > 0
+
+    # Set local file if found instead
+    - name: Set kubeconfig from local file
+      ansible.builtin.set_fact:
+        kubeconfig: "{{ local_kubeconfig_content.content | b64decode }}"
+      no_log: true
+      when: local_kubeconfig_content is defined and local_kubeconfig_content.content is defined
+
+    - name: Get all namespaces
+      kubernetes.core.k8s_info:
+        kind: Namespace
+        kubeconfig: "{{ kubeconfig }}"
+      register: namespace_list
+      no_log: true
+
+    - name: Initialize results dictionary
+      ansible.builtin.set_fact:
+        inventory_results: {}
+
+    - name: Process each namespace
+      ansible.builtin.include_tasks: tasks/process_namespace.yml
+      loop: "{{ namespace_list.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      vars:
+        k8s_namespace: "{{ item.metadata.name }}"
+
+    - name: Generate output file
+      ansible.builtin.include_tasks: tasks/generate_output.yml
+      vars:
+        output_data: "{{ inventory_results }}"
+
+    - name: Display summary
+      ansible.builtin.debug:
+        msg: "Inventory collection completed. Results saved to {{ output_file }}"

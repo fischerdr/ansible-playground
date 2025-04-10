@@ -1,0 +1,38 @@
+---
+# Default variables for k8s_resource_inventory playbook
+
+# Kubernetes configuration
+cluster_adm_kube_dir: "{{ playbook_dir | dirname }}/tmp/cache/kube_config"
+cluster: { "name": "default" }
+# Resource collection settings
+collect_crds: true  # Whether to collect CRD information
+log_level: INFO     # Logging level (DEBUG, INFO, WARNING, ERROR)
+
+# Output settings
+output_format: json  # Output format (json or csv)
+output_file: "k8s_resource_inventory_{{ ansible_date_time.date }}.json"
+
+# Core resources to collect (can be extended)
+core_resources:
+  - name: pods
+    kind: Pod
+  - name: services
+    kind: Service
+  - name: deployments
+    kind: Deployment
+  - name: statefulsets
+    kind: StatefulSet
+  - name: daemonsets
+    kind: DaemonSet
+  - name: configmaps
+    kind: ConfigMap
+  - name: secrets
+    kind: Secret
+  - name: persistentvolumeclaims
+    kind: PersistentVolumeClaim
+  - name: ingresses
+    kind: Ingress
+  - name: jobs
+    kind: Job
+  - name: cronjobs
+    kind: CronJob

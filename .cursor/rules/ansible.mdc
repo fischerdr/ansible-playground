@@ -1,7 +1,7 @@
 ---
 description: 
-globs: 
-alwaysApply: true
+globs: playbooks/**/*.yml,roles/**/**/*.yml
+alwaysApply: false
 ---
  ---
 description: Ansible Playbook and Role Development Guidelines
@@ -11,8 +11,8 @@ globs: playbooks/**/*.yml, roles/**/*.yml
 # Ansible Development Guidelines
 
 ## Playbook Structure
-- All tasks must be FQDN
-- Truthy value should be one of [false, true]
+- All tasks must use FQCN (Fully Qualified Collection Names)
+- Use lowercase true/false for boolean values
 - All playbooks should start with a clear description comment block
 - Use meaningful play names that describe the purpose
 - Organize tasks in logical blocks with clear names

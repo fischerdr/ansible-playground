@@ -46,3 +46,8 @@ aiohttp==3.9.3
 pip==24.0
 tox-ansible==25.4.0
 virtualenv==20.30.0
+
+requests
+click
+rich
+python-dotenv

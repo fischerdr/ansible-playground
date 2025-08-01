@@ -1,0 +1,28 @@
+{
+  "px_backup_api_url": "https://px-backup.example.com",
+  "org_id": "default",
+  "backup_name": "prod-app-backup",
+  "cluster_name": "prod-cluster",
+  "backup_location_name": "s3-backup-location",
+  "validate_certs": true,
+  "namespaces": [
+    "app-namespace",
+    "database-namespace"
+  ],
+  "backup_type": "Normal",
+  "resource_types": [
+    "deployments",
+    "statefulsets",
+    "configmaps",
+    "secrets"
+  ],
+  "ns_label_selectors": "app=myapp,environment=production",
+  "backup_object_type": {
+    "type": "All"
+  },
+  "labels": {
+    "environment": "production",
+    "application": "myapp",
+    "team": "devops"
+  }
+}

@@ -1,12 +1,13 @@
 ---
-# Description: Lists all PX-Backup cloud credentials from the specified PX-Backup instance
+# Description: Lists all PX-Backup clusters from the specified PX-Backup instance
 
-- name: List and Display PX-Backup Cloud Credentials
+- name: List and Display PX-Backup Clusters
   hosts: all
   gather_facts: false
 
+
   tasks:
-    - name: Manage PX-Backup Cloud Credentials Operations
+    - name: Manage PX-Backup Cluster Operations
       block:
         - name: Validate Required Variables
           ansible.builtin.assert:
@@ -21,29 +22,29 @@
             name: common
             tasks_from: pxbkup_auth.yml
 
-        - name: List All Cloud Credentials
-          purepx.px_backup.cloud_credential:
+        - name: List All Clusters
+          purepx.px_backup.cluster:
             operation: INSPECT_ALL
             api_url: "{{ px_backup_api_url }}"
             token: "{{ px_backup_token }}"
             org_id: "{{ org_id }}"
-            validate_certs: "{{ validate_certs | default(true) | bool }}"
-            include_secrets: "{{ include_secrets | default(false) | bool }}"
-          register: cloud_creds_result
+            validate_certs: "{{ validate_certs | bool }}"
+          register: clusters_result
           no_log: true  # Prevent token exposure in logs
 
-        - name: Display Cloud Credentials Information
+        - name: Display Clusters Information
           ansible.builtin.debug:
             msg: |
-              Total Cloud Credentials Found: {{ cloud_creds_result.cloud_credentials | length }}
-              {% for cred in cloud_creds_result.cloud_credentials %}
-              Cloud Credential {{ loop.index }}:
-                Name: {{ cred.metadata.name }}
-                UID: {{ cred.metadata.uid }}
-                Type: {{ cred.cloud_credential_info.type | default('N/A') }}
-                Created: {{ cred.metadata.create_time }}
+              Total Clusters Found: {{ clusters_result.clusters | length }}
+              {% for cluster in clusters_result.clusters %}
+              Cluster {{ loop.index }}:
+                Name: {{ cluster.metadata.name }}
+                UID: {{ cluster.metadata.uid }}
+                Type: {{ cluster.cluster_info.type | default('N/A') }}
+                Status: {{ cluster.cluster_info.status | default('N/A') }}
+                Created: {{ cluster.metadata.create_time }}
               {% endfor %}
-          when: not cloud_creds_result.failed
+          when: not clusters_result.failed
 
       rescue:
         - name: Log Error Details
@@ -58,7 +59,7 @@
         - name: Cleanup Operations Status
           ansible.builtin.debug:
             msg: >-
-              PX-Backup Cloud Credentials Operation completed.
+              PX-Backup Cluster Operation completed.
               {% if px_backup_operation_failed | default(false) %}
               Status: Failed - Please check error details above
               {% else %}

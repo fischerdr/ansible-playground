@@ -3,69 +3,113 @@
   hosts: localhost
   gather_facts: false
   vars:
-    inital_label: "label_a"
-    storage: "label_b"
-    resrcs_only: "label_c"
-    full_namespace: "label_d"
-    schedule_names:
-      - "schedule1"
-      - "schedule2"
-      - "schedule3"
-      - "schedule4"
-      - "schedule5"
-      - "schedule6"
-    namespaces_missing_labels: []
-    namespace_label_map: {}
-  environment:
-    KUBECONFIG: ""
+    cluster_adm_kube_dir: "{{ playbook_dir | dirname }}/tmp/cache/kube_config"
+    cluster: { "name":"cld-paas-d-eusw1c-4"}
+    all_backup_schedules:
+      - "all/pxbackup.portworx.io=4am"
+      - "all/pxbackup.portworx.io=8am"
+      - "all/pxbackup.portworx.io=12am"
+      - "all/pxbackup.portworx.io=4pm"
+      - "all/pxbackup.portworx.io=8pm"
+      - "all/pxbackup.portworx.io=12pm"
+    assigned_schedules: {}  # Initialize empty dictionary
+    namespaces_with_pxbackup_default: []
+    namespaces_using_nfs_pv: []
+    namespaces_needing_all_label: []
+    pv_to_ns_map: {}
+    ns_to_pv_map: {}
+    nfs_pvs: []
+    inital_label: "pxbackup"
+    namespaces_needing_schedule: []
+    apply_labels: "{{ apply_labels | default(false) | bool }}"  # Default to true, can be set to false for noop mode
 
   tasks:
+
+    - name: "Show Cluster"
+      ansible.builtin.debug:
+        msg: "Cluster {{ cluster.name }} Kube_adm_dir: {{ cluster_adm_kube_dir }}"
+
+    # Read kubeconfig from file if it exists
+    - name: Read kubeconfig from local file
+      ansible.builtin.slurp:
+        src: "{{ cluster_adm_kube_dir }}/{{ cluster.name }}.kubeconfig"
+      register: local_kubeconfig_content
+      no_log: true
+      when: cluster_adm_kube_dir is defined and cluster_adm_kube_dir | length > 0 and lookup('ansible.builtin.fileglob', cluster_adm_kube_dir + '/' + cluster.name + '.kubeconfig') | length > 0
+
+    # Set local file if found instead
+    - name: Set kubeconfig from local file
+      ansible.builtin.set_fact:
+        kubeconfig_admin: "{{ local_kubeconfig_content.content | b64decode }}"
+      no_log: true
+      when: local_kubeconfig_content is defined and local_kubeconfig_content.content is defined
+
     - name: Get all namespaces
       kubernetes.core.k8s_info:
         api_version: v1
+        kubeconfig: "{{ kubeconfig_admin | from_yaml }}"
         kind: Namespace
       register: namespaces_info
 
-    - name: Filter with inital label
+    - name: Filter namespaces with pxbackup=default label
       ansible.builtin.set_fact:
-        namespaces_with_inital_label: "{{ namespaces_info.resources | selectattr('metadata.labels', 'defined') | selectattr('metadata.labels.' + inital_label, 'defined') | list }}"
+        namespaces_with_pxbackup_default: "{{ namespaces_info.resources | selectattr('metadata.labels.pxbackup', 'defined') | selectattr('metadata.labels.pxbackup', 'equalto', 'default') }}"
 
-    - name: Initialize namespaces_missing_labels
+    - name: Initialize namespaces_needing_all_label
       ansible.builtin.set_fact:
-        namespaces_missing_labels: []
+        namespaces_needing_all_label: []
 
-    - name: Check each namespace for missing labels
+    - name: Check each namespace for missing backup schedule labels
       ansible.builtin.set_fact:
-        namespaces_missing_labels: >-
+        namespaces_needing_all_label: >-
           {{
-            namespaces_missing_labels +
+            namespaces_needing_all_label +
             [namespace.metadata.name]
           }}
-      loop: "{{ namespaces_with_inital_label }}"
+      loop: "{{ namespaces_with_pxbackup_default }}"
       loop_control:
         loop_var: namespace
-      when: not (namespace.metadata.labels[storage] or (namespace.metadata.labels[resrcs_only] or namespace.metadata.labels[full_namespace]))
+      when: >
+        namespace.metadata.labels is defined and
+        not (namespace.metadata.labels | intersect(all_backup_schedules | map('split', '=') | map('first') | list))
 
-    - name: Assign random values to schedule_names for missing namespaces
+    - name: Display namespaces needing backup schedule
+      ansible.builtin.debug:
+        msg: |
+          Namespaces needing backup schedule:
+          {%- for ns in namespaces_needing_all_label %}
+          - {{ ns }}
+          {%- endfor %}
+
+    - name: Assign random backup schedule to namespaces
       ansible.builtin.set_fact:
-        namespace_label_map: "{{ namespace_label_map | combine({item: (schedule_names | random)}) }}"
-      loop: "{{ namespaces_missing_labels }}"
+        assigned_schedules: "{{ assigned_schedules | default({}) | combine({item: all_backup_schedules[item | hash('sha1') | int % all_backup_schedules | length]}) }}"
+      loop: "{{ namespaces_needing_all_label }}"
       loop_control:
         label: "{{ item }}"
 
-    - name: Patch_with_schedules
+    - name: Display assigned backup schedules
+      ansible.builtin.debug:
+        msg: |
+          Assigned backup schedules:
+          {%- for ns, schedule in assigned_schedules.items() %}
+
+          - Namespace: {{ ns }} → Schedule: {{ schedule }}
+          {%- endfor %}
+
+    - name: Apply backup schedule labels to namespaces
       kubernetes.core.k8s:
         api_version: v1
+        kubeconfig: "{{ kubeconfig_admin | from_yaml }}"
         kind: Namespace
-        name: "{{ item }}"
-        merge_type: "merge"
+        name: "{{ item.key }}"
+        state: present
+        merge_type: merge
         definition:
           metadata:
             labels:
-              full_namespace: "{{ namespace_label_map[item] }}"
-      loop: "{{ namespaces_missing_labels }}"
-
-    - name: Display_results
-      ansible.builtin.debug:
-        msg: >-
-          Updated namespaces with schedules: {{ namespace_label_map }}
+              "{{ item.value.split('=')[0] }}": "{{ item.value.split('=')[1] }}"
+      loop: "{{ assigned_schedules | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when: apply_labels | bool

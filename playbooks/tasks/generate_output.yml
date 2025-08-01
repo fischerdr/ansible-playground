@@ -1,0 +1,53 @@
+---
+# Tasks for generating the output file in the specified format
+
+- name: Generate JSON output
+  ansible.builtin.copy:
+    content: "{{ output_data | to_nice_json }}"
+    dest: "{{ output_file }}"
+    mode: '0644'
+  when: output_format == "json"
+
+- name: Generate CSV output
+  when: output_format == "csv"
+  block:
+    - name: Create CSV header
+      ansible.builtin.copy:
+        content: "namespace,timestamp,resource_type,count\n"
+        dest: "{{ output_file }}"
+        mode: '0644'
+
+    - name: Process core resources for CSV
+      ansible.builtin.lineinfile:
+        path: "{{ output_file }}"
+        line: >-
+          {{ item.key }},{{ item.value.timestamp }},{{ resource_type }},{{ count }}
+        create: true
+        mode: '0644'
+      loop: "{{ output_data | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      vars:
+        resource_type: "{{ item.value.core_resources | dict2items | map(attribute='key') | list }}"
+        count: "{{ item.value.core_resources | dict2items | map(attribute='value') | list }}"
+
+    - name: Process CRDs for CSV
+      ansible.builtin.lineinfile:
+        path: "{{ output_file }}"
+        line: >-
+          {{ item.key }},{{ item.value.timestamp }},{{ resource_type }},{{ count }}
+        create: true
+        mode: '0644'
+      loop: "{{ output_data | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      vars:
+        resource_type: "{{ item.value.crds | dict2items | map(attribute='key') | list }}"
+        count: "{{ item.value.crds | dict2items | map(attribute='value') | list }}"
+
+
+- name: Set file permissions
+  ansible.builtin.file:
+    path: "{{ output_file }}"
+    mode: '0644'
+    state: file

@@ -1,5 +1,22 @@
 ---
 
+- name: Reset cluster variables
+  ansible.builtin.set_fact:
+    cluster_user: null
+    platform: null
+    cluster_env: null
+    region_zone: null
+    region: null
+    zone: null
+    cluster_id: null
+    cluster_has_zone: null
+    parts: null
+  tags:
+    - always
+    - cluster_setup
+    - variables
+    - cleanup
+
 - name: Setup and validate cluster variables
   block:
     - name: Validate cluster name format

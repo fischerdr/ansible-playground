@@ -1,12 +1,16 @@
 ---
-# Description: Lists all PX-Backup cloud credentials from the specified PX-Backup instance
+# Description: Lists all PX-Backup locations from the specified PX-Backup instance
 
-- name: List and Display PX-Backup Cloud Credentials
+- name: List and Display PX-Backup Locations
   hosts: all
   gather_facts: false
 
+  vars:
+    # Default to secure HTTPS validation
+    validate_certs: true
+
   tasks:
-    - name: Manage PX-Backup Cloud Credentials Operations
+    - name: Manage PX-Backup Location Operations
       block:
         - name: Validate Required Variables
           ansible.builtin.assert:
@@ -21,29 +25,28 @@
             name: common
             tasks_from: pxbkup_auth.yml
 
-        - name: List All Cloud Credentials
-          purepx.px_backup.cloud_credential:
+        - name: List All Backup Locations
+          purepx.px_backup.backup_location:
             operation: INSPECT_ALL
             api_url: "{{ px_backup_api_url }}"
             token: "{{ px_backup_token }}"
             org_id: "{{ org_id }}"
-            validate_certs: "{{ validate_certs | default(true) | bool }}"
-            include_secrets: "{{ include_secrets | default(false) | bool }}"
-          register: cloud_creds_result
+            validate_certs: "{{ validate_certs | bool }}"
+          register: backup_locations_result
           no_log: true  # Prevent token exposure in logs
 
-        - name: Display Cloud Credentials Information
+        - name: Display Backup Locations Information
           ansible.builtin.debug:
             msg: |
-              Total Cloud Credentials Found: {{ cloud_creds_result.cloud_credentials | length }}
-              {% for cred in cloud_creds_result.cloud_credentials %}
-              Cloud Credential {{ loop.index }}:
-                Name: {{ cred.metadata.name }}
-                UID: {{ cred.metadata.uid }}
-                Type: {{ cred.cloud_credential_info.type | default('N/A') }}
-                Created: {{ cred.metadata.create_time }}
+              Total Backup Locations Found: {{ backup_locations_result.backup_locations | length }}
+              {% for location in backup_locations_result.backup_locations %}
+              Location {{ loop.index }}:
+                Name: {{ location.metadata.name }}
+                UID: {{ location.metadata.uid }}
+                Type: {{ location.backup_location_info.type }}
+                Created: {{ location.metadata.create_time }}
               {% endfor %}
-          when: not cloud_creds_result.failed
+          when: not backup_locations_result.failed
 
       rescue:
         - name: Log Error Details
@@ -58,7 +61,7 @@
         - name: Cleanup Operations Status
           ansible.builtin.debug:
             msg: >-
-              PX-Backup Cloud Credentials Operation completed.
+              PX-Backup Location Operation completed.
               {% if px_backup_operation_failed | default(false) %}
               Status: Failed - Please check error details above
               {% else %}

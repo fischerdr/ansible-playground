@@ -1,62 +1,117 @@
 ---
 version: 3
+
+# Container image configuration
 images:
   base_image:
+    # Using CentOS Stream image as per updated container preferences
     name: quay.io/centos/centos:stream9
+
+# Dependencies section
 dependencies:
   python_interpreter:
     package_system: python3.11
     python_path: /usr/bin/python3.11
+
+  # Core Ansible components
   ansible_core:
     package_pip: ansible-core
   ansible_runner:
     package_pip: ansible-runner
+
+  # External requirements
   galaxy: requirements.yml
   python: requirements.txt
+
+  # System dependencies
   system: |
+    # Base requirements
     git-core [platform:rpm]
+    python3.11 [platform:rpm]
     python3.11-devel [platform:rpm compile]
-    libcurl-devel [platform:rpm compile]
+
+    # Authentication and security
     krb5-devel [platform:rpm compile]
     krb5-workstation [platform:rpm]
-    subversion [platform:rpm]
-    subversion [platform:dpkg]
+    openssl-devel [platform:rpm compile]
+
+    # Source control
     git-lfs [platform:rpm]
+    subversion [platform:rpm]
+
+    # Network and file transfer
     sshpass [platform:rpm]
     rsync [platform:rpm]
-    epel-release [platform:rpm]
-    unzip [platform:rpm]
+    wget [platform:rpm]
+    nc [platform:rpm]
+
+    # Container management
     podman-remote [platform:rpm]
+
+    # Build tools
     cmake [platform:rpm compile]
     gcc [platform:rpm compile]
     gcc-c++ [platform:rpm compile]
     make [platform:rpm compile]
-    openssl-devel [platform:rpm compile]
-    python3.11 [platform:rpm]
-    unzip [platform:rpm]
 
+    # API and web service dependencies
+    libcurl-devel [platform:rpm compile]
+
+    # Utilities
+    unzip [platform:rpm]
+    which [platform:rpm]
+
+# Additional build steps
 additional_build_steps:
   append_base:
     - RUN python3.11 -m pip install -U pip setuptools wheel
 
+
   append_final:
     - RUN dnf -y update && dnf clean all
+
+    # Remove Python 3.9 if present
+    - RUN dnf -y remove python3.9 python3.9-devel || true
+
     # Ansible configuration
     - ENV ANSIBLE_FORCE_COLOR=1
     - ENV ANSIBLE_COLLECTIONS_PATH=./collections:/usr/share/ansible/collections
+    - ENV ANSIBLE_ROLES_PATH=./roles:/usr/share/ansible/roles
+
     # Python configuration
     - ENV PYTHONPATH=/usr/local/lib/python3.11/site-packages
+
     # Logging configuration
     - ENV LOG_LEVEL=INFO
     - ENV LOG_FORMAT=json
     - ENV LOG_DIR=/logs
+
     # Security settings
     - ENV REQUESTS_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
     - ENV CURL_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+
     # Receptor configuration
     - COPY --from=quay.io/ansible/receptor:devel /usr/bin/receptor /usr/bin/receptor
     - RUN mkdir -p /var/run/receptor
+
+    # Git LFS configuration
     - RUN git lfs install --system
+
     # SymLink `python` -> `python3.11`
     - RUN alternatives --install /usr/bin/python python /usr/bin/python3.11 311
     - RUN alternatives --set python /usr/bin/python3.11
+    - RUN alternatives --remove python /usr/bin/python3.9 || true
+
+    # Update python3 symlink to point to python3.11
+    - RUN ln -sf /usr/bin/python3.11 /usr/bin/python3
+
+    # Verify Python version and symlinks
+    - RUN python3 --version && python --version && which python3 && which python
+
+    # Display user and home directory information
+    - RUN id
+    - RUN pwd
+    - RUN echo $HOME
+
+    # Development tools (only for dev environment)
+    - RUN if [ "$BUILD_ENV" = "development" ]; then dnf -y install vim nano jq && python3.11 -m pip install -r requirements-dev.txt; fi

@@ -1,0 +1,86 @@
+---
+# Tasks for processing a single namespace and collecting resource counts
+
+- name: Initialize namespace results
+  ansible.builtin.set_fact:
+    namespace_results:
+      namespace: "{{ k8s_namespace }}"
+      core_resources: {}
+      crds: {}
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+
+- name: Count core resources
+  kubernetes.core.k8s_info:
+    kind: "{{ item.kind }}"
+    namespace: "{{ k8s_namespace }}"
+    kubeconfig: "{{ kubeconfig }}"
+  register: resource_count
+  loop: "{{ core_resources }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+
+- name: Update core resource counts
+  ansible.builtin.set_fact:
+    namespace_results: >-
+      {{
+        namespace_results | combine({
+          'core_resources': namespace_results.core_resources | combine({
+            item.item.name: item.resources | length
+          })
+        })
+      }}
+  loop: "{{ resource_count.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+
+- name: Get CRDs if enabled
+  kubernetes.core.k8s_info:
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    kubeconfig: "{{ kubeconfig }}"
+  register: crd_list
+  when: collect_crds | bool
+  no_log: true
+
+- name: Process CRDs for namespace
+  block:
+    - name: Get CRD resources
+      kubernetes.core.k8s_info:
+        api_version: "{{ item.spec.group }}/{{ item.spec.versions[0].name }}"
+        kind: "{{ item.spec.names.kind }}"
+        namespace: "{{ k8s_namespace }}"
+        kubeconfig: "{{ kubeconfig }}"
+      register: crd_resources
+      loop: "{{ crd_list.resources }}"
+      loop_control:
+        label: "{{ item.spec.names.kind }}"
+      no_log: true
+
+    - name: Update CRD counts
+      ansible.builtin.set_fact:
+        namespace_results: >-
+          {{
+            namespace_results | combine({
+              'crds': namespace_results.crds | combine({
+                item.item.spec.names.kind: item.resources | length
+              })
+            })
+          }}
+      loop: "{{ crd_resources.results }}"
+      loop_control:
+        label: "{{ item.item.spec.names.kind }}"
+  rescue:
+    - name: Log CRD collection error
+      ansible.builtin.debug:
+        msg: "Failed to collect CRDs for namespace {{ k8s_namespace }}: {{ ansible_failed_result.msg }}"
+      when: log_level == "DEBUG"
+
+- name: Update inventory results
+  ansible.builtin.set_fact:
+    inventory_results: >-
+      {{
+        inventory_results | combine({
+          k8s_namespace: namespace_results
+        })
+      }}

@@ -208,3 +208,23 @@
     - schedule_policies
     - reporting
     - debug
+
+- name: Clean up all schedule policy variables
+  ansible.builtin.set_fact:
+    policy_item: null
+    policy_exists: null
+    existing_policy: null
+    policy_needs_update: null
+    policy_create_payload: null
+    policy_update_payload: null
+    policy_create_result: null
+    policy_update_result: null
+    policy_error: null
+    schedule_policies_created: null
+    schedule_policies_updated: null
+    schedule_policies_unchanged: null
+    schedule_policies_results: null
+  tags:
+    - schedule_policies
+    - cleanup
+    - variables

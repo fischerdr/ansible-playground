@@ -10,24 +10,32 @@ This Ansible role manages cluster definitions in PX-Backup using HashiCorp Vault
 
 ## Role Architecture
 
-```mermaid
-flowchart TD
-    A[Ansible Controller] -->|1. Execute Role| B[PX-Backup Role]
-    B -->|2. Authenticate| C[HashiCorp Vault]
-    C -->|3. Retrieve Kubeconfig| B
-    B -->|4. Create Service Account| D[Kubernetes Cluster]
-    D -->|5. Generate SA Kubeconfig| B
-    B -->|6. Register Cluster| E[PX-Backup API]
-    B -->|7. Configure Backup Schedules| E
-    B -->|8. Configure Schedule Policies| E
-    
-    classDef primary fill:#4CAF50,stroke:#388E3C,color:white;
-    classDef secondary fill:#2196F3,stroke:#1976D2,color:white;
-    classDef external fill:#FFC107,stroke:#FFA000,color:black;
-    
-    class A,B primary;
-    class C,D external;
-    class E secondary;
+```
++------------------+     +------------------+     +------------------+
+|                  |     |                  |     |                  |
+|  Ansible         +---->+  PX-Backup       +---->+  HashiCorp       |
+|  Controller      |     |  Role            |     |  Vault           |
+|                  |     |                  |     |                  |
++------------------+     +--------+---------+     +------------------+
+                                 |
+                                 |
+                                 v
++------------------+     +------------------+     +------------------+
+|                  |     |                  |     |                  |
+|  Kubernetes      |<----+  PX-Backup       |     |  Inventory       |
+|  Cluster         |     |  API             |     |  Service         |
+|                  |     |                  |     |                  |
++------------------+     +------------------+     +------------------+
+
+Flow:
+1. Ansible Controller executes the PX-Backup role
+2. Role authenticates with HashiCorp Vault
+3. Vault retrieves Kubeconfig
+4. Role creates Service Account in Kubernetes Cluster
+5. Kubernetes Cluster generates SA Kubeconfig
+6. Role registers Cluster with PX-Backup API
+7. Role configures Backup Schedules with PX-Backup API
+8. Role configures Schedule Policies with PX-Backup API
 ```
 
 ## Task Files
@@ -36,31 +44,36 @@ The role is structured into several task files, each handling specific aspects o
 
 ### Task Files Organization
 
-```mermaid
-flowchart LR
-    main[main.yml] --> auth[auth.yml]
-    main --> process[process_cluster.yml]
-    
-    subgraph Cluster Configuration
-        process --> vars[cluster_variables.yml]
-        process --> kubeconfig[retrieve_master_kubeconfig.yml]
-        process --> sa[create_sa_kubeconfig.yml]
-        process --> cluster[create_update_cluster.yml]
-    end
-    
-    subgraph Backup Configuration
-        process --> locations[verify_backup_locations.yml]
-        process --> policies[setup_schedule_policies.yml]
-        process --> schedules[setup_bkup_sched.yml]
-    end
-    
-    classDef main fill:#4CAF50,stroke:#388E3C,color:white;
-    classDef cluster fill:#2196F3,stroke:#1976D2,color:white;
-    classDef backup fill:#FFC107,stroke:#FFA000,color:black;
-    
-    class main,auth main;
-    class vars,kubeconfig,sa,cluster cluster;
-    class locations,policies,schedules backup;
+```
++------------------+     +------------------+
+|                  |     |                  |
+|  main.yml        +---->+  auth.yml        |
+|                  |     |                  |
++--------+---------+     +------------------+
+         |
+         |
+         v
++------------------+
+|                  |
+|  process_cluster.yml
+|                  |
++--------+---------+
+         |
+         |
+         v
++------------------+     +------------------+     +------------------+     +------------------+
+|                  |     |                  |     |                  |     |                  |
+|  cluster_variables.yml  |  retrieve_master_kubeconfig.yml  |  create_sa_kubeconfig.yml  |  create_update_cluster.yml
+|                  |     |                  |     |                  |     |                  |
++------------------+     +------------------+     +------------------+     +------------------+
+         |
+         |
+         v
++------------------+     +------------------+     +------------------+
+|                  |     |                  |     |                  |
+|  verify_backup_locations.yml  |  setup_schedule_policies.yml  |  setup_bkup_sched.yml
+|                  |     |                  |     |                  |
++------------------+     +------------------+     +------------------+
 ```
 
 ### Main Task Files
@@ -71,81 +84,356 @@ flowchart LR
 
 - **process_cluster.yml**: Orchestrates the entire cluster processing workflow, including retrieving kubeconfig, creating service accounts, and setting up backup configurations.
 
+## Task Files Documentation
+
+The role contains several task files, each responsible for specific functionality. Below is a detailed description of each task file:
+
+### Authentication Tasks
+
+#### auth.yml
+- **Purpose**: Handles authentication with the PX-Backup API
+- **Key Tasks**:
+  - Validates required authentication variables (pxcentral_auth_url, pxcentral_client_id, pxcentral_username, pxcentral_password)
+  - Requests a bearer token from the PX-Backup API
+  - Sets the token as a fact for use in subsequent tasks
+  - Verifies the token is valid and properly set
+- **Error Handling**: Fails with descriptive messages if authentication variables are missing or token retrieval fails
+
+### Cluster Configuration Tasks
+
+#### cluster_variables.yml
+- **Purpose**: Processes and validates cluster variables based on naming convention
+- **Key Tasks**:
+  - Resets cluster variables to ensure clean state
+  - Validates cluster name format against strict pattern
+  - Parses cluster name into components (user, platform, env, region, zone)
+  - Determines environment type (prod, dev, test)
+  - Sets environment-specific Vault configurations
+  - Retrieves cluster information from inventory service
+- **Error Handling**: Provides detailed error messages for invalid cluster names or missing information
+
+#### retrieve_master_kubeconfig.yml
+- **Purpose**: Retrieves the master kubeconfig from Vault
+- **Key Tasks**:
+  - Validates Vault token file existence and permissions
+  - Verifies required Vault variables are set
+  - Validates the Vault token
+  - Retrieves kubeconfig from Vault
+  - Verifies kubeconfig content is valid
+  - Tests cluster connectivity
+- **Error Handling**: Fails with descriptive messages if kubeconfig retrieval fails or cluster connection fails
+
+#### create_sa_kubeconfig.yml
+- **Purpose**: Creates service accounts and kubeconfigs for PX-Backup
+- **Key Tasks**:
+  - Configures cluster variables
+  - Reads kubeconfig from local file if available
+  - Retrieves master kubeconfig from Vault if needed
+  - Retrieves CA certificates from Vault
+  - Creates namespace if it doesn't exist
+  - Creates service account
+  - Creates service account token
+  - Sets up RBAC permissions (ClusterRole, Role, ClusterRoleBinding, RoleBinding)
+  - Generates and validates service account kubeconfig
+- **Error Handling**: Provides detailed error messages for service account creation failures
+
+#### create_update_cluster.yml
+- **Purpose**: Creates or updates a cluster in PX-Backup
+- **Key Tasks**:
+  - Retrieves kubeconfig from Vault
+  - Validates kubeconfig data
+  - Gets all existing clusters from PX-Backup
+  - Creates new cluster if it doesn't exist
+  - Updates existing cluster if it does exist
+  - Sets cluster operation status
+  - Verifies cluster operation success
+  - Logs cluster operation details
+- **Error Handling**: Fails with descriptive messages if cluster creation or update fails
+
+### Backup Configuration Tasks
+
+#### verify_backup_locations.yml
+- **Purpose**: Verifies and creates backup locations if needed
+- **Key Tasks**:
+  - Sets cluster variables
+  - Gets existing backup locations from PX-Backup
+  - Gets cloud credentials from PX-Backup
+  - Extracts existing backup location names
+  - Extracts required backup locations from backup schedules
+  - Identifies missing backup locations
+  - Creates missing backup locations if needed
+  - Verifies backup location creation
+- **Error Handling**: Fails with descriptive messages if backup location creation fails
+
+#### setup_schedule_policies.yml
+- **Purpose**: Sets up schedule policies for backups
+- **Key Tasks**:
+  - Initializes schedule policies results
+  - Gets all existing schedule policies from PX-Backup
+  - Validates required schedule policies
+  - Processes each schedule policy:
+    - Checks if policy exists
+    - Creates new policy if it doesn't exist
+    - Updates existing policy if it does exist
+    - Sets policy operation status
+    - Updates policy counters
+    - Prepares policy result message
+  - Displays schedule policies summary
+  - Cleans up schedule policy variables
+- **Error Handling**: Provides detailed error messages for policy creation or update failures
+
+#### setup_bkup_sched.yml
+- **Purpose**: Sets up backup schedules for clusters
+- **Key Tasks**:
+  - Validates schedule item configuration
+  - Gets schedule policy reference
+  - Gets backup location reference
+  - Gets cluster reference
+  - Lists all existing backup schedules
+  - Checks if backup schedule already exists
+  - Creates backup schedule if it doesn't exist
+  - Updates existing backup schedule if it does exist
+  - Sets backup operation status
+  - Updates backup schedule counters
+  - Prepares schedule result message
+  - Adds schedule result to results list
+- **Error Handling**: Provides detailed error messages for schedule creation or update failures
+
+### Main Orchestration Tasks
+
+#### process_cluster.yml
+- **Purpose**: Orchestrates the entire cluster processing workflow
+- **Key Tasks**:
+  - Configures cluster variables
+  - Creates or updates cluster in PX-Backup
+  - Creates cluster backup schedules
+  - Handles errors during cluster creation
+  - Logs cluster creation failures
+  - Records failed clusters
+  - Cleans up sensitive variables
+- **Error Handling**: Provides comprehensive error handling for the entire cluster processing workflow
+
+#### main.yml
+- **Purpose**: Entry point for the role
+- **Key Tasks**:
+  - Validates required variables
+  - Logs in and fetches PX-Backup token
+  - Creates service account and kubeconfig for each cluster
+  - Processes schedule policies
+  - Verifies and creates required backup locations
+  - Processes clusters
+- **Error Handling**: Fails with descriptive messages if required variables are missing
+
 ## Workflow Diagram
 
-```mermaid
-sequenceDiagram
-    participant Ansible as Ansible Controller
-    participant Role as PX-Backup Role
-    participant Vault as HashiCorp Vault
-    participant K8s as Kubernetes Cluster
-    participant PXB as PX-Backup API
-    
-    Ansible->>Role: Execute playbook
-    Role->>Role: Validate variables
-    
-    Role->>PXB: Authenticate
-    PXB-->>Role: Return token
-    
-    loop For each cluster
-        Role->>Role: Process cluster variables
-        Role->>Vault: Retrieve kubeconfig
-        Vault-->>Role: Return kubeconfig
-        
-        Role->>K8s: Create service account
-        Role->>K8s: Create ClusterRole
-        Role->>K8s: Create ClusterRoleBinding
-        K8s-->>Role: Return service account token
-        
-        Role->>Role: Generate SA kubeconfig
-        Role->>PXB: Register/update cluster
-        PXB-->>Role: Confirm cluster registration
-        
-        Role->>PXB: Configure schedule policies
-        PXB-->>Role: Confirm policy configuration
-        
-        Role->>PXB: Verify backup locations
-        PXB-->>Role: Confirm backup locations
-        
-        Role->>PXB: Create backup schedules
-        PXB-->>Role: Confirm schedule creation
-    end
-    
-    Role-->>Ansible: Return results
 ```
++------------------+     +------------------+     +------------------+     +------------------+     +------------------+     +------------------+
+|                  |     |                  |     |                  |     |                  |     |                  |     |                  |
+|  Ansible         |     |  PX-Backup       |     |  HashiCorp       |     |  Kubernetes      |     |  PX-Backup       |     |  Inventory       |
+|  Controller      |     |  Role            |     |  Vault           |     |  Cluster         |     |  API             |     |  Service         |
+|                  |     |                  |     |                  |     |                  |     |                  |     |                  |
++------------------+     +------------------+     +------------------+     +------------------+     +------------------+     +------------------+
+        |                        |                        |                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        | Execute playbook        |                        |                        |                        |                        |
+        |----------------------->|                        |                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Validate required vars  |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Authenticate (auth.yml)|                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Return bearer token    |                        |                        |                        |
+        |                        |<-----------------------|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Process cluster vars   |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Retrieve cluster info  |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Return cluster details |                        |                        |                        |
+        |                        |<-----------------------|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Kubeconfig source?     |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Local file             |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Retrieve from Vault    |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Return kubeconfig      |                        |                        |                        |
+        |                        |<-----------------------|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Create namespace       |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Create service account |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Create ClusterRole     |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Create Role            |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Create ClusterRoleBinding|                      |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Create RoleBinding     |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Return service account token|                  |                        |                        |
+        |                        |<-----------------------|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Generate SA kubeconfig |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Register/update cluster|                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Confirm registration   |                        |                        |                        |
+        |                        |<-----------------------|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Schedule policies defined?|                     |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Get existing policies  |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Return policies list   |                        |                        |                        |
+        |                        |<-----------------------|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | For each policy        |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Create/update policy   |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Confirm policy creation|                        |                        |                        |
+        |                        |<-----------------------|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Backup locations defined?|                     |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Get existing locations |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Return locations list  |                        |                        |                        |
+        |                        |<-----------------------|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Get cloud credentials  |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Return credentials list|                        |                        |                        |
+        |                        |<-----------------------|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Create missing locations|                       |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Confirm location creation|                     |                        |                        |
+        |                        |<-----------------------|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Backup schedules defined?|                     |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Get existing schedules |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Return schedules list  |                        |                        |                        |
+        |                        |<-----------------------|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | For each schedule      |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Create/update schedule |                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Confirm schedule creation|                      |                        |                        |
+        |                        |<-----------------------|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        |                        | Log results and cleanup|                        |                        |                        |
+        |                        |----------------------->|                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+        | Return execution results|                        |                        |                        |                        |
+        |<-----------------------|                        |                        |                        |                        |
+        |                        |                        |                        |                        |                        |
+```
+
+This diagram illustrates the complete workflow of the PX-Backup role, showing:
+
+1. **Initial Setup**: Validation of required variables and authentication with PX-Backup API
+2. **Cluster Processing**: For each cluster, the role:
+   - Processes cluster variables and retrieves information from inventory
+   - Gets kubeconfig from local file or Vault
+   - Creates necessary Kubernetes resources (namespace, service account, RBAC)
+   - Registers/updates the cluster in PX-Backup
+3. **Backup Configuration**: If defined, the role:
+   - Creates/updates schedule policies
+   - Verifies and creates backup locations
+   - Creates/updates backup schedules
+4. **Completion**: Logs results and returns execution status
+
+The diagram includes conditional paths to show how the role handles different scenarios, such as whether kubeconfig is available locally or needs to be retrieved from Vault, and whether schedule policies, backup locations, or backup schedules are defined.
 
 ## Security Considerations
 
 ### Security Architecture
 
-```mermaid
-flowchart TD
-    A[Ansible Controller] -->|Secure Execution| B[PX-Backup Role]
-    
-    subgraph "Secure Authentication"
-        B -->|Token Auth| C[HashiCorp Vault]
-        B -->|API Token| D[PX-Backup API]
-    end
-    
-    subgraph "Secure Storage"
-        C -->|Store| E[Kubeconfig]
-        C -->|Store| F[Credentials]
-    end
-    
-    subgraph "Secure Access"
-        B -->|RBAC| G[Kubernetes API]
-        G -->|Limited Permissions| H[Service Account]
-    end
-    
-    classDef controller fill:#4CAF50,stroke:#388E3C,color:white;
-    classDef auth fill:#2196F3,stroke:#1976D2,color:white;
-    classDef storage fill:#FFC107,stroke:#FFA000,color:black;
-    classDef access fill:#F44336,stroke:#D32F2F,color:white;
-    
-    class A,B controller;
-    class C,D auth;
-    class E,F storage;
-    class G,H access;
+```
++------------------+
+|                  |
+|  Ansible         |
+|  Controller      |
+|                  |
++--------+---------+
+         |
+         |
+         v
++------------------+
+|                  |
+|  PX-Backup       |
+|  Role            |
+|                  |
++--------+---------+
+         |
+         |
+         v
++------------------+     +------------------+
+|                  |     |                  |
+|  HashiCorp       |     |  PX-Backup       |
+|  Vault           |     |  API             |
+|                  |     |                  |
++------------------+     +------------------+
+         |                        |
+         |                        |
+         v                        v
++------------------+     +------------------+
+|                  |     |                  |
+|  Kubeconfig      |     |  Credentials     |
+|                  |     |                  |
++------------------+     +------------------+
+         |                        |
+         |                        |
+         v                        v
++------------------+     +------------------+
+|                  |     |                  |
+|  Kubernetes      |     |  Service         |
+|  API             |     |  Account         |
+|                  |     |                  |
++------------------+     +------------------+
+         |                        |
+         |                        |
+         v                        v
++------------------+     +------------------+
+|                  |     |                  |
+|  Limited         |     |  Minimal         |
+|  Permissions     |     |  Permissions     |
+|                  |     |                  |
++------------------+     +------------------+
 ```
 
 ## Troubleshooting
@@ -161,43 +449,128 @@ flowchart TD
 
 ### Troubleshooting Flowchart
 
-```mermaid
-flowchart TD
-    A[Issue Detected] --> B{Authentication Issue?}
-    B -->|Yes| C[Check Vault Token]
-    B -->|No| D{API Connection Issue?}
-    
-    D -->|Yes| E[Verify Network Connectivity]
-    D -->|No| F{Kubeconfig Issue?}
-    
-    F -->|Yes| G[Check Cluster Name Format]
-    F -->|No| H{Permission Issue?}
-    
-    H -->|Yes| I[Verify RBAC Permissions]
-    H -->|No| J{Backup Configuration Issue?}
-    
-    J -->|Yes| K[Check Backup Locations & Policies]
-    J -->|No| L[Review Logs for Details]
-    
-    C --> M[Run with --verbose Flag]
-    E --> M
-    G --> M
-    I --> M
-    K --> M
-    L --> M
-    
-    M --> N[Issue Resolved?]
-    N -->|Yes| O[Continue Operation]
-    N -->|No| P[Contact Support]
-    
-    classDef issue fill:#F44336,stroke:#D32F2F,color:white;
-    classDef check fill:#2196F3,stroke:#1976D2,color:white;
-    classDef action fill:#4CAF50,stroke:#388E3C,color:white;
-    classDef decision fill:#FFC107,stroke:#FFA000,color:black;
-    
-    class A,B,D,F,H,J,N issue;
-    class C,E,G,I,K,L check;
-    class M,O,P action;
+```
++------------------+
+|                  |
+|  Issue Detected  |
+|                  |
++--------+---------+
+         |
+         |
+         v
++------------------+
+|                  |
+|  Authentication  |
+|  Issue?          |
+|                  |
++--------+---------+
+         |
+         |
+         v
++------------------+     +------------------+
+|                  |     |                  |
+|  Yes             |     |  No              |
+|                  |     |                  |
++--------+---------+     +--------+---------+
+         |                        |
+         |                        |
+         v                        v
++------------------+     +------------------+
+|                  |     |                  |
+|  Check Vault     |     |  API Connection  |
+|  Token           |     |  Issue?          |
+|                  |     |                  |
++------------------+     +------------------+
+         |                        |
+         |                        |
+         v                        v
++------------------+     +------------------+     +------------------+
+|                  |     |                  |     |                  |
+|  Run with        |     |  Yes             |     |  No              |
+|  --verbose Flag  |     |                  |     |                  |
+|                  |     |                  |     |                  |
++--------+---------+     +--------+---------+     +--------+---------+
+         |                        |                        |
+         |                        |                        |
+         v                        v                        v
++------------------+     +------------------+     +------------------+
+|                  |     |                  |     |                  |
+|  Verify Network  |     |  Kubeconfig      |     |  Permission      |
+|  Connectivity    |     |  Issue?          |     |  Issue?          |
+|                  |     |                  |     |                  |
++------------------+     +------------------+     +------------------+
+         |                        |                        |
+         |                        |                        |
+         v                        v                        v
++------------------+     +------------------+     +------------------+
+|                  |     |                  |     |                  |
+|  Run with        |     |  Run with        |     |  Yes             |
+|  --verbose Flag  |     |  --verbose Flag  |     |                  |
+|                  |     |                  |     |                  |
++--------+---------+     +------------------+     +--------+---------+
+         |                        |                        |
+         |                        |                        |
+         v                        v                        v
++------------------+     +------------------+     +------------------+
+|                  |     |                  |     |                  |
+|  Check Cluster   |     |  Verify RBAC     |     |  Backup          |
+|  Name Format     |     |  Permissions     |     |  Configuration   |
+|                  |     |                  |     |  Issue?          |
++------------------+     +------------------+     +------------------+
+         |                        |                        |
+         |                        |                        |
+         v                        v                        v
++------------------+     +------------------+     +------------------+
+|                  |     |                  |     |                  |
+|  Run with        |     |  Run with        |     |  Yes             |
+|  --verbose Flag  |     |  --verbose Flag  |     |                  |
+|                  |     |                  |     |                  |
++--------+---------+     +------------------+     +--------+---------+
+         |                        |                        |
+         |                        |                        |
+         v                        v                        v
++------------------+     +------------------+     +------------------+
+|                  |     |                  |     |                  |
+|  Check Backup    |     |  Review Logs     |     |  Run with        |
+|  Locations &     |     |  for Details     |     |  --verbose Flag  |
+|  Policies        |     |                  |     |                  |
+|                  |     |                  |     |                  |
++--------+---------+     +------------------+     +------------------+
+         |                        |                        |
+         |                        |                        |
+         v                        v                        v
++------------------+     +------------------+     +------------------+
+|                  |     |                  |     |                  |
+|  Run with        |     |  Issue Resolved? |     |  Issue Resolved? |
+|  --verbose Flag  |     |                  |     |                  |
+|                  |     |                  |     |                  |
++------------------+     +------------------+     +------------------+
+         |                        |                        |
+         |                        |                        |
+         v                        v                        v
++------------------+     +------------------+     +------------------+
+|                  |     |                  |     |                  |
+|  Issue Resolved? |     |  Yes             |     |  Yes             |
+|                  |     |                  |     |                  |
++--------+---------+     +--------+---------+     +--------+---------+
+         |                        |                        |
+         |                        |                        |
+         v                        v                        v
++------------------+     +------------------+     +------------------+
+|                  |     |                  |     |                  |
+|  Yes             |     |  Continue        |     |  Continue        |
+|                  |     |  Operation       |     |  Operation       |
+|                  |     |                  |     |                  |
++--------+---------+     +------------------+     +------------------+
+         |                        |                        |
+         |                        |                        |
+         v                        v                        v
++------------------+     +------------------+     +------------------+
+|                  |     |                  |     |                  |
+|  Continue        |     |  Contact         |     |  Contact         |
+|  Operation       |     |  Support         |     |  Support         |
+|                  |     |                  |     |                  |
++------------------+     +------------------+     +------------------+
 ```
 
 ### Debugging Tips
@@ -684,31 +1057,46 @@ The role uses extra variables files to configure its behavior. These can be prov
   "pxcentral_client_id": "px-backup-client",
   "pxcentral_username": "admin",
   "pxcentral_password": "{{ vault_pxcentral_password }}",
+  "pxcentral_verify_ssl": true,
+  "token_duration": "7d",
   "org_id": "default",
-  "validate_certs": true,
-  
+
+  "vault_token_path": "/run/secrets/vault-token",
+  "vault_automation_prod_address": "https://vault-prod.example.com",
+  "vault_automation_dev_address": "https://vault-dev.example.com",
+  "vault_automation_test_address": "https://vault-test.example.com",
+  "vault_automation_eng_address": "https://vault-eng.example.com",
   "vault_automation_default_namespace": "automation",
   "vault_automation_config_path": "kubernetes/",
   "vault_automation_config_mount_point": "secret",
-  
+  "vault_cacert_path": "",
+  "vault_cacert_mount_path": "",
+  "vault_cacert_namespace": "automation",
+
   "k8s_ns": "portworx",
   "service_account_name": "pxbackup-sa",
-  
-  "clusters": [
-    {
-      "name": "cluster1",
-      "cloud_type": "AWS",
-      "backup_schedules": [
-        {
-          "name": "daily-backup",
-          "backup_location": "s3-backup-location",
-          "schedule_policy": "daily-retention-7",
-          "namespaces": ["app1", "app2"]
-        }
-      ]
-    }
-  ]
+  "cluster_role_name": "pxbackup-cluster-role",
+  "sa_role_name": "pxbackup-role",
+  "cluster_role_binding_name": "pxbackup-cluster-rolebinding",
+  "sa_role_binding_name": "pxbackup-rolebinding",
+  "inventory_url": "https://inventory.example.com",
+  "validate_certs": true,
+  "ca_cert_path": "/etc/ssl/certs/ca-certificates.crt",
+  "cluster_adm_kube_dir": ""
 }
+
+```
+### Clusters Configuration (extra_vars_clusters.json)
+
+```json
+{
+  "cluster": {
+    "name": "example-cluster",
+    "kubeconfig": "/path/to/kubeconfig",
+    "type": "Kubernetes"
+  }
+}
+
 ```
 
 ### Schedule Policies Configuration (extra_vars_schedulepolicy.json)
@@ -718,24 +1106,57 @@ The role uses extra variables files to configure its behavior. These can be prov
   "schedule_policies": [
     {
       "name": "hourly-retention-24",
-      "interval_type": "Hourly",
-      "interval_count": 1,
-      "retention_count": 24
+      "validate_certs": true,
+      "labels": {
+        "policy-label": "hourly-label"
+      },
+      "schedule_policy": {
+        "interval": {
+          "minutes": 60,
+          "retain": 24
+        }
+      }
     },
     {
       "name": "daily-retention-7",
-      "interval_type": "Daily",
-      "interval_count": 1,
-      "retention_count": 7,
-      "start_time": "04:00"
+      "validate_certs": true,
+      "labels": {
+        "policy-label": "daily-label"
+      },
+      "schedule_policy": {
+        "daily": {
+          "time": "04:00AM",
+          "retain": 7
+        }
+      }
     },
     {
       "name": "weekly-retention-4",
-      "interval_type": "Weekly",
-      "interval_count": 1,
-      "retention_count": 4,
-      "start_time": "02:00",
-      "days_of_week": ["Sunday"]
+      "validate_certs": true,
+      "labels": {
+        "policy-label": "weekly-label"
+      },
+      "schedule_policy": {
+        "weekly": {
+          "day": "Sunday",
+          "time": "02:00AM",
+          "retain": 4
+        }
+      }
+    },
+    {
+      "name": "monthly-retention-12",
+      "validate_certs": true,
+      "labels": {
+        "policy-label": "monthly-label"
+      },
+      "schedule_policy": {
+        "monthly": {
+          "date": 1,
+          "time": "01:00AM",
+          "retain": 12
+        }
+      }
     }
   ]
 }
@@ -747,3 +1168,6 @@ You can combine multiple extra variables files in a single playbook run:
 
 ```bash
 ansible-playbook playbook.yml -e @extra_vars.json -e @extra_vars_schedulepolicy.json
+
+```
+

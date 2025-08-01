@@ -1,4 +1,13 @@
 ---
+# add cluster variables
+- name: Set cluster variables
+  ansible.builtin.include_tasks:
+    file: cluster_variables.yml
+  tags:
+    - always
+    - cluster_setup
+    - variables
+
 # Tasks for verifying and creating backup locations if needed
 - name: Get Existing Backup Locations
   tags:
@@ -167,6 +176,88 @@
         - backup_locations
         - error_handling
 
+- name: Pause to allow server to update
+  ansible.builtin.pause:
+    seconds: 5
+  tags:
+    - backup_locations
+    - api_calls
+    - verification
+  when:
+    - backup_location_creation is defined
+    - backup_location_creation.results is defined
+    - backup_location_creation.results | selectattr('failed', 'defined') | selectattr('failed', 'true') | list | length == 0
+
+- name: Verify Backup Locations Creation by Re-reading from API
+  tags:
+    - backup_locations
+    - api_calls
+    - verification
+  purepx.px_backup.backup_location:
+    operation: INSPECT_ALL
+    org_id: "{{ org_id }}"
+    api_url: "{{ px_backup_api_url }}"
+    token: "{{ px_backup_token }}"
+    validate_certs: "{{ validate_certs | bool }}"
+  register: verified_backup_locations
+  no_log: true  # Since response contains token
+  when:
+    - backup_location_creation is defined
+    - backup_location_creation.results is defined
+    - backup_location_creation.results | selectattr('failed', 'defined') | selectattr('failed', 'true') | list | length == 0
+
+- name: Verify Created Backup Locations Exist in API Response
+  ansible.builtin.set_fact:
+    verified_location_names: "{{ verified_backup_locations.backup_locations | map(attribute='metadata.name') | list }}"
+    created_location_names: "{{ backup_location_creation.results | map(attribute='item.name') | list }}"
+  tags:
+    - backup_locations
+    - variables
+    - verification
+  when:
+    - verified_backup_locations is defined
+    - backup_location_creation is defined
+    - backup_location_creation.results is defined
+
+- name: Check for Missing Locations After Creation
+  ansible.builtin.set_fact:
+    missing_after_creation: "{{ created_location_names | difference(verified_location_names) }}"
+  tags:
+    - backup_locations
+    - variables
+    - verification
+  when:
+    - verified_location_names is defined
+    - created_location_names is defined
+
+- name: Display Verification Results
+  ansible.builtin.debug:
+    msg:
+      - "Verification of backup locations creation:"
+      - "Created locations: {{ created_location_names | default([]) }}"
+      - "Verified locations found in API: {{ verified_location_names | default([]) }}"
+      - "Missing locations after creation: {{ missing_after_creation | default([]) }}"
+    verbosity: 1
+  tags:
+    - backup_locations
+    - reporting
+    - verification
+    - debug
+  when:
+    - verified_location_names is defined
+    - created_location_names is defined
+
+- name: Fail if Any Created Locations are Missing from API
+  ansible.builtin.fail:
+    msg: "The following backup locations were created but not found in API verification: {{ missing_after_creation | join(', ') }}. Please check the API and logs for errors."
+  tags:
+    - backup_locations
+    - error_handling
+    - verification
+  when:
+    - missing_after_creation is defined
+    - missing_after_creation | length > 0
+
 - name: Display Backup Location Creation Results
   ansible.builtin.debug:
     msg:
@@ -181,3 +272,23 @@
     - backup_location_creation is defined
     - backup_location_creation.results is defined
     - backup_location_creation.results | selectattr('failed', 'defined') | selectattr('failed', 'true') | list | length == 0
+
+- name: Clean up variables
+  ansible.builtin.set_fact:
+    existing_backup_locations: null
+    cloud_credentials_list: null
+    existing_location_names: null
+    required_location_names: null
+    required_backup_locations: null
+    updated_backup_locations: null
+    missing_backup_locations: null
+    locations_to_create: null
+    backup_location_creation: null
+    verified_backup_locations: null
+    verified_location_names: null
+    created_location_names: null
+    missing_after_creation: null
+  tags:
+    - backup_locations
+    - cleanup
+    - variables

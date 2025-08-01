@@ -1,5 +1,7 @@
 ---
-- name: Configure PX-Backup Schedules
+# Description: Creates a backup schedule in PX-Backup
+
+- name: Create PX-Backup Schedule
   hosts: all
   gather_facts: false
 
@@ -10,14 +12,13 @@
           ansible.builtin.assert:
             that:
               - px_backup_api_url is defined
-              - px_backup_token is defined
               - org_id is defined
               - schedule_policy_name is defined
               - backup_location_name is defined
               - cluster_name is defined
               - backup_schedule_name is defined
               - backup_resource_types is defined
-            fail_msg: "Required variables are not set. Please ensure all required variables are defined."
+            fail_msg: "Required variables are not set. Please ensure px_backup_api_url, org_id, schedule_policy_name, backup_location_name, cluster_name, backup_schedule_name, and backup_resource_types are defined."
             success_msg: "All required variables are properly set"
 
         - name: Login and Fetch PX-Backup Token
@@ -31,17 +32,17 @@
             org_id: "{{ org_id }}"
             api_url: "{{ px_backup_api_url }}"
             token: "{{ px_backup_token }}"
-            validate_certs: "{{ validate_certs | bool }}"
+            validate_certs: "{{ validate_certs | default(true) | bool }}"
           register: schedule_policies
           no_log: true  # Since response contains token
 
         - name: Extract Schedule Policy Information
           ansible.builtin.set_fact:
             schedule_policy_ref:
-              name: "{{ selected_policy.name }}"
-              uid: "{{ selected_policy.uid }}"
+              name: "{{ selected_policy.metadata.name }}"
+              uid: "{{ selected_policy.metadata.uid }}"
           vars:
-            selected_policy: "{{ schedule_policies.response | selectattr('name', 'equalto', schedule_policy_name) | list | first }}"
+            selected_policy: "{{ schedule_policies.schedule_policies | selectattr('metadata.name', 'equalto', schedule_policy_name) | list | first }}"
           failed_when: selected_policy | length == 0
           no_log: true
 
@@ -51,17 +52,17 @@
             org_id: "{{ org_id }}"
             api_url: "{{ px_backup_api_url }}"
             token: "{{ px_backup_token }}"
-            validate_certs: "{{ validate_certs | bool }}"
+            validate_certs: "{{ validate_certs | default(true) | bool }}"
           register: backup_locations
           no_log: true  # Since response contains token
 
         - name: Extract Backup Location Information
           ansible.builtin.set_fact:
             backup_location_ref:
-              name: "{{ selected_location.name }}"
-              uid: "{{ selected_location.uid }}"
+              name: "{{ selected_location.metadata.name }}"
+              uid: "{{ selected_location.metadata.uid }}"
           vars:
-            selected_location: "{{ backup_locations.response | selectattr('name', 'equalto', backup_location_name) | list | first }}"
+            selected_location: "{{ backup_locations.backup_locations | selectattr('metadata.name', 'equalto', backup_location_name) | list | first }}"
           failed_when: selected_location | length == 0
           no_log: true
 
@@ -71,40 +72,51 @@
             org_id: "{{ org_id }}"
             api_url: "{{ px_backup_api_url }}"
             token: "{{ px_backup_token }}"
-            validate_certs: "{{ validate_certs | bool }}"
+            validate_certs: "{{ validate_certs | default(true) | bool }}"
           register: clusters
           no_log: true  # Since response contains token
 
         - name: Extract Cluster Information
           ansible.builtin.set_fact:
             cluster_ref:
-              name: "{{ selected_cluster.name }}"
-              uid: "{{ selected_cluster.uid }}"
+              name: "{{ selected_cluster.metadata.name }}"
+              uid: "{{ selected_cluster.metadata.uid }}"
           vars:
-            selected_cluster: "{{ clusters.response | selectattr('name', 'equalto', cluster_name) | list | first }}"
+            selected_cluster: "{{ clusters.clusters | selectattr('metadata.name', 'equalto', cluster_name) | list | first }}"
           failed_when: selected_cluster | length == 0
           no_log: true
 
-    - name: Create Backup Schedule
-      block:
         - name: Create Backup Schedule
           purepx.px_backup.backup_schedule:
             operation: CREATE
             api_url: "{{ px_backup_api_url }}"
             token: "{{ px_backup_token }}"
-            validate_certs: "{{ validate_certs | bool }}"
+            validate_certs: "{{ validate_certs | default(true) | bool }}"
             name: "{{ backup_schedule_name }}"
             org_id: "{{ org_id }}"
-            reclaim_policy: "{{ backup_reclaim_policy | default('Delete') }}"
+            reclaim_policy: "{{ backup_reclaim_policy | default('Retain') }}"
+            resource_types: "{{ backup_resource_types }}"
             schedule_policy_ref: "{{ schedule_policy_ref }}"
             backup_location_ref: "{{ backup_location_ref }}"
             cluster_ref: "{{ cluster_ref }}"
             owner: "admin"
             # Optional parameters
             backup_type: "{{ backup_type | default('Normal') }}"
+            suspend: "{{ backup_suspend | default(false) }}"
+            direct_kdmp: "{{ backup_direct_kdmp | default(false) }}"
+            skip_vm_auto_exec_rules: "{{ backup_skip_vm_auto_exec_rules | default(false) }}"
             parallel_backup: "{{ backup_parallel | default(false) }}"
+            keep_cr_status: "{{ backup_keep_cr_status | default(false) }}"
+            namespaces: "{{ backup_namespaces | default(omit) }}"
             exclude_resource_types: "{{ backup_exclude_resource_types | default(omit) }}"
+            label_selectors: "{{ backup_label_selectors | default(omit) }}"
+            include_resources: "{{ backup_include_resources | default(omit) }}"
             ns_label_selectors: "{{ backup_ns_label_selectors | default(omit) }}"
+            backup_object_type: "{{ backup_object_type | default(omit) }}"
+            volume_snapshot_class_mapping: "{{ backup_volume_snapshot_class_mapping | default(omit) }}"
+            csi_snapshot_class_name: "{{ backup_csi_snapshot_class_name | default(omit) }}"
+            pre_exec_rule_ref: "{{ backup_pre_exec_rule_ref | default(omit) }}"
+            post_exec_rule_ref: "{{ backup_post_exec_rule_ref | default(omit) }}"
             ownership: "{{ backup_ownership | default(omit) }}"
           register: backup_result
           no_log: true  # Since response contains token
@@ -128,18 +140,24 @@
               {% if backup_exclude_resource_types is defined %}
               - Excluded Resource Types: {{ backup_exclude_resource_types | to_yaml }}
               {% endif %}
-          when: backup_result.response is defined
+          when: not backup_result.failed
 
       rescue:
-        - name: Handle Backup Schedule Creation Failure
-          ansible.builtin.fail:
-            msg: |
-              Failed to create backup schedule:
-              Error: {{ backup_result.msg if backup_result.msg is defined else 'Unknown error occurred' }}
-              Details: {{ backup_result.error if backup_result.error is defined else '' }}
+        - name: Log Error Details
+          ansible.builtin.debug:
+            msg: "Error occurred during PX-Backup operations: {{ ansible_failed_result }}"
+
+        - name: Set Error Flag
+          ansible.builtin.set_fact:
+            px_backup_operation_failed: true
 
       always:
-        - name: Log Backup Schedule Operation Status
+        - name: Cleanup Operations Status
           ansible.builtin.debug:
-            msg: "Backup schedule operation completed with status: {{ backup_result.failed | default(false) | ternary('failed', 'success') }}"
-          when: backup_result is defined
+            msg: >-
+              PX-Backup Schedule Creation completed.
+              {% if px_backup_operation_failed | default(false) %}
+              Status: Failed - Please check error details above
+              {% else %}
+              Status: Successful
+              {% endif %}

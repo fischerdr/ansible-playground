@@ -8,12 +8,9 @@ ansible-navigator:
   execution-environment:
     enabled: true
     container-engine: docker
-    image: development-ee:latest
+    image: quay.io/ansible/ansible-runner:latest
     pull:
       policy: missing
-    volume-mounts:
-      - src: ~/.vault-token
-        dest: ~/.vault-token
 
   # Ansible settings
   ansible:
@@ -31,3 +28,6 @@ ansible-navigator:
     level: debug
     append: true
     file: "./logs/ansible-navigator.log"
+
+  # User Interface mode (interactive, stdout, or json)
+  mode: interactive

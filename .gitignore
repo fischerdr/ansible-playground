@@ -1,19 +1,27 @@
+# Logs
 .logs/*
+
+# Ansible tmp files
 tmp/*
 *.retry
 *.vault
+
+# Ansible collections
 collections/*
 !collections/ansible_collections
 !collections/requirements.yml
 collections/ansible_collections/*
+
+# Ansible runner and navigator files
+.ansible/*
+artifacts/*
+
+# Python
 # https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
-*.so
 
 # Distribution / packaging
 .Python

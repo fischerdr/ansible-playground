@@ -36,6 +36,12 @@
       changed_when: false
       no_log: true
 
+    - name: List current directory contents
+      ansible.builtin.shell: ls -la $PWD
+      register: pwd_contents
+      changed_when: false
+      no_log: false
+
     - name: Get Python Version and Path
       ansible.builtin.command: python3 --version
       register: python_version
@@ -60,11 +66,17 @@
       changed_when: false
       no_log: true
 
+    - name: Show Ansible galaxy info
+      ansible.builtin.command: ansible-galaxy --version
+      register: ansible_galaxy_info
+      changed_when: false
+      no_log: false
+
     - name: List Installed Ansible Collections
       ansible.builtin.command: ansible-galaxy collection list
       register: ansible_collections
       changed_when: false
-      no_log: true
+      no_log: false
 
     - name: Find all Python executables in common locations
       ansible.builtin.shell:
@@ -130,6 +142,13 @@
           {{ 'HOME DIRECTORY CONTENTS' | center(80) }}
           {{ '=' * 80 }}
           {% for item in home_contents.stdout_lines %}
+          {{ item | center(80) }}
+          {% endfor %}
+
+          {{ '=' * 80 }}
+          {{ 'PWD DIRECTORY CONTENTS' | center(80) }}
+          {{ '=' * 80 }}
+          {% for item in pwd_contents.stdout_lines %}
           {{ item | center(80) }}
           {% endfor %}
 
@@ -209,6 +228,11 @@
 
           {{ 'Ansible Version:' | center(80) }}
           {{ my_ansible_version.stdout_lines[0] | center(80) }}
+
+          {{ 'Ansible Galaxy Version:' | center(80) }}
+          {% for verinfo in ansible_galaxy_info.stdout_lines %}
+          {{ verinfo | center(80) }}
+          {% endfor %}
 
           {{ '=' * 80 }}
           {{ 'INSTALLED ANSIBLE COLLECTIONS' | center(80) }}

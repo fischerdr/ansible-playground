@@ -1,16 +1,11 @@
 ---
-description: 
-globs: playbooks/**/*.yml,roles/**/**/*.yml
-alwaysApply: false
----
- ---
-description: Ansible Playbook and Role Development Guidelines
-globs: playbooks/**/*.yml, roles/**/*.yml
+alwaysApply: true
 ---
 
 # Ansible Development Guidelines
 
 ## Playbook Structure
+
 - All tasks must use FQCN (Fully Qualified Collection Names)
 - Use lowercase true/false for boolean values
 - All playbooks should start with a clear description comment block
@@ -20,24 +15,28 @@ globs: playbooks/**/*.yml, roles/**/*.yml
 - Use no_log: true for sensitive operations (tokens, credentials)
 
 ## Variable Management
+
 - Define required variables at the start of the playbook
 - Use assert tasks to validate required variables
 - Document optional variables with default values
 - Use proper variable scoping (host_vars, group_vars, playbook vars)
 
 ## Role Usage
+
 - Include roles using ansible.builtin.include_role
 - Specify tasks_from when including specific task files
 - Maintain separation of concerns between roles
 - Use common role for shared functionality
 
 ## Security Best Practices
+
 - Never log sensitive information (tokens, credentials)
 - Use validate_certs for HTTPS operations
 - Implement proper error handling and validation
 - Use secure variable handling for sensitive data
 
 ## Task Organization
+
 - Group related tasks in blocks
 - Use meaningful task names
 - Include proper error handling
@@ -45,30 +44,35 @@ globs: playbooks/**/*.yml, roles/**/*.yml
 - Use proper task delegation when needed
 
 ## Documentation
+
 - Include clear descriptions for plays and tasks
 - Document required and optional variables
 - Add comments for complex operations
 - Include examples in comments where helpful
 
 ## Error Handling
+
 - Use block/rescue/always for error handling
 - Provide clear error messages
 - Log appropriate debug information
 - Set operation status flags for tracking
 
 ## Code Style
+
 - Use consistent indentation (2 spaces)
 - Follow YAML best practices
 - Use clear and consistent naming conventions
 - Maintain proper spacing and organization
 
 ## Testing
+
 - Include proper validation steps
 - Use assert tasks for input validation
 - Implement proper error checking
 - Include debug tasks for troubleshooting
 
 ## Best Practices
+
 - Use idempotent operations where possible
 - Implement proper state checking
 - Use proper task delegation

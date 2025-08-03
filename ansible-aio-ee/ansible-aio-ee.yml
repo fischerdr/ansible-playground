@@ -1,0 +1,180 @@
+---
+version: 3
+
+# Container image configuration
+images:
+  base_image:
+    # Using Red Hat Universal Base Image 8 (stream) as requested
+    name: registry.access.redhat.com/ubi8/ubi:8.9
+
+# Dependencies section
+dependencies:
+  python_interpreter:
+    package_system: python3.11
+    python_path: /usr/bin/python3.11
+
+  # Core Ansible components
+  ansible_core:
+    package_pip: ansible-core
+  ansible_runner:
+    package_pip: ansible-runner
+
+  # External requirements
+  galaxy: requirements.yml
+  python: requirements.txt
+
+  # System dependencies
+  system: |
+    # Base requirements
+    git-core [platform:rpm]
+    python3.11 [platform:rpm]
+    python3.11-devel [platform:rpm compile]
+    python3.11-pip [platform:rpm]
+
+    # Authentication and security
+    krb5-devel [platform:rpm compile]
+    krb5-workstation [platform:rpm]
+    openssl-devel [platform:rpm compile]
+
+    # Source control
+    git-lfs [platform:rpm]
+    subversion [platform:rpm]
+
+    # Network and file transfer
+    sshpass [platform:rpm]
+    rsync [platform:rpm]
+    wget [platform:rpm]
+    nc [platform:rpm]
+    curl [platform:rpm]
+
+    # Container management
+    podman-remote [platform:rpm]
+
+    # Build tools
+    cmake [platform:rpm compile]
+    gcc [platform:rpm compile]
+    gcc-c++ [platform:rpm compile]
+    make [platform:rpm compile]
+
+    # API and web service dependencies
+    libcurl-devel [platform:rpm compile]
+
+    # Utilities
+    unzip [platform:rpm]
+    which [platform:rpm]
+    jq [platform:rpm]
+    yq [platform:rpm]
+
+    # Additional tools for cloud operations
+    ca-certificates [platform:rpm]
+    gnupg2 [platform:rpm]
+
+# Additional build steps
+additional_build_steps:
+  prepend_base:
+    # Enable EPEL and PowerTools repositories for additional packages
+    - RUN dnf -y install epel-release
+    - RUN dnf -y install dnf-utils
+    - RUN dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb || true
+
+  append_base:
+    # Update Python pip and install base tools
+    - RUN python3.11 -m pip install -U pip setuptools wheel
+
+    # Install kubectl (latest stable)
+    - RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    - RUN chmod +x kubectl && mv kubectl /usr/local/bin/
+
+    # Install Helm (latest stable)
+    - RUN curl https://get.helm.sh/helm-v3.14.4-linux-amd64.tar.gz | tar xz
+    - RUN mv linux-amd64/helm /usr/local/bin/ && rm -rf linux-amd64
+
+    # Install Terraform (latest stable)
+    - RUN curl -LO "https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip"
+    - RUN unzip terraform_1.7.5_linux_amd64.zip && mv terraform /usr/local/bin/ && rm terraform_1.7.5_linux_amd64.zip
+
+    # Install OpenShift CLI (oc, latest stable)
+    - RUN curl -LO "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux.tar.gz"
+    - RUN tar xzf openshift-client-linux.tar.gz && mv oc /usr/local/bin/ && rm openshift-client-linux.tar.gz
+
+    # Install AWS CLI v2 (latest)
+    - RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+    - RUN unzip awscliv2.zip && ./aws/install && rm -rf aws awscliv2.zip
+
+    # Install Google Cloud SDK (latest)
+    - RUN curl https://sdk.cloud.google.com | bash
+    - RUN ln -s /root/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud
+    - RUN ln -s /root/google-cloud-sdk/bin/gsutil /usr/local/bin/gsutil
+    - RUN ln -s /root/google-cloud-sdk/bin/bq /usr/local/bin/bq
+
+    # Install additional Python packages for cloud operations
+    - RUN python3.11 -m pip install awscli boto3 google-cloud-sdk kubernetes openshift
+
+  append_final:
+    # Update system and clean up
+    - RUN dnf -y update && dnf clean all
+
+    # Remove Python 3.6/3.8/3.9 if present (keep only 3.11)
+    - RUN dnf -y remove python3.6 python3.6-devel python3.8 python3.8-devel python3.9 python3.9-devel || true
+
+    # Set Python 3.11 as default
+    - RUN alternatives --install /usr/bin/python python /usr/bin/python3.11 311
+    - RUN alternatives --set python /usr/bin/python3.11
+    - RUN ln -sf /usr/bin/python3.11 /usr/bin/python3
+
+    # Ansible configuration
+    - ENV ANSIBLE_FORCE_COLOR=1
+    - ENV ANSIBLE_COLLECTIONS_PATH=./collections:/usr/share/ansible/collections
+    - ENV ANSIBLE_ROLES_PATH=./roles:/usr/share/ansible/roles
+    - ENV ANSIBLE_HOST_KEY_CHECKING=false
+    - ENV ANSIBLE_RETRY_FILES_ENABLED=false
+
+    # Python configuration
+    - ENV PYTHONPATH=/usr/local/lib/python3.11/site-packages
+    - ENV PYTHONUNBUFFERED=1
+
+    # Cloud tool configurations
+    - ENV AWS_DEFAULT_REGION=us-east-1
+    - ENV KUBECONFIG=/tmp/kubeconfig
+    - ENV HELM_HOME=/tmp/.helm
+
+    # Logging configuration
+    - ENV LOG_LEVEL=INFO
+    - ENV LOG_FORMAT=json
+    - ENV LOG_DIR=/logs
+
+    # Security settings
+    - ENV REQUESTS_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+    - ENV CURL_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+
+    # Create necessary directories
+    - RUN mkdir -p /tmp/.helm /tmp/.kube /logs /workspace
+
+    # Set up PATH to include all tools
+    - ENV PATH="/usr/local/bin:/root/google-cloud-sdk/bin:${PATH}"
+
+    # Verify installations
+    - RUN python3 --version && python --version
+    - RUN kubectl version --client
+    - RUN helm version
+    - RUN terraform version
+    - RUN oc version
+    - RUN aws --version
+    - RUN gcloud version
+    - RUN ansible --version
+
+    # Clean up temporary files and caches
+    - RUN rm -rf /tmp/* /var/cache/dnf /var/cache/yum
+    - RUN python3.11 -m pip cache purge
+
+    # Set working directory
+    - WORKDIR /workspace
+
+    # Create non-root user for security (optional)
+    - RUN useradd -m -s /bin/bash ansible
+    - RUN chown -R ansible:ansible /workspace /logs
+    - USER ansible
+
+# Build arguments for customization
+build_arg_defaults:
+  BUILD_ENV: production

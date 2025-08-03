@@ -1,0 +1,19 @@
+---
+# Air-gapped Ansible Collections Requirements
+# For downloading: Use ansible-galaxy collection download -r requirements-airgapped.yml -p ./collections/
+# For installing in EE: Collections will be installed from local tarballs
+
+collections:
+  # Core collections - these will be downloaded as tarballs
+  - name: amazon.aws
+  - name: ansible.posix
+  - name: ansible.scm
+  - name: ansible.utils
+  - name: awx.awx
+  - name: community.aws
+  - name: community.general
+  - name: community.hashi_vault
+  - name: community.vmware
+  - name: google.cloud
+  - name: kubernetes.core
+  - name: purepx.px_backup

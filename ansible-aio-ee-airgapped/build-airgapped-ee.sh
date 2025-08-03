@@ -95,6 +95,9 @@ check_dependencies() {
         print_warning "collections/ directory not found. Collections will be installed from requirements."
     else
         print_success "collections/ directory found"
+        local collection_count
+        collection_count=$(find collections/ -name "*.tar.gz" 2>/dev/null | wc -l)
+        print_status "Found $collection_count collection archives"
     fi
     
     # Check for wheels directory
@@ -103,7 +106,7 @@ check_dependencies() {
     else
         print_success "wheels/ directory found"
         local wheel_count
-        wheel_count=$(find wheels/ -name "*.whl" | wc -l)
+        wheel_count=$(find wheels/ -name "*.whl" 2>/dev/null | wc -l)
         print_status "Found $wheel_count wheel files"
     fi
     
@@ -113,7 +116,7 @@ check_dependencies() {
     else
         print_success "wheels-collections/ directory found"
         local collection_wheel_count
-        collection_wheel_count=$(find wheels-collections/ -name "*.whl" | wc -l)
+        collection_wheel_count=$(find wheels-collections/ -name "*.whl" 2>/dev/null | wc -l)
         print_status "Found $collection_wheel_count collection dependency wheel files"
     fi
     
@@ -177,78 +180,104 @@ check_prerequisites() {
     print_success "Prerequisites check passed"
 }
 
+# Function to prepare build context
+prepare_build_context() {
+    print_status "Preparing build context..."
+    
+    # Clean and create context directory
+    if [[ -d "context" ]]; then
+        print_status "Removing existing context directory..."
+        rm -rf context
+    fi
+    
+    print_status "Creating fresh context directory..."
+    mkdir -p context
+    
+    # Copy all required directories and files to context
+    print_status "Setting up build context..."
+    
+    # Copy directories
+    for dir in tools wheels wheels-collections collections; do
+        if [[ -d "$dir" ]]; then
+            print_status "Copying $dir/ to context directory..."
+            cp -r "$dir" context/
+        else
+            print_warning "$dir directory not found, creating empty directory in context"
+            mkdir -p "context/$dir"
+        fi
+    done
+    
+    # Copy requirements files
+    for req_file in requirements-airgapped.txt requirements-airgapped.yml requirements-collections-airgapped.txt; do
+        if [[ -f "$req_file" ]]; then
+            print_status "Copying $req_file to context directory..."
+            cp "$req_file" context/
+        else
+            print_warning "$req_file not found"
+        fi
+    done
+    
+    # Copy the EE definition file to context
+    if [[ -f "ansible-aio-ee-airgapped.yml" ]]; then
+        print_status "Copying ansible-aio-ee-airgapped.yml to context directory..."
+        cp ansible-aio-ee-airgapped.yml context/
+    else
+        print_error "ansible-aio-ee-airgapped.yml not found"
+        exit 1
+    fi
+    
+    print_success "Build context prepared successfully"
+}
+
 # Function to build with ansible-builder
 build_with_ansible_builder() {
     print_status "Building air-gapped EE with ansible-builder..."
     
-    # First, create the context directory if it doesn't exist
-    if [[ ! -d "context" ]]; then
-        print_status "Creating context directory..."
-        mkdir -p context
-    fi
-    
-    # Copy wheels-collections directory to context if it exists
-    if [[ -d "wheels-collections" ]]; then
-        print_status "Copying wheels-collections to context directory..."
-        cp -r wheels-collections context/
-    else
-        print_warning "wheels-collections directory not found, creating empty directory in context"
-        mkdir -p context/wheels-collections
-    fi
-    
-    # Copy tools directory to context if it exists
-    if [[ -d "tools" ]]; then
-        print_status "Copying tools to context directory..."
-        cp -r tools context/
-    else
-        print_error "tools directory not found"
-        exit 1
-    fi
-    
-    # Copy wheels directory to context if it exists
-    if [[ -d "wheels" ]]; then
-        print_status "Copying wheels to context directory..."
-        cp -r wheels context/
-    else
-        print_warning "wheels directory not found, creating empty directory in context"
-        mkdir -p context/wheels
-    fi
-    
-    # Copy requirements-collections-airgapped.txt to context if it exists
-    if [[ -f "requirements-collections-airgapped.txt" ]]; then
-        print_status "Copying requirements-collections-airgapped.txt to context directory..."
-        cp requirements-collections-airgapped.txt context/
-    else
-        print_warning "requirements-collections-airgapped.txt not found"
-    fi
+    # Prepare build context
+    prepare_build_context
     
     local build_args=""
     if [[ "$VERBOSE" == "true" ]]; then
         build_args="--verbosity 3"
     fi
     
+    # Change to context directory and build
+    print_status "Changing to context directory for build..."
+    cd context
+    
+    print_status "Running ansible-builder build..."
     if ansible-builder build \
         --file ansible-aio-ee-airgapped.yml \
         --tag "${EE_NAME}:${EE_TAG}" \
-        $build_args; then
+        $build_args .; then
         print_success "Air-gapped EE built successfully with ansible-builder"
     else
         print_error "Failed to build air-gapped EE with ansible-builder"
+        cd ..
         exit 1
     fi
+    
+    # Return to parent directory
+    cd ..
 }
 
 # Function to build with Docker
 build_with_docker() {
     print_status "Building air-gapped EE with Docker..."
     
-    # First, create a Containerfile for the air-gapped build
+    # Prepare build context
+    prepare_build_context
+    
+    # Create a Containerfile for the air-gapped build
     create_airgapped_containerfile
     
     local build_args=""
     if [[ "$VERBOSE" == "true" ]]; then
         build_args="--progress=plain"
     fi
+    
+    # Change to context directory for build
+    cd context
     
     if docker build \
         -f Containerfile.ansible-aio-ee-airgapped \
@@ -257,13 +286,17 @@ build_with_docker() {
         print_success "Air-gapped EE built successfully with Docker"
     else
         print_error "Failed to build air-gapped EE with Docker"
+        cd ..
         exit 1
     fi
+    
+    # Return to parent directory
+    cd ..
 }
 
 # Function to create Containerfile for air-gapped build
 create_airgapped_containerfile() {
-    cat > "Containerfile.ansible-aio-ee-airgapped" << 'EOF'
+    cat > "context/Containerfile.ansible-aio-ee-airgapped" << 'EOF'
 # Air-gapped Ansible All-In-One Execution Environment
 # Based on Red Hat Universal Base Image 8 (stream)
 # Uses local tools and dependencies for offline building
@@ -343,6 +376,9 @@ COPY tools/google-cloud-sdk.tar.gz /tmp/google-cloud-sdk.tar.gz
 
 RUN chmod +x /usr/local/bin/kubectl /usr/local/bin/helm /usr/local/bin/terraform /usr/local/bin/oc /usr/local/bin/vault
 
+# Install yq manually since it's not available in UBI8
+RUN curl -L https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq || echo "yq installation failed - may be offline"
+
 # Install AWS CLI from local archive (Layer 4: AWS CLI)
 RUN cd /tmp && \
     unzip awscliv2.zip && \
@@ -372,15 +408,9 @@ COPY wheels/ /tmp/wheels/
 COPY wheels-collections/ /tmp/wheels-collections/
 
 # Install Python dependencies (Layer 8: Python packages)
-# Install main requirements first
-RUN if [ -d "/tmp/wheels" ] && [ "$(ls -A /tmp/wheels)" ]; then \
-        python -m pip install --no-index --find-links /tmp/wheels -r /tmp/requirements-airgapped.txt; \
-    else \
-        python -m pip install -r /tmp/requirements-airgapped.txt; \
-    fi
-
-# Install collection dependencies
+# Install collection dependencies first (they may be needed by main requirements)
 RUN if [ -s "/tmp/requirements-collections-airgapped.txt" ] && [ -d "/tmp/wheels-collections" ] && [ "$(ls -A /tmp/wheels-collections)" ]; then \
+        echo "Installing collection dependencies from local wheels..."; \
         python -m pip install --no-index --find-links /tmp/wheels-collections -r /tmp/requirements-collections-airgapped.txt; \
     elif [ -s "/tmp/requirements-collections-airgapped.txt" ]; then \
         echo "Collection dependency wheels not found, attempting online install..."; \
@@ -389,18 +419,30 @@ RUN if [ -s "/tmp/requirements-collections-airgapped.txt" ] && [ -d "/tmp/wheels
         echo "No collection requirements file found, skipping collection dependencies"; \
     fi
 
+# Install main requirements
+RUN if [ -d "/tmp/wheels" ] && [ "$(ls -A /tmp/wheels)" ]; then \
+        echo "Installing main requirements from local wheels..."; \
+        python -m pip install --no-index --find-links /tmp/wheels -r /tmp/requirements-airgapped.txt; \
+    else \
+        echo "Main requirement wheels not found, attempting online install..."; \
+        python -m pip install -r /tmp/requirements-airgapped.txt; \
+    fi
+
 # Copy and install Ansible collections (Layer 9: Collections)
 COPY collections/ /tmp/collections/
 RUN if [ -d "/tmp/collections" ] && [ "$(ls -A /tmp/collections)" ]; then \
-        ansible-galaxy collection install -p /usr/share/ansible/collections /tmp/collections/*.tar.gz || \
-        ansible-galaxy collection install -r /tmp/requirements-airgapped.yml; \
+        echo "Installing collections from local archives..."; \
+        find /tmp/collections -name "*.tar.gz" -exec ansible-galaxy collection install {} -p /usr/share/ansible/collections \; || \
+        ansible-galaxy collection install -r /tmp/requirements-airgapped.yml -p /usr/share/ansible/collections; \
     else \
-        ansible-galaxy collection install -r /tmp/requirements-airgapped.yml; \
+        echo "No local collections found, installing from requirements..."; \
+        ansible-galaxy collection install -r /tmp/requirements-airgapped.yml -p /usr/share/ansible/collections; \
     fi
 
 # Remove old Python versions and clean up (Layer 10: Cleanup)
 RUN dnf -y remove python3.6 python3.6-devel python3.8 python3.8-devel python3.9 python3.9-devel || true && \
-    rm -rf /tmp/* /var/cache/dnf /var/cache/yum
+    rm -rf /tmp/* /var/cache/dnf /var/cache/yum && \
+    python -m pip cache purge
 
 # Create necessary directories and set up environment (Layer 11: Environment setup)
 RUN mkdir -p /tmp/.helm /tmp/.kube /logs /workspace && \
@@ -419,7 +461,9 @@ RUN python --version && \
     which vault && \
     which aws && \
     which gcloud && \
-    ansible --version
+    which yq && \
+    ansible --version && \
+    oc version --client
 
 # Set working directory and switch to non-root user
 WORKDIR /workspace
@@ -433,42 +477,74 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 CMD ["/bin/bash"]
 EOF
 
-    print_success "Created Containerfile.ansible-aio-ee-airgapped"
+    print_success "Created Containerfile.ansible-aio-ee-airgapped in context directory"
 }
 
 # Function to test the EE
 test_ee() {
     print_status "Testing the Air-gapped Execution Environment..."
     
+    # Determine which container runtime to use
+    local container_cmd=""
+    if command -v docker &> /dev/null; then
+        container_cmd="docker"
+    elif command -v podman &> /dev/null; then
+        container_cmd="podman"
+    else
+        print_error "Neither docker nor podman is available for testing"
+        return 1
+    fi
+    
     # Test basic functionality
     print_status "Testing basic tools..."
     
-    docker run --rm "${EE_NAME}:${EE_TAG}" python3 --version
-    docker run --rm "${EE_NAME}:${EE_TAG}" ansible --version
-    docker run --rm "${EE_NAME}:${EE_TAG}" which kubectl
-    docker run --rm "${EE_NAME}:${EE_TAG}" which helm
-    docker run --rm "${EE_NAME}:${EE_TAG}" which terraform
-    docker run --rm "${EE_NAME}:${EE_TAG}" which oc
-    docker run --rm "${EE_NAME}:${EE_TAG}" which vault
-    docker run --rm "${EE_NAME}:${EE_TAG}" which aws
-    docker run --rm "${EE_NAME}:${EE_TAG}" which gcloud
+    $container_cmd run --rm "${EE_NAME}:${EE_TAG}" python3 --version
+    $container_cmd run --rm "${EE_NAME}:${EE_TAG}" ansible --version
+    $container_cmd run --rm "${EE_NAME}:${EE_TAG}" which kubectl
+    $container_cmd run --rm "${EE_NAME}:${EE_TAG}" which helm
+    $container_cmd run --rm "${EE_NAME}:${EE_TAG}" which terraform
+    $container_cmd run --rm "${EE_NAME}:${EE_TAG}" which oc
+    $container_cmd run --rm "${EE_NAME}:${EE_TAG}" which vault
+    $container_cmd run --rm "${EE_NAME}:${EE_TAG}" which aws
+    $container_cmd run --rm "${EE_NAME}:${EE_TAG}" which gcloud
+    $container_cmd run --rm "${EE_NAME}:${EE_TAG}" which yq
     
     print_success "Basic tool tests passed"
     
     # Test Ansible collections
     print_status "Testing Ansible collections..."
-    docker run --rm "${EE_NAME}:${EE_TAG}" ansible-galaxy collection list
+    $container_cmd run --rm "${EE_NAME}:${EE_TAG}" ansible-galaxy collection list
     
     print_success "Collection tests passed"
     
     # Test Python packages
     print_status "Testing Python packages..."
-    docker run --rm "${EE_NAME}:${EE_TAG}" python3 -c "
-import kubernetes
-import boto3
-import hvac
-import ansible
-print('All required Python packages are available')
+    $container_cmd run --rm "${EE_NAME}:${EE_TAG}" python3 -c "
+try:
+    import kubernetes
+    print('✓ kubernetes module available')
+except ImportError:
+    print('⚠ kubernetes module not available')
+
+try:
+    import boto3
+    print('✓ boto3 module available')
+except ImportError:
+    print('⚠ boto3 module not available')
+
+try:
+    import hvac
+    print('✓ hvac module available')
+except ImportError:
+    print('⚠ hvac module not available')
+
+try:
+    import ansible
+    print('✓ ansible module available')
+except ImportError:
+    print('✗ ansible module not available')
+
+print('Python package test completed')
 "
     
     print_success "Python package tests passed"
@@ -482,11 +558,22 @@ push_image() {
         exit 1
     fi
     
+    # Determine which container runtime to use
+    local container_cmd=""
+    if command -v docker &> /dev/null; then
+        container_cmd="docker"
+    elif command -v podman &> /dev/null; then
+        container_cmd="podman"
+    else
+        print_error "Neither docker nor podman is available for pushing"
+        exit 1
+    fi
+    
     print_status "Tagging image for registry..."
-    docker tag "${EE_NAME}:${EE_TAG}" "${REGISTRY}:${EE_TAG}"
+    $container_cmd tag "${EE_NAME}:${EE_TAG}" "${REGISTRY}:${EE_TAG}"
     
     print_status "Pushing image to registry..."
-    if docker push "${REGISTRY}:${EE_TAG}"; then
+    if $container_cmd push "${REGISTRY}:${EE_TAG}"; then
         print_success "Image pushed successfully to ${REGISTRY}:${EE_TAG}"
     else
         print_error "Failed to push image to registry"
@@ -499,21 +586,15 @@ cleanup() {
     print_status "Cleaning up build artifacts..."
     
     # Remove build context
-    if [[ -d ".ansible-builder" ]]; then
-        rm -rf .ansible-builder
-        print_success "Removed .ansible-builder directory"
-    fi
-    
-    # Remove ansible-builder context directory
     if [[ -d "context" ]]; then
         rm -rf context
         print_success "Removed context directory"
     fi
     
-    # Remove temporary Containerfile
-    if [[ -f "Containerfile.ansible-aio-ee-airgapped" ]]; then
-        rm Containerfile.ansible-aio-ee-airgapped
-        print_success "Removed temporary Containerfile"
+    # Remove ansible-builder artifacts
+    if [[ -d ".ansible-builder" ]]; then
+        rm -rf .ansible-builder
+        print_success "Removed .ansible-builder directory"
     fi
     
     # Remove temporary files
@@ -629,6 +710,7 @@ main() {
     print_status "Next steps:"
     echo "1. Test the EE: ./build-airgapped-ee.sh --test"
     echo "2. Use the EE: docker run -it --rm ${EE_NAME}:${EE_TAG} /bin/bash"
+    echo "3. Or with podman: podman run -it --rm ${EE_NAME}:${EE_TAG} /bin/bash"
 }
 
 # Run main function

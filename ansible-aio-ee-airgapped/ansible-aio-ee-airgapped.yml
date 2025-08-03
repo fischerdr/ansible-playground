@@ -22,7 +22,7 @@ dependencies:
   # External requirements - will be copied locally
   galaxy: requirements-airgapped.yml
   python: requirements-airgapped.txt
-  
+
   # Additional Python requirements (will be handled in build steps)
   # requirements-collections-airgapped.txt will be installed via additional_build_steps
 

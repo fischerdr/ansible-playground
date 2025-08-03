@@ -42,6 +42,12 @@
       changed_when: false
       no_log: false
 
+    - name: Show current mount points
+      ansible.builtin.command: mount
+      register: mount_output
+      changed_when: false
+      no_log: false
+
     - name: Get Python Version and Path
       ansible.builtin.command: python3 --version
       register: python_version

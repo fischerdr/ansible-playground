@@ -77,6 +77,10 @@ create_directories() {
 download_tools() {
     print_status "Downloading binary tools..."
     
+    if [[ "$VERBOSE" == "true" ]]; then
+        print_status "Tools directory: $(pwd)/$TOOLS_DIR"
+    fi
+    
     cd "$TOOLS_DIR"
     
     # Download kubectl
@@ -117,7 +121,8 @@ download_tools() {
     # Download OpenShift CLI
     print_status "Downloading OpenShift CLI..."
     if ! [ -f "oc" ]; then
-        curl -LO "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux.tar.gz"
+        #curl -LO "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux.tar.gz"
+        curl -LO "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/4.14.9/openshift-client-linux.tar.gz"
         tar xzf openshift-client-linux.tar.gz
         rm openshift-client-linux.tar.gz || true  # Remove the archive
         # Keep both kubectl and oc - they can coexist
@@ -180,10 +185,54 @@ update_collection_dependencies() {
         print_status "Using collections from parent directory..."
         cp -r ../collections ./temp-collections
         
-        # Run collection dependency discovery from parent directory
+        # Use Python 3.11 for collection dependency discovery to match the target EE
+        print_status "Running collection dependency discovery with Python 3.11..."
+        
+        # Create a temporary container for Python 3.11 collection dependency discovery
+        local temp_container="temp-python311-collection-discovery"
+        
+        # Create a temporary Dockerfile for Python 3.11 collection discovery
+        cat > /tmp/Dockerfile.collection-discovery << 'EOF'
+FROM registry.access.redhat.com/ubi8/ubi:8.9
+RUN dnf -y install dnf-utils && \
+    dnf config-manager --set-enabled crb || dnf config-manager --set-enabled powertools || true && \
+    dnf -y install python3.11 python3.11-pip && \
+    # Set up Python alternatives properly for UBI 8.9
+    alternatives --install /usr/bin/unversioned-python python /usr/bin/python3.11 1 && \
+    alternatives --set python /usr/bin/python3.11 && \
+    # Install required Python packages for the collection dependency script
+    /usr/bin/unversioned-python -m pip install click rich packaging && \
+    dnf clean all
+WORKDIR /workspace
+EOF
+        
+        # Build the temporary image
+        if [[ "$VERBOSE" == "true" ]]; then
+            podman build -f /tmp/Dockerfile.collection-discovery -t "$temp_container" /tmp || {
+                print_error "Failed to build temporary container for collection discovery"
+                return 1
+            }
+        else
+            podman build -f /tmp/Dockerfile.collection-discovery -t "$temp_container" /tmp >/dev/null 2>&1 || {
+                print_error "Failed to build temporary container for collection discovery"
+                return 1
+            }
+        fi
+        
+        # Run collection dependency discovery with Python 3.11
         cd ..
-        python scripts/update_collection_requirements.py --collections-dir ansible-aio-ee-airgapped/temp-collections --output ansible-aio-ee-airgapped/requirements-collections-airgapped.txt
+        if [[ "$VERBOSE" == "true" ]]; then
+            podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
+                bash -c "cd /workspace && /usr/bin/unversioned-python scripts/update_collection_requirements.py --collections-dir ansible-aio-ee-airgapped/temp-collections --output ansible-aio-ee-airgapped/requirements-collections-airgapped.txt"
+        else
+            podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
+                bash -c "cd /workspace && /usr/bin/unversioned-python scripts/update_collection_requirements.py --collections-dir ansible-aio-ee-airgapped/temp-collections --output ansible-aio-ee-airgapped/requirements-collections-airgapped.txt" >/dev/null 2>&1
+        fi
         cd ansible-aio-ee-airgapped
+        
+        # Clean up temporary container and Dockerfile
+        podman rmi "$temp_container" || true
+        rm -f /tmp/Dockerfile.collection-discovery
         
         # Clean up temporary collections
         rm -rf temp-collections
@@ -214,27 +263,85 @@ EOF
 
 # Function to download Python wheels
 download_wheels() {
-    print_status "Downloading Python wheels..."
+    print_status "Downloading Python wheels for Python 3.11..."
     
-    if ! command -v pip &> /dev/null; then
-        print_error "pip is not available. Please install Python and pip first."
-        return 1
+    if [[ "$VERBOSE" == "true" ]]; then
+        print_status "Wheels directories: $WHEELS_DIR/ and $WHEELS_COLLECTIONS_DIR/"
+        print_status "Working directory: $(pwd)"
     fi
     
-    # Download wheels for air-gapped requirements
-    pip download -r requirements-airgapped.txt -d "$WHEELS_DIR/"
+    # Use a temporary Docker container with Python 3.11 to download wheels
+    # This ensures we get wheels compatible with the target Python version
+    local temp_container="temp-python311-wheel-download"
+    
+    # Create a temporary Dockerfile for Python 3.11 wheel downloads with proper alternatives setup
+    cat > /tmp/Dockerfile.wheel-download << 'EOF'
+FROM registry.access.redhat.com/ubi8/ubi:8.9
+RUN dnf -y install dnf-utils && \
+    dnf config-manager --set-enabled crb || dnf config-manager --set-enabled powertools || true && \
+    dnf -y install python3.11 python3.11-pip && \
+    # Set up Python alternatives properly for UBI 8.9
+    alternatives --install /usr/bin/unversioned-python python /usr/bin/python3.11 1 && \
+    alternatives --set python /usr/bin/python3.11 && \
+    dnf clean all
+WORKDIR /tmp
+EOF
+    
+    # Build the temporary image
+    print_status "Building temporary Python 3.11 container for wheel downloads..."
+    if [[ "$VERBOSE" == "true" ]]; then
+        podman build -f /tmp/Dockerfile.wheel-download -t "$temp_container" /tmp || {
+            print_error "Failed to build temporary container for wheel downloads"
+            return 1
+        }
+    else
+        podman build -f /tmp/Dockerfile.wheel-download -t "$temp_container" /tmp >/dev/null 2>&1 || {
+            print_error "Failed to build temporary container for wheel downloads"
+            return 1
+        }
+    fi
+    
+    # Download wheels for air-gapped requirements using Python 3.11
+    print_status "Downloading main requirement wheels with Python 3.11..."
+    if [[ "$VERBOSE" == "true" ]]; then
+        podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
+            bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r requirements-airgapped.txt -d $WHEELS_DIR/"
+    else
+        podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
+            bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r requirements-airgapped.txt -d $WHEELS_DIR/" >/dev/null 2>&1
+    fi
     
     # Download wheels for collection dependencies if file exists
     if [[ -f "requirements-collections-airgapped.txt" ]]; then
-        print_status "Downloading collection dependency wheels..."
-        pip download -r requirements-collections-airgapped.txt -d "$WHEELS_COLLECTIONS_DIR/" || print_warning "Some collection dependency wheels may not be available"
+        print_status "Downloading collection dependency wheels with Python 3.11..."
+        if [[ "$VERBOSE" == "true" ]]; then
+            podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
+                bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r requirements-collections-airgapped.txt -d $WHEELS_COLLECTIONS_DIR/" || \
+                print_warning "Some collection dependency wheels may not be available"
+        else
+            podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
+                bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r requirements-collections-airgapped.txt -d $WHEELS_COLLECTIONS_DIR/" >/dev/null 2>&1 || \
+                print_warning "Some collection dependency wheels may not be available"
+        fi
     fi
     
     # Also download wheels for the main project requirements if available
     if [[ -f "../requirements.txt" ]]; then
-        print_status "Found main project requirements.txt, downloading additional wheels..."
-        pip download -r ../requirements.txt -d "$WHEELS_DIR/" || print_warning "Some main project wheels may not be available"
+        print_status "Found main project requirements.txt, downloading additional wheels with Python 3.11..."
+        if [[ "$VERBOSE" == "true" ]]; then
+            podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
+                bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r ../requirements.txt -d $WHEELS_DIR/" || \
+                print_warning "Some main project wheels may not be available"
+        else
+            podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
+                bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r ../requirements.txt -d $WHEELS_DIR/" >/dev/null 2>&1 || \
+                print_warning "Some main project wheels may not be available"
+        fi
     fi
+    
+    # Clean up temporary container and Dockerfile
+    podman rmi "$temp_container" || true
+    rm -f /tmp/Dockerfile.wheel-download
     
     print_success "Python wheels downloaded to $WHEELS_DIR/ and $WHEELS_COLLECTIONS_DIR/"
 }

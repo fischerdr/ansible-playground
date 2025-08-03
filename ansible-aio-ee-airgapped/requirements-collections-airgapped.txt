@@ -5,46 +5,46 @@
 
 # ⚠️  VERSION CONFLICTS DETECTED:
 # The following packages had conflicting version requirements:
-# - python-dateutil: ['>=2.7.0  # schedule_rrule']
-# - sphinx: ['!=5.2.0.post0  # temporary, see https://github.com/ansible-community/antsibull-docs/issues/39, https://github.com/ansible-community/antsibull-docs/issues/40']
+# - python-dateutil: ['>=2.7.0  # schedule_rrule', '>=2.7.0  # schedule_rrule']
+# - sphinx: ['!=5.2.0.post0  # temporary, see https://github.com/ansible-community/antsibull-docs/issues/39, https://github.com/ansible-community/antsibull-docs/issues/40', '!=5.2.0.post0  # temporary, see https://github.com/ansible-community/antsibull-docs/issues/39, https://github.com/ansible-community/antsibull-docs/issues/40']
 
 # Kubernetes Collection Dependencies
-kubernetes>=24.2.0  # from: kubernetes.core
-jsonpatch  # from: kubernetes.core
+kubernetes>=24.2.0  # from: kubernetes.core, ansible_collections.kubernetes
+jsonpatch  # from: kubernetes.core, ansible_collections.kubernetes
 
 # AWS Collection Dependencies
-boto3>=1.34.0  # from: amazon.aws, community.aws
-botocore>=1.34.0  # from: amazon.aws, community.aws
+boto3>=1.34.0  # from: amazon.aws, community.aws (+2 more)
+botocore>=1.34.0  # from: amazon.aws, community.aws (+2 more)
 
 # Google Cloud Collection Dependencies
-google-auth  # from: google.cloud
-google-cloud-storage  # from: google.cloud
+google-auth  # from: google.cloud, ansible_collections.google
+google-cloud-storage  # from: google.cloud, ansible_collections.google
 
 # VMware Collection Dependencies
-pyvmomi>=8.0.3.0.1  # from: community.vmware, vmware.vmware
-vmware-vcenter  # from: community.vmware, vmware.vmware
-vmware-vapi-common-client  # from: community.vmware, vmware.vmware
+pyvmomi>=8.0.3.0.1  # from: community.vmware, vmware.vmware (+2 more)
+vmware-vcenter  # from: community.vmware, vmware.vmware (+2 more)
+vmware-vapi-common-client  # from: community.vmware, vmware.vmware (+2 more)
 
 # Ansible Utils Collection Dependencies
-jsonschema  # from: ansible.utils
-textfsm  # from: ansible.utils
-ttp  # from: ansible.utils
-xmltodict  # from: ansible.utils
-netaddr>=0.10.1  # from: ansible.utils
+jsonschema  # from: ansible.utils, ansible_collections.ansible
+textfsm  # from: ansible.utils, ansible_collections.ansible
+ttp  # from: ansible.utils, ansible_collections.ansible
+xmltodict  # from: ansible.utils, ansible_collections.ansible
+netaddr>=0.10.1  # from: ansible.utils, ansible_collections.ansible
 
 # General Collection Dependencies
-requests  # from: community.hashi_vault, google.cloud
-requests-oauthlib  # from: kubernetes.core
-urllib3>=1.15  # from: community.hashi_vault
-aiohttp  # from: vmware.vmware
+requests  # from: community.hashi_vault, google.cloud (+2 more)
+requests-oauthlib  # from: kubernetes.core, ansible_collections.kubernetes
+urllib3>=1.15  # from: community.hashi_vault, ansible_collections.community
+aiohttp  # from: vmware.vmware, ansible_collections.vmware
 
 # Other Collection Dependencies
-ansible-pygments  # from: community.hashi_vault
-antsibull-docs<3.0.0,>=2.0.0  # from: community.hashi_vault
-awxkit  # for import and export modules  # from: awx.awx
-functions-framework==3.*  # from: google.cloud
-packaging  # from: community.hashi_vault
-python-dateutil>=2.7.0  # schedule_rrule  # from: awx.awx
-pytz  # for schedule_rrule lookup plugin  # from: awx.awx
-sphinx!=5.2.0.post0  # temporary, see https://github.com/ansible-community/antsibull-docs/issues/39, https://github.com/ansible-community/antsibull-docs/issues/40  # from: community.hashi_vault
-sphinx-ansible-theme>=0.9.0  # from: community.hashi_vault
+ansible-pygments  # from: community.hashi_vault, ansible_collections.community
+antsibull-docs<3.0.0,>=2.0.0  # from: community.hashi_vault, ansible_collections.community
+awxkit  # for import and export modules  # from: awx.awx, ansible_collections.awx
+functions-framework==3.*  # from: google.cloud, ansible_collections.google
+packaging  # from: community.hashi_vault, ansible_collections.community
+python-dateutil>=2.7.0  # schedule_rrule  # from: awx.awx, ansible_collections.awx
+pytz  # for schedule_rrule lookup plugin  # from: awx.awx, ansible_collections.awx
+sphinx!=5.2.0.post0  # temporary, see https://github.com/ansible-community/antsibull-docs/issues/39, https://github.com/ansible-community/antsibull-docs/issues/40  # from: community.hashi_vault, ansible_collections.community
+sphinx-ansible-theme>=0.9.0  # from: community.hashi_vault, ansible_collections.community

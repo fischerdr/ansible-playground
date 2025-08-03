@@ -75,10 +75,9 @@ dependencies:
 # Additional build steps for air-gapped environment
 additional_build_steps:
   prepend_base:
-    # Enable EPEL and PowerTools repositories for additional packages
-    - RUN dnf -y install epel-release
+    # Enable CodeReady Builder (CRB) repository for additional packages
     - RUN dnf -y install dnf-utils
-    - RUN dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb || true
+    - RUN dnf config-manager --set-enabled crb || dnf config-manager --set-enabled powertools || true
 
   append_base:
     # Update Python pip and install base tools
@@ -192,7 +191,5 @@ additional_build_steps:
     - RUN chown -R ansible:ansible /workspace /logs
     - USER ansible
 
-# Build arguments for customization
-build_arg_defaults:
-  BUILD_ENV: production
-  AIRGAPPED: "true"
+# Note: Custom build arguments removed as they are not supported by ansible-builder
+# The build process uses the additional_build_steps for customization

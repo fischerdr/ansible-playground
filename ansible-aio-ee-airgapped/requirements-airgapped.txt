@@ -40,11 +40,11 @@ websocket-client==1.7.0
 setuptools==69.1.1
 wheel==0.42.0
 
-# Testing Dependencies
-pytest==8.0.0
-black==25.1.0
-flake8==7.0.0
-mypy==1.8.0
+# Testing Dependencies (removed for air-gapped EE - not essential for runtime)
+# pytest==8.0.0
+# black==25.1.0
+# flake8==7.0.0
+# mypy==1.8.0
 
 # Other Dependencies
 aiohttp==3.9.3

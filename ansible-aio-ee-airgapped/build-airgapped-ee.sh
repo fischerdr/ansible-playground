@@ -102,7 +102,8 @@ check_dependencies() {
         print_warning "wheels/ directory not found. Python packages will be installed from PyPI if available."
     else
         print_success "wheels/ directory found"
-        local wheel_count=$(find wheels/ -name "*.whl" | wc -l)
+        local wheel_count
+        wheel_count=$(find wheels/ -name "*.whl" | wc -l)
         print_status "Found $wheel_count wheel files"
     fi
     
@@ -111,7 +112,8 @@ check_dependencies() {
         print_warning "wheels-collections/ directory not found. Collection dependencies may not be available offline."
     else
         print_success "wheels-collections/ directory found"
-        local collection_wheel_count=$(find wheels-collections/ -name "*.whl" | wc -l)
+        local collection_wheel_count
+        collection_wheel_count=$(find wheels-collections/ -name "*.whl" | wc -l)
         print_status "Found $collection_wheel_count collection dependency wheel files"
     fi
     
@@ -184,13 +186,9 @@ build_with_ansible_builder() {
         build_args="--verbosity 3"
     fi
     
-    # Set build context to include local files
-    export ANSIBLE_BUILDER_BUILD_CONTEXT="."
-    
     if ansible-builder build \
         --file ansible-aio-ee-airgapped.yml \
         --tag "${EE_NAME}:${EE_TAG}" \
-        --build-context . \
         $build_args; then
         print_success "Air-gapped EE built successfully with ansible-builder"
     else
@@ -257,42 +255,41 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Install system dependencies (Layer 1: Base system)
 RUN dnf -y update && \
-    dnf -y install epel-release dnf-utils && \
-    dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb || true && \
+    dnf -y install dnf-utils && \
+    dnf config-manager --set-enabled crb || dnf config-manager --set-enabled powertools || true && \
     dnf -y install \
-        git-core \
-        python3.11 \
-        python3.11-devel \
-        python3.11-pip \
-        krb5-devel \
-        krb5-workstation \
-        openssl-devel \
-        git-lfs \
-        subversion \
-        sshpass \
-        rsync \
-        wget \
-        nc \
-        curl \
-        podman-remote \
-        cmake \
-        gcc \
-        gcc-c++ \
-        make \
-        libcurl-devel \
-        unzip \
-        which \
-        jq \
-        yq \
-        ca-certificates \
-        gnupg2 && \
+    git-core \
+    python3.11 \
+    python3.11-devel \
+    python3.11-pip \
+    krb5-devel \
+    krb5-workstation \
+    openssl-devel \
+    git-lfs \
+    subversion \
+    sshpass \
+    rsync \
+    wget \
+    nc \
+    curl \
+    podman-remote \
+    cmake \
+    gcc \
+    gcc-c++ \
+    make \
+    libcurl-devel \
+    unzip \
+    which \
+    jq \
+    ca-certificates \
+    gnupg2 && \
     dnf clean all
 
-# Set Python 3.11 as default (Layer 2: Python setup)
-RUN alternatives --install /usr/bin/python python /usr/bin/python3.11 311 && \
+# Set Python 3.11 as default using alternatives system (Layer 2: Python setup)
+RUN alternatives --install /usr/bin/unversioned-python python /usr/bin/python3.11 1 && \
     alternatives --set python /usr/bin/python3.11 && \
-    ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
-    python3.11 -m pip install -U pip setuptools wheel
+    ln -sf /usr/bin/unversioned-python /usr/bin/python && \
+    /usr/bin/unversioned-python -m pip install -U pip setuptools wheel
 
 # Copy and install local tools (Layer 3: Local tools)
 COPY tools/kubectl /usr/local/bin/kubectl
@@ -325,36 +322,28 @@ COPY requirements-airgapped.txt /tmp/requirements-airgapped.txt
 COPY requirements-airgapped.yml /tmp/requirements-airgapped.yml
 
 # Copy collection requirements if available
-RUN if [ -f "requirements-collections-airgapped.txt" ]; then \
-        cp requirements-collections-airgapped.txt /tmp/requirements-collections-airgapped.txt; \
-    else \
-        echo "# No collection requirements file found" > /tmp/requirements-collections-airgapped.txt; \
-    fi
+COPY requirements-collections-airgapped.txt /tmp/requirements-collections-airgapped.txt
 
 # Copy local wheels if available (Layer 7: Local wheels)
 COPY wheels/ /tmp/wheels/
 
 # Copy collection wheels if available
-RUN if [ -d "wheels-collections" ] && [ "$(ls -A wheels-collections)" ]; then \
-        mkdir -p /tmp/wheels-collections && cp wheels-collections/*.whl /tmp/wheels-collections/; \
-    else \
-        mkdir -p /tmp/wheels-collections; \
-    fi
+COPY wheels-collections/ /tmp/wheels-collections/
 
 # Install Python dependencies (Layer 8: Python packages)
 # Install main requirements first
 RUN if [ -d "/tmp/wheels" ] && [ "$(ls -A /tmp/wheels)" ]; then \
-        python3.11 -m pip install --no-index --find-links /tmp/wheels -r /tmp/requirements-airgapped.txt; \
+        python -m pip install --no-index --find-links /tmp/wheels -r /tmp/requirements-airgapped.txt; \
     else \
-        python3.11 -m pip install -r /tmp/requirements-airgapped.txt; \
+        python -m pip install -r /tmp/requirements-airgapped.txt; \
     fi
 
 # Install collection dependencies
 RUN if [ -s "/tmp/requirements-collections-airgapped.txt" ] && [ -d "/tmp/wheels-collections" ] && [ "$(ls -A /tmp/wheels-collections)" ]; then \
-        python3.11 -m pip install --no-index --find-links /tmp/wheels-collections -r /tmp/requirements-collections-airgapped.txt; \
+        python -m pip install --no-index --find-links /tmp/wheels-collections -r /tmp/requirements-collections-airgapped.txt; \
     elif [ -s "/tmp/requirements-collections-airgapped.txt" ]; then \
         echo "Collection dependency wheels not found, attempting online install..."; \
-        python3.11 -m pip install -r /tmp/requirements-collections-airgapped.txt || echo "Collection dependencies installation failed - may not be fully offline"; \
+        python -m pip install -r /tmp/requirements-collections-airgapped.txt || echo "Collection dependencies installation failed - may not be fully offline"; \
     else \
         echo "No collection requirements file found, skipping collection dependencies"; \
     fi
@@ -370,8 +359,7 @@ RUN if [ -d "/tmp/collections" ] && [ "$(ls -A /tmp/collections)" ]; then \
 
 # Remove old Python versions and clean up (Layer 10: Cleanup)
 RUN dnf -y remove python3.6 python3.6-devel python3.8 python3.8-devel python3.9 python3.9-devel || true && \
-    rm -rf /tmp/* /var/cache/dnf /var/cache/yum && \
-    python3.11 -m pip cache purge
+    rm -rf /tmp/* /var/cache/dnf /var/cache/yum
 
 # Create necessary directories and set up environment (Layer 11: Environment setup)
 RUN mkdir -p /tmp/.helm /tmp/.kube /logs /workspace && \
@@ -382,8 +370,7 @@ RUN mkdir -p /tmp/.helm /tmp/.kube /logs /workspace && \
 ENV PATH="/usr/local/bin:/root/google-cloud-sdk/bin:${PATH}"
 
 # Verify installations (Layer 12: Verification)
-RUN python3 --version && \
-    python --version && \
+RUN python --version && \
     which kubectl && \
     which helm && \
     which terraform && \
@@ -474,6 +461,12 @@ cleanup() {
     if [[ -d ".ansible-builder" ]]; then
         rm -rf .ansible-builder
         print_success "Removed .ansible-builder directory"
+    fi
+    
+    # Remove ansible-builder context directory
+    if [[ -d "context" ]]; then
+        rm -rf context
+        print_success "Removed context directory"
     fi
     
     # Remove temporary Containerfile
@@ -588,6 +581,9 @@ main() {
     if [[ "$PUSH_IMAGE" == "true" ]]; then
         print_status "Registry: ${REGISTRY}:${EE_TAG}"
     fi
+    
+    # Clean up build artifacts
+    cleanup
     
     print_status "Next steps:"
     echo "1. Test the EE: ./build-airgapped-ee.sh --test"

@@ -22,7 +22,7 @@ dependencies:
   # External requirements
   galaxy: requirements.yml
   python: requirements.txt
-  
+
   # Additional Python requirements (will be handled in build steps)
   # requirements-collections.txt will be installed via additional_build_steps
 
@@ -76,14 +76,14 @@ dependencies:
 additional_build_steps:
   prepend_base:
     # Enable EPEL and PowerTools repositories for additional packages
-    - RUN dnf -y install epel-release
+    # - RUN dnf -y install epel-release - this is not available in the airgapped environment
     - RUN dnf -y install dnf-utils
     - RUN dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb || true
 
   append_base:
     # Update Python pip and install base tools
     - RUN python3.11 -m pip install -U pip setuptools wheel
-    
+
     # Install collection-specific requirements
     - COPY requirements-collections.txt /tmp/requirements-collections.txt
     - RUN python3.11 -m pip install -r /tmp/requirements-collections.txt
@@ -188,5 +188,7 @@ additional_build_steps:
     - USER ansible
 
 # Build arguments for customization
-build_arg_defaults:
-  BUILD_ENV: production
+# build_arg_defaults:
+#   BUILD_ENV: production
+# Note: Custom build arguments removed as they are not supported by ansible-builder
+# The build process uses the additional_build_steps for customization

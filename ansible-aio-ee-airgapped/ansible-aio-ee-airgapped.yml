@@ -22,11 +22,8 @@ dependencies:
   # External requirements - will be copied locally
   galaxy: requirements-airgapped.yml
   python: requirements-airgapped.txt
-  
-  # Additional Python requirements (will be handled in build steps)
-  # requirements-collections-airgapped.txt will be installed via additional_build_steps
 
-  # System dependencies
+  # System dependencies - Keep original but remove yq
   system: |
     # Base requirements
     git-core [platform:rpm]
@@ -66,6 +63,7 @@ dependencies:
     unzip [platform:rpm]
     which [platform:rpm]
     jq [platform:rpm]
+    # REMOVED: yq [platform:rpm] - not available in UBI8, will install manually
 
     # Additional tools for cloud operations
     ca-certificates [platform:rpm]
@@ -78,19 +76,10 @@ additional_build_steps:
     - RUN dnf -y install dnf-utils unzip
     - RUN dnf config-manager --set-enabled crb || dnf config-manager --set-enabled powertools || true
 
-  append_base:
-    # Update Python pip and install base tools
-    - RUN python3.11 -m pip install -U pip setuptools wheel
-
-    # Install collection-specific requirements from local wheels
-    - COPY requirements-collections-airgapped.txt /tmp/requirements-collections-airgapped.txt
-    - COPY wheels-collections/ /tmp/wheels-collections/
-    - RUN if [ -d "/tmp/wheels-collections" ] && [ "$(ls -A /tmp/wheels-collections)" ]; then python3.11 -m pip install --no-index --find-links /tmp/wheels-collections -r /tmp/requirements-collections-airgapped.txt; else echo "No collection dependency wheels found, attempting online install..."; python3.11 -m pip install -r /tmp/requirements-collections-airgapped.txt || echo "Collection dependencies installation failed - may not be fully offline"; fi
-
-
-    # Create directories for local tools
+    # Create directories for local tools EARLY
     - RUN mkdir -p /tmp/tools /usr/local/bin
 
+    # Install all tools BEFORE bindep introspection runs
     # Copy local tool binaries (these need to be provided in tools/ directory)
     - COPY tools/kubectl /usr/local/bin/kubectl
     - RUN chmod +x /usr/local/bin/kubectl
@@ -107,6 +96,9 @@ additional_build_steps:
     - COPY tools/vault /usr/local/bin/vault
     - RUN chmod +x /usr/local/bin/vault
 
+    # Install yq manually since it's not available in UBI8
+    - RUN curl -L https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq || echo "yq installation failed - may be offline"
+
     # Install AWS CLI from local archive
     - COPY tools/awscliv2.zip /tmp/awscliv2.zip
     - RUN cd /tmp && unzip awscliv2.zip && ./aws/install && rm -rf aws awscliv2.zip
@@ -118,6 +110,18 @@ additional_build_steps:
     - RUN ln -s /root/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud
     - RUN ln -s /root/google-cloud-sdk/bin/gsutil /usr/local/bin/gsutil
     - RUN ln -s /root/google-cloud-sdk/bin/bq /usr/local/bin/bq
+
+    # Update PATH to include all tools for subsequent steps
+    - ENV PATH="/usr/local/bin:/root/google-cloud-sdk/bin:${PATH}"
+
+  append_base:
+    # Update Python pip and install base tools
+    - RUN python3.11 -m pip install -U pip setuptools wheel
+
+    # Install collection-specific requirements from local wheels
+    - COPY requirements-collections-airgapped.txt /tmp/requirements-collections-airgapped.txt
+    - COPY wheels-collections/ /tmp/wheels-collections/
+    - RUN if [ -d "/tmp/wheels-collections" ] && [ "$(ls -A /tmp/wheels-collections)" ]; then python3.11 -m pip install --no-index --find-links /tmp/wheels-collections -r /tmp/requirements-collections-airgapped.txt; else echo "No collection dependency wheels found, attempting online install..."; python3.11 -m pip install -r /tmp/requirements-collections-airgapped.txt || echo "Collection dependencies installation failed - may not be fully offline"; fi
 
     # Install Python packages from local wheels (if available)
     - COPY wheels/ /tmp/wheels/
@@ -135,6 +139,13 @@ additional_build_steps:
     - RUN alternatives --install /usr/bin/python python /usr/bin/python3.11 311
     - RUN alternatives --set python /usr/bin/python3.11
     - RUN ln -sf /usr/bin/python3.11 /usr/bin/python3
+
+    # Install Ansible collections from pre-downloaded files
+    - COPY collections/ /tmp/collections/
+    # - COPY requirements-airgapped.yml /tmp/requirements-airgapped.yml
+    # - RUN ansible-galaxy collection install /tmp/collections/*.tar.gz --force
+    # Alternative approach if you have a requirements file in collections dir:
+    - RUN if [ -f "/tmp/collections/requirements.yml" ]; then ansible-galaxy collection install -r /tmp/collections/requirements.yml -p /usr/share/ansible/collections; fi
 
     # Ansible configuration
     - ENV ANSIBLE_FORCE_COLOR=1
@@ -164,13 +175,11 @@ additional_build_steps:
     # Create necessary directories
     - RUN mkdir -p /tmp/.helm /tmp/.kube /logs /workspace
 
-    # Set up PATH to include all tools
-    - ENV PATH="/usr/local/bin:/root/google-cloud-sdk/bin:${PATH}"
-
-    # Verify installations (skip version checks that require network)
+    # Verify installations
     - RUN python3 --version && python --version
-    - RUN which kubectl && which helm && which terraform && which oc && which vault && which aws && which gcloud
+    - RUN which kubectl && which helm && which terraform && which oc && which vault && which aws && which gcloud && which yq
     - RUN ansible --version
+    - RUN oc version --client
 
     # Clean up temporary files and caches
     - RUN rm -rf /tmp/* /var/cache/dnf /var/cache/yum

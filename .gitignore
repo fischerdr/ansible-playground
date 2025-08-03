@@ -12,9 +12,13 @@ collections/*
 !collections/requirements.yml
 collections/ansible_collections/*
 
-# Ansible runner and navigator files
+# Ansible runner, navigator and artifacts
 .ansible/*
 artifacts/*
+ansible-aio-ee-airgapped/wheels/*
+ansible-aio-ee-airgapped/wheels-collections/*
+ansible-aio-ee-airgapped/collections/*
+
 
 # Python
 # https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore

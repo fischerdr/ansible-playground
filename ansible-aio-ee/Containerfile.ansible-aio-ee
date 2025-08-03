@@ -61,10 +61,10 @@ RUN dnf -y update && \
         gnupg2 && \
     dnf clean all
 
-# Set Python 3.11 as default (Layer 2: Python setup)
-RUN alternatives --install /usr/bin/python python /usr/bin/python3.11 311 && \
+# Set Python 3.11 as default using alternatives system (Layer 2: Python setup)
+RUN alternatives --install /usr/bin/unversioned-python python /usr/bin/python3.11 1 && \
     alternatives --set python /usr/bin/python3.11 && \
-    ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
+    ln -sf /usr/bin/unversioned-python /usr/bin/python && \
     python3.11 -m pip install -U pip setuptools wheel
 
 # Install kubectl (Layer 3: Kubernetes tools)
@@ -84,7 +84,8 @@ RUN curl -LO "https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_lin
     rm terraform_1.7.5_linux_amd64.zip
 
 # Install OpenShift CLI (Layer 6: OpenShift tools)
-RUN curl -LO "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux.tar.gz" && \
+# RUN curl -LO "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux.tar.gz" && \
+RUN curl -LO "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/4.14.9/openshift-client-linux.tar.gz" && \
     tar xzf openshift-client-linux.tar.gz && \
     mv oc /usr/local/bin/ && \
     rm openshift-client-linux.tar.gz

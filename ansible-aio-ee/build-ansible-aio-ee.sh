@@ -203,6 +203,12 @@ cleanup() {
         print_success "Removed .ansible-builder directory"
     fi
     
+    # Remove ansible-builder context directory
+    if [[ -d "context" ]]; then
+        rm -rf context
+        print_success "Removed context directory"
+    fi
+    
     # Remove temporary files
     find . -name "*.tmp" -delete 2>/dev/null || true
     
@@ -298,6 +304,9 @@ main() {
     if [[ "$PUSH_IMAGE" == "true" ]]; then
         print_status "Registry: ${REGISTRY}:${EE_TAG}"
     fi
+    
+    # Clean up build artifacts
+    cleanup
 }
 
 # Run main function

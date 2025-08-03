@@ -21,6 +21,7 @@ ansible-aio-ee-airgapped/collections/*
 ansible-aio-ee-airgapped/temp-collections/*
 ansible-aio-ee-airgapped/tools/*
 ansible-aio-ee-airgapped/context/
+ansible-aio-ee/context/
 
 # Python
 # https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore

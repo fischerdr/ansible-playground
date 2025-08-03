@@ -328,6 +328,18 @@ main() {
                 rm -f "$BUILD_DIR/$file"
             fi
         done
+        
+        # Clean up ansible-builder context directory
+        if [[ -d "$BUILD_DIR/context" ]]; then
+            rm -rf "$BUILD_DIR/context"
+            log_success "Removed context directory"
+        fi
+        
+        # Clean up .ansible-builder directory
+        if [[ -d "$BUILD_DIR/.ansible-builder" ]]; then
+            rm -rf "$BUILD_DIR/.ansible-builder"
+            log_success "Removed .ansible-builder directory"
+        fi
     fi
 
     echo ""

@@ -128,10 +128,10 @@ additional_build_steps:
     # Remove Python 3.6/3.8/3.9 if present (keep only 3.11)
     - RUN dnf -y remove python3.6 python3.6-devel python3.8 python3.8-devel python3.9 python3.9-devel || true
 
-    # Set Python 3.11 as default
-    - RUN alternatives --install /usr/bin/python python /usr/bin/python3.11 311
+    # Set Python 3.11 as default using alternatives system
+    - RUN alternatives --install /usr/bin/unversioned-python python /usr/bin/python3.11 1
     - RUN alternatives --set python /usr/bin/python3.11
-    - RUN ln -sf /usr/bin/python3.11 /usr/bin/python3
+    - RUN ln -sf /usr/bin/unversioned-python /usr/bin/python
 
     # Ansible configuration
     - ENV ANSIBLE_FORCE_COLOR=1

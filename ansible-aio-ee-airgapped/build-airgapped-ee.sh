@@ -181,6 +181,47 @@ check_prerequisites() {
 build_with_ansible_builder() {
     print_status "Building air-gapped EE with ansible-builder..."
     
+    # First, create the context directory if it doesn't exist
+    if [[ ! -d "context" ]]; then
+        print_status "Creating context directory..."
+        mkdir -p context
+    fi
+    
+    # Copy wheels-collections directory to context if it exists
+    if [[ -d "wheels-collections" ]]; then
+        print_status "Copying wheels-collections to context directory..."
+        cp -r wheels-collections context/
+    else
+        print_warning "wheels-collections directory not found, creating empty directory in context"
+        mkdir -p context/wheels-collections
+    fi
+    
+    # Copy tools directory to context if it exists
+    if [[ -d "tools" ]]; then
+        print_status "Copying tools to context directory..."
+        cp -r tools context/
+    else
+        print_error "tools directory not found"
+        exit 1
+    fi
+    
+    # Copy wheels directory to context if it exists
+    if [[ -d "wheels" ]]; then
+        print_status "Copying wheels to context directory..."
+        cp -r wheels context/
+    else
+        print_warning "wheels directory not found, creating empty directory in context"
+        mkdir -p context/wheels
+    fi
+    
+    # Copy requirements-collections-airgapped.txt to context if it exists
+    if [[ -f "requirements-collections-airgapped.txt" ]]; then
+        print_status "Copying requirements-collections-airgapped.txt to context directory..."
+        cp requirements-collections-airgapped.txt context/
+    else
+        print_warning "requirements-collections-airgapped.txt not found"
+    fi
+    
     local build_args=""
     if [[ "$VERBOSE" == "true" ]]; then
         build_args="--verbosity 3"

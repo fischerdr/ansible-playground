@@ -44,6 +44,7 @@ pip install -r requirements.txt -r requirements-collections.txt
 **Purpose**: Automatically discovers Python dependencies from all installed Ansible collections and generates a consolidated requirements file.
 
 **Features**:
+
 - ✅ Scans all `requirements.txt` files in collections directory
 - ✅ Resolves version conflicts using most restrictive compatible versions
 - ✅ Groups dependencies by collection type for better organization
@@ -52,6 +53,7 @@ pip install -r requirements.txt -r requirements-collections.txt
 - ✅ Provides detailed conflict reporting
 
 **Usage**:
+
 ```bash
 # Basic usage
 python scripts/update_collection_requirements.py
@@ -66,6 +68,7 @@ python scripts/update_collection_requirements.py \
 ```
 
 **Options**:
+
 - `--collections-dir PATH`: Path to collections directory (default: `collections`)
 - `--output PATH`: Output file path (default: `requirements-collections.txt`)
 - `--dry-run`: Show what would be written without creating files
@@ -77,6 +80,7 @@ python scripts/update_collection_requirements.py \
 **Purpose**: Convenience wrapper for common dependency management tasks.
 
 **Usage**:
+
 ```bash
 # Update collection requirements
 ./scripts/update_requirements.sh
@@ -95,7 +99,8 @@ python scripts/update_collection_requirements.py \
 
 The script discovered **27 unique packages** from **13 collection requirements files**:
 
-### Core Collections Covered:
+### Core Collections Covered
+
 - **Kubernetes** (`kubernetes.core`): kubernetes, jsonpatch, requests-oauthlib
 - **AWS** (`amazon.aws`, `community.aws`): boto3, botocore
 - **VMware** (`community.vmware`, `vmware.vmware`): pyvmomi, vmware-vcenter, vmware-vapi-common-client
@@ -104,7 +109,8 @@ The script discovered **27 unique packages** from **13 collection requirements f
 - **HashiCorp Vault** (`community.hashi_vault`): requests, urllib3, packaging
 - **AWX** (`awx.awx`): pytz, python-dateutil, awxkit
 
-### Dependencies Already in Main requirements.txt:
+### Dependencies Already in Main requirements.txt
+
 ✅ `kubernetes==32.0.1` (satisfies `>=24.2.0`)  
 ✅ `boto3==1.37.30` (satisfies `>=1.34.0`)  
 ✅ `pyvmomi==8.0.3.0.1` (satisfies `>=8.0.3.0.1`)  
@@ -115,7 +121,8 @@ The script discovered **27 unique packages** from **13 collection requirements f
 ✅ `python-dateutil==2.8.2` (satisfies `>=2.7.0`)  
 ✅ `aiohttp==3.9.3`  
 
-### New Dependencies Added:
+### New Dependencies Added
+
 - `jsonpatch` (Kubernetes operations)
 - `botocore>=1.34.0` (AWS backend)
 - `requests-oauthlib` (OAuth authentication)
@@ -130,6 +137,7 @@ The script discovered **27 unique packages** from **13 collection requirements f
 ### When to Update
 
 Run the update script when:
+
 - Adding new Ansible collections to your project
 - Updating existing collections (`ansible-galaxy collection install -r requirements.yml --upgrade`)
 - Collections change their Python dependencies
@@ -138,6 +146,7 @@ Run the update script when:
 ### Automation Integration
 
 Add to your CI/CD pipeline:
+
 ```yaml
 # Example GitHub Actions step
 - name: Update collection dependencies
@@ -149,6 +158,7 @@ Add to your CI/CD pipeline:
 ### Version Conflict Resolution
 
 The script automatically resolves version conflicts by:
+
 1. **Compatible ranges**: Finds intersection of all version constraints
 2. **Incompatible constraints**: Uses most restrictive requirement and warns
 3. **Complex comments**: Strips comments that interfere with version parsing

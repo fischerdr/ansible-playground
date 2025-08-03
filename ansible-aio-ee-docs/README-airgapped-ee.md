@@ -55,7 +55,7 @@ All collections from your requirements are included locally:
 
 ## 📁 **File Structure**
 
-```
+```text
 ├── ansible-aio-ee-airgapped.yml        # EE definition for air-gapped build
 ├── requirements-airgapped.yml          # Ansible collections (local sources)
 ├── requirements-airgapped.txt          # Python requirements (for local wheels)
@@ -174,7 +174,7 @@ In your air-gapped environment:
 
 Expected output:
 
-```
+```text
 [SUCCESS] tools/ directory found
 [SUCCESS] ✓ tools/kubectl
 [SUCCESS] ✓ tools/helm

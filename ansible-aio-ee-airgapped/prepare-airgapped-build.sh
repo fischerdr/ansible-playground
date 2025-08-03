@@ -119,8 +119,12 @@ download_tools() {
     if ! [ -f "oc" ]; then
         curl -LO "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux.tar.gz"
         tar xzf openshift-client-linux.tar.gz
-        rm openshift-client-linux.tar.gz kubectl || true  # Remove kubectl if extracted with oc
+        rm openshift-client-linux.tar.gz || true  # Remove the archive
+        # Keep both kubectl and oc - they can coexist
         chmod +x oc
+        if [ -f "kubectl" ]; then
+            chmod +x kubectl
+        fi
         print_success "OpenShift CLI downloaded"
     else
         print_warning "oc already exists, skipping"
@@ -176,9 +180,9 @@ update_collection_dependencies() {
         print_status "Using collections from parent directory..."
         cp -r ../collections ./temp-collections
         
-        # Run collection dependency discovery
+        # Run collection dependency discovery from parent directory
         cd ..
-        python scripts/update_collection_requirements.py --collections-dir temp-collections --output ansible-aio-ee-airgapped/requirements-collections-airgapped.txt
+        python scripts/update_collection_requirements.py --collections-dir ansible-aio-ee-airgapped/temp-collections --output ansible-aio-ee-airgapped/requirements-collections-airgapped.txt
         cd ansible-aio-ee-airgapped
         
         # Clean up temporary collections

@@ -6,7 +6,7 @@ This document explains how the collection dependency management system has been 
 
 The dependency management system is now fully integrated into your EE builds:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                    EE Build Process                             │
 ├─────────────────────────────────────────────────────────────────┤
@@ -30,18 +30,21 @@ The dependency management system is now fully integrated into your EE builds:
 ## 📁 **Updated Files**
 
 ### **Modified EE Configurations:**
+
 - ✅ `execution-environment.yml` - Main EE configuration
 - ✅ `ansible-aio-ee/ansible-aio-ee.yml` - All-in-one EE configuration  
 - ✅ `ansible-aio-ee/Containerfile.ansible-aio-ee` - Container build file
 - ✅ `ansible-navigator.yml` - Navigator configuration
 
 ### **New Build Tools:**
+
 - ✅ `ansible-aio-ee/build-ansible-aio-ee-enhanced.sh` - Enhanced build script
 - ✅ `docs/execution_environment_integration.md` - This integration guide
 
 ## 🚀 **Building Your Enhanced EE**
 
 ### **Quick Start:**
+
 ```bash
 # Build with automatic collection requirements update
 ./ansible-aio-ee/build-ansible-aio-ee-enhanced.sh
@@ -78,6 +81,7 @@ The dependency management system is now fully integrated into your EE builds:
 If you prefer manual builds or CI/CD integration:
 
 ### **Step 1: Update Collection Dependencies**
+
 ```bash
 # Update collection requirements
 python scripts/update_collection_requirements.py
@@ -87,6 +91,7 @@ python scripts/update_collection_requirements.py
 ```
 
 ### **Step 2: Build with ansible-builder**
+
 ```bash
 cd ansible-aio-ee
 
@@ -103,6 +108,7 @@ ansible-builder build \
 ```
 
 ### **Step 3: Alternative - Build with Docker/Podman**
+
 ```bash
 cd ansible-aio-ee
 
@@ -146,6 +152,7 @@ The EE installs Python dependencies in this specific order to avoid conflicts:
 ### **Key Changes Made:**
 
 **execution-environment.yml:**
+
 ```yaml
 # Before
 python: requirements.txt
@@ -156,6 +163,7 @@ python: requirements.txt
 ```
 
 **ansible-aio-ee.yml:**
+
 ```yaml
 # Before
 - RUN python3.11 -m pip install awscli boto3 google-cloud-sdk kubernetes openshift
@@ -167,6 +175,7 @@ python: requirements.txt
 ```
 
 **Containerfile:**
+
 ```dockerfile
 # Before
 COPY requirements.txt /tmp/requirements.txt
@@ -183,17 +192,20 @@ RUN python3.11 -m pip install -r /tmp/requirements.txt && \
 ## 🎯 **Using Your Enhanced EE**
 
 ### **With ansible-navigator:**
+
 ```bash
 # Configuration already updated in ansible-navigator.yml
 ansible-navigator run playbooks/my-playbook.yml
 ```
 
 ### **With ansible-playbook:**
+
 ```bash
 ansible-playbook --ee-image localhost/ansible-aio-ee:latest playbooks/my-playbook.yml
 ```
 
 ### **Direct Container Run:**
+
 ```bash
 # Interactive shell
 docker run -it --rm \
@@ -213,6 +225,7 @@ docker run --rm \
 ## 🔄 **CI/CD Integration**
 
 ### **GitHub Actions Example:**
+
 ```yaml
 name: Build Ansible EE
 on: 
@@ -246,6 +259,7 @@ jobs:
 ```
 
 ### **GitLab CI Example:**
+
 ```yaml
 build-ee:
   stage: build
@@ -262,6 +276,7 @@ build-ee:
 ## 🧪 **Testing Your EE**
 
 ### **Dependency Verification:**
+
 ```bash
 # Test that all collection dependencies are available
 docker run --rm localhost/ansible-aio-ee:latest python -c "
@@ -276,6 +291,7 @@ print('✅ All collection dependencies available')
 ```
 
 ### **Collection Module Testing:**
+
 ```bash
 # Test Kubernetes collection
 docker run --rm localhost/ansible-aio-ee:latest ansible-doc kubernetes.core.k8s
@@ -301,18 +317,21 @@ docker run --rm localhost/ansible-aio-ee:latest ansible-doc community.vmware.vmw
 ### **Build Failures:**
 
 **Missing requirements-collections.txt:**
+
 ```bash
 # Manually generate it
 python scripts/update_collection_requirements.py
 ```
 
 **Collection requirements script not found:**
+
 ```bash
 # The build script will warn and skip update
 # Manually ensure requirements-collections.txt exists
 ```
 
 **Version conflicts during build:**
+
 ```bash
 # Check for conflicts in generated file
 grep "VERSION CONFLICTS" requirements-collections.txt
@@ -322,12 +341,14 @@ grep "VERSION CONFLICTS" requirements-collections.txt
 ### **Runtime Issues:**
 
 **Module import errors:**
+
 ```bash
 # Verify specific dependency is included
 docker run --rm localhost/ansible-aio-ee:latest pip list | grep package-name
 ```
 
 **Collection module failures:**
+
 ```bash
 # Test collection availability
 docker run --rm localhost/ansible-aio-ee:latest ansible-galaxy collection list

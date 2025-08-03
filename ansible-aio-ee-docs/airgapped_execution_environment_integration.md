@@ -6,7 +6,7 @@ This document explains how the collection dependency management system has been 
 
 The air-gapped EE now includes full integration with the collection dependency management system:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                Air-gapped EE Build Process                     │
 ├─────────────────────────────────────────────────────────────────┤
@@ -35,7 +35,7 @@ The air-gapped EE now includes full integration with the collection dependency m
 
 The air-gapped EE now uses this enhanced structure:
 
-```
+```text
 ansible-aio-ee-airgapped/
 ├── tools/                                    # Binary tools (downloaded)
 │   ├── kubectl, helm, terraform, oc, vault
@@ -78,6 +78,7 @@ cd ansible-aio-ee-airgapped
 ```
 
 **What happens during preparation:**
+
 1. ✅ **Collection Discovery**: Scans parent collections directory
 2. ✅ **Dependency Analysis**: Generates `requirements-collections-airgapped.txt`
 3. ✅ **Wheel Downloads**: Downloads Python wheels to `wheels/` and `wheels-collections/`
@@ -109,18 +110,21 @@ In your air-gapped environment:
 ## 🔧 **Key Enhancements Made**
 
 ### **Enhanced Preparation Script:**
+
 - ✅ **Automatic Collection Discovery**: Runs collection dependency analysis during preparation
 - ✅ **Dual Wheel Management**: Separates main and collection dependency wheels
 - ✅ **Fallback Handling**: Creates minimal requirements if collections not found
 - ✅ **Comprehensive Validation**: Checks all components before transfer
 
 ### **Enhanced Build Script:**
+
 - ✅ **Dual Requirements Processing**: Handles both requirements files independently
 - ✅ **Offline Validation**: Verifies collection wheels availability
 - ✅ **Graceful Degradation**: Falls back appropriately if wheels missing
 - ✅ **Enhanced Testing**: Validates collection dependencies in built EE
 
 ### **Enhanced EE Configuration:**
+
 - ✅ **Layered Installation**: Installs collection dependencies before main packages
 - ✅ **Wheel Directory Management**: Handles multiple wheel directories
 - ✅ **Error Handling**: Proper fallbacks for missing components
@@ -128,16 +132,19 @@ In your air-gapped environment:
 ## 📊 **Dependency Management Benefits**
 
 ### **Before Integration:**
-```
+
+```text
 Missing Collection Dependencies → Module Import Failures → Manual Investigation → Manual Package Installation
 ```
 
 ### **After Integration:**
-```
+
+```text
 Automated Discovery → Offline Wheel Download → Complete EE Build → All Modules Work
 ```
 
 ### **Specific Improvements:**
+
 - **🔄 Automated**: No manual dependency tracking needed
 - **📦 Complete**: All 27+ collection dependencies included
 - **🔒 Secure**: Fully offline after preparation phase
@@ -147,6 +154,7 @@ Automated Discovery → Offline Wheel Download → Complete EE Build → All Mod
 ## 🧪 **Testing Your Enhanced Air-gapped EE**
 
 ### **Dependency Verification:**
+
 ```bash
 # In air-gapped environment after build
 docker run --rm ansible-aio-ee-airgapped:latest python -c "
@@ -161,6 +169,7 @@ print('✅ All collection dependencies available offline')
 ```
 
 ### **Collection Module Testing:**
+
 ```bash
 # Test Kubernetes collection
 docker run --rm ansible-aio-ee-airgapped:latest ansible-doc kubernetes.core.k8s
@@ -173,6 +182,7 @@ docker run --rm ansible-aio-ee-airgapped:latest ansible-doc community.vmware.vmw
 ```
 
 ### **Full Workflow Test:**
+
 ```bash
 # Run the AAP compatibility validation
 docker run --rm -v $(pwd):/workspace ansible-aio-ee-airgapped:latest ansible-playbook validate-aap-compatibility.yml
@@ -183,6 +193,7 @@ docker run --rm -v $(pwd):/workspace ansible-aio-ee-airgapped:latest ansible-pla
 ### **Preparation Phase Issues:**
 
 **Collection discovery fails:**
+
 ```bash
 # Ensure collections are installed in parent directory first
 cd .. && ansible-galaxy collection install -r requirements.yml
@@ -190,12 +201,14 @@ cd ansible-aio-ee-airgapped && ./prepare-airgapped-build.sh
 ```
 
 **Wheel download failures:**
+
 ```bash
 # Check internet connectivity and retry
 ./prepare-airgapped-build.sh --wheels-only --clean
 ```
 
 **Missing dependency script:**
+
 ```bash
 # Ensure you're running from the correct directory
 ls -la ../scripts/update_collection_requirements.py
@@ -204,6 +217,7 @@ ls -la ../scripts/update_collection_requirements.py
 ### **Build Phase Issues:**
 
 **Collection wheels missing:**
+
 ```bash
 # Check if collection wheels were transferred
 ls -la wheels-collections/
@@ -211,6 +225,7 @@ ls -la wheels-collections/
 ```
 
 **Build fails with import errors:**
+
 ```bash
 # Verify all wheels present and rebuild
 ./build-airgapped-ee.sh --clean
@@ -218,6 +233,7 @@ ls -la wheels-collections/
 ```
 
 **Collection modules don't work:**
+
 ```bash
 # Test specific collection dependencies
 docker run --rm ansible-aio-ee-airgapped:latest python -c "import kubernetes; print('OK')"
@@ -226,11 +242,13 @@ docker run --rm ansible-aio-ee-airgapped:latest python -c "import kubernetes; pr
 ## 📈 **Performance and Security Benefits**
 
 ### **Performance:**
+
 - **Faster Builds**: Separated wheel directories enable better Docker layer caching
 - **Reduced Transfer**: Only download wheels once during preparation
 - **Parallel Processing**: Main and collection dependencies can be processed independently
 
 ### **Security:**
+
 - **Complete Offline**: No internet access required during build
 - **Audit Trail**: Full dependency discovery and wheel verification
 - **Controlled Environment**: All components verified before transfer
@@ -239,6 +257,7 @@ docker run --rm ansible-aio-ee-airgapped:latest python -c "import kubernetes; pr
 ## 🔄 **Maintenance and Updates**
 
 ### **Regular Updates:**
+
 ```bash
 # In internet-connected environment
 cd ansible-aio-ee-airgapped
@@ -250,12 +269,14 @@ cd ansible-aio-ee-airgapped
 ```
 
 ### **Adding New Collections:**
+
 1. **Update collections**: Add to `requirements-airgapped.yml`
 2. **Install collections**: Run `ansible-galaxy collection install -r ../requirements.yml`
 3. **Update dependencies**: Run `./prepare-airgapped-build.sh --update-collection-deps`
 4. **Transfer and rebuild**: Move files and rebuild EE
 
 ### **Version Updates:**
+
 - **Tools**: Modify download URLs in preparation script
 - **Collections**: Update versions in requirements-airgapped.yml
 - **Python packages**: Update versions in requirements-airgapped.txt

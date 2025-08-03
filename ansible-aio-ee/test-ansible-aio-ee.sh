@@ -190,6 +190,7 @@ run_tests() {
         "helm:Helm"
         "terraform:Terraform"
         "oc:OpenShift CLI"
+        "vault:HashiCorp Vault CLI"
         "aws:AWS CLI"
         "gcloud:Google Cloud SDK"
         "gsutil:Google Cloud Storage"

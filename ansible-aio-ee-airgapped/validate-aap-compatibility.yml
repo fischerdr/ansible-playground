@@ -1,0 +1,291 @@
+---
+# AAP Compatibility Validation Playbook
+# This playbook validates that the EE is properly configured for AAP usage
+# Run this in your EE to verify AAP compatibility
+
+- name: "Validate Ansible Automation Platform Compatibility"
+  hosts: localhost
+  gather_facts: true
+  vars:
+    required_collections:
+      - amazon.aws
+      - ansible.posix
+      - community.general
+      - community.aws
+      - kubernetes.core
+      - google.cloud
+    required_tools:
+      - aws
+      - gcloud
+      - kubectl
+      - helm
+      - terraform
+      - oc
+      - vault
+    required_python_packages:
+      - ansible
+      - ansible-runner
+      - kubernetes
+      - boto3
+      - requests
+      - hvac
+
+  tasks:
+    - name: "Display environment information"
+      block:
+        - name: "Show Python version and path"
+          ansible.builtin.debug:
+            msg:
+              - "Python version: {{ ansible_python_version }}"
+              - "Python interpreter: {{ ansible_python.executable }}"
+              - "Python path: {{ ansible_env.PYTHONPATH | default('Not set') }}"
+
+        - name: "Show Ansible version"
+          ansible.builtin.command:
+            cmd: ansible --version
+          register: ansible_version_output
+          changed_when: false
+
+        - name: "Display Ansible version"
+          ansible.builtin.debug:
+            var: ansible_version_output.stdout_lines
+
+        - name: "Show environment variables"
+          ansible.builtin.debug:
+            msg:
+              - "ANSIBLE_COLLECTIONS_PATH: {{ ansible_env.ANSIBLE_COLLECTIONS_PATH | default('Not set') }}"
+              - "ANSIBLE_ROLES_PATH: {{ ansible_env.ANSIBLE_ROLES_PATH | default('Not set') }}"
+              - "PATH: {{ ansible_env.PATH }}"
+
+    - name: "Validate Ansible Runner availability"
+      block:
+        - name: "Check ansible-runner installation"
+          ansible.builtin.command:
+            cmd: >-
+              python3 -c "import ansible_runner; print('ansible-runner version: ' + ansible_runner.__version__)"
+          register: ansible_runner_check
+          changed_when: false
+
+        - name: "Display ansible-runner status"
+          ansible.builtin.debug:
+            var: ansible_runner_check.stdout
+      rescue:
+        - name: "Then ansible-runner not available"
+          ansible.builtin.fail:
+            msg: "ansible-runner is not installed or not accessible - required for AAP"
+
+    - name: "Validate required collections"
+      block:
+        - name: "List all installed collections"
+          ansible.builtin.command:
+            cmd: ansible-galaxy collection list
+          register: collections_list
+          changed_when: false
+
+        - name: "Check for required collections"
+          ansible.builtin.assert:
+            that:
+              - "item in collections_list.stdout"
+            fail_msg: "Required collection {{ item }} is not installed"
+            success_msg: "Collection {{ item }} is available"
+          loop: "{{ required_collections }}"
+
+        - name: "Display collection validation results"
+          ansible.builtin.debug:
+            msg: "All required collections are installed and available"
+
+    - name: "Validate cloud and container tools"
+      block:
+        - name: "Check tool availability"
+          ansible.builtin.command:
+            cmd: "which {{ item }}"
+          register: tool_check
+          failed_when: false
+          changed_when: false
+          loop: "{{ required_tools }}"
+
+        - name: "Validate tool availability"
+          ansible.builtin.assert:
+            that:
+              - "item.rc == 0"
+            fail_msg: "Required tool {{ item.item }} is not available in PATH"
+            success_msg: "Tool {{ item.item }} is available"
+          loop: "{{ tool_check.results }}"
+
+        - name: "Get tool versions"
+          ansible.builtin.shell:
+            cmd: |
+              set -o pipefail
+              "{{ item }} --version 2>&1 | head -1"
+          register: tool_versions
+          failed_when: false
+          changed_when: false
+          loop: "{{ required_tools }}"
+
+        - name: "Display tool versions"
+          ansible.builtin.debug:
+            msg: "{{ item.item }}: {{ item.stdout | default('Version check failed') }}"
+          loop: "{{ tool_versions.results }}"
+
+    - name: "Validate Python packages"
+      block:
+        - name: "Check Python package availability"
+          ansible.builtin.command:
+            cmd: "python3 -c 'import {{ item }}; print(\"{{ item }}: OK\")'"
+          register: python_package_check
+          failed_when: false
+          changed_when: false
+          loop: "{{ required_python_packages }}"
+
+        - name: "Validate Python packages"
+          ansible.builtin.assert:
+            that:
+              - "item.rc == 0"
+            fail_msg: "Required Python package {{ item.item }} is not available"
+            success_msg: "Python package {{ item.item }} is available"
+          loop: "{{ python_package_check.results }}"
+
+    - name: "Test cloud SDK functionality"
+      block:
+        - name: "Test AWS CLI configuration"
+          ansible.builtin.command:
+            cmd: aws configure list
+          register: aws_config_test
+          failed_when: false
+          changed_when: false
+
+        - name: "Test Google Cloud SDK"
+          ansible.builtin.command:
+            cmd: gcloud config list
+          register: gcloud_config_test
+          failed_when: false
+          changed_when: false
+
+        - name: "Test kubectl configuration"
+          ansible.builtin.command:
+            cmd: kubectl version --client
+          register: kubectl_test
+          failed_when: false
+          changed_when: false
+
+        - name: "Display cloud tool test results"
+          ansible.builtin.debug:
+            msg:
+              - "AWS CLI: {{ 'Configured' if aws_config_test.rc == 0 else 'Not configured (normal in EE)' }}"
+              - "Google Cloud SDK: {{ 'Available' if gcloud_config_test.rc == 0 else 'Available but not configured' }}"
+              - "kubectl: {{ 'Available' if kubectl_test.rc == 0 else 'Available but no cluster configured' }}"
+
+    - name: "Test Ansible module functionality"
+      block:
+        - name: "Test basic Ansible modules"
+          ansible.builtin.setup:
+          register: setup_test
+
+        - name: "Test cloud modules (dry run)"
+          block:
+            - name: "Test AWS module (check mode)"
+              amazon.aws.aws_caller_info:
+              check_mode: true
+              register: aws_module_test
+              failed_when: false
+
+            - name: "Test Kubernetes module (check mode)"
+              kubernetes.core.k8s_info:
+                api_version: v1
+                kind: Namespace
+                name: default
+              check_mode: true
+              register: k8s_module_test
+              failed_when: false
+
+        - name: "Display module test results"
+          ansible.builtin.debug:
+            msg:
+              - "Setup module: OK"
+              - "AWS module: {{ 'Available' if aws_module_test is not failed else 'Available but needs credentials' }}"
+              - "Kubernetes module: {{ 'Available' if k8s_module_test is not failed else 'Available but needs cluster access' }}"
+
+    - name: "AAP-specific validations"
+      block:
+        - name: "Check for AAP-required environment variables"
+          ansible.builtin.debug:
+            msg:
+              - "ANSIBLE_FORCE_COLOR: {{ ansible_env.ANSIBLE_FORCE_COLOR | default('Not set') }}"
+              - "ANSIBLE_HOST_KEY_CHECKING: {{ ansible_env.ANSIBLE_HOST_KEY_CHECKING | default('Not set') }}"
+              - "PYTHONUNBUFFERED: {{ ansible_env.PYTHONUNBUFFERED | default('Not set') }}"
+
+        - name: "Check working directory permissions"
+          ansible.builtin.stat:
+            path: /tmp
+          register: tmp_stat
+
+        - name: "Validate tmp directory permissions"
+          ansible.builtin.assert:
+            that:
+              - tmp_stat.stat.writeable
+            fail_msg: "/tmp directory is not writable"
+            success_msg: "/tmp directory is writable (required for AAP)"
+
+        - name: "Check user context"
+          ansible.builtin.command:
+            cmd: id
+          register: user_context
+          changed_when: false
+
+        - name: "Display user context"
+          ansible.builtin.debug:
+            msg: "Running as: {{ user_context.stdout }}"
+
+    - name: "Generate compatibility report"
+      block:
+        - name: "Create compatibility summary"
+          ansible.builtin.set_fact:
+            compatibility_report:
+              python_version: "{{ ansible_python_version }}"
+              ansible_version: "{{ ansible_version_output.stdout_lines[0] }}"
+              collections_count: "{{ required_collections | length }}"
+              tools_count: "{{ required_tools | length }}"
+              python_packages_count: "{{ required_python_packages | length }}"
+              user_context: "{{ user_context.stdout }}"
+              environment: "AAP Compatible"
+              timestamp: "{{ ansible_date_time.iso8601 }}"
+
+        - name: "Display final compatibility report"
+          ansible.builtin.debug:
+            msg:
+              - "=== AAP COMPATIBILITY REPORT ==="
+              - "Python Version: {{ compatibility_report.python_version }}"
+              - "Ansible Version: {{ compatibility_report.ansible_version }}"
+              - "Collections Validated: {{ compatibility_report.collections_count }}/{{ compatibility_report.collections_count }}"
+              - "Tools Validated: {{ compatibility_report.tools_count }}/{{ compatibility_report.tools_count }}"
+              - "Python Packages: {{ compatibility_report.python_packages_count }}/{{ compatibility_report.python_packages_count }}"
+              - "User Context: {{ compatibility_report.user_context }}"
+              - "Status: {{ compatibility_report.environment }}"
+              - "Validated: {{ compatibility_report.timestamp }}"
+              - "=== END REPORT ==="
+
+        - name: "Save compatibility report"
+          ansible.builtin.copy:
+            content: "{{ compatibility_report | to_nice_json }}"
+            dest: "/tmp/aap-compatibility-report.json"
+            mode: '0644'
+          when: tmp_stat.stat.writeable
+
+    - name: "Final validation message"
+      ansible.builtin.debug:
+        msg:
+          - "✅ EE is AAP compatible!"
+          - "✅ All required collections are available"
+          - "✅ All required tools are installed"
+          - "✅ All required Python packages are available"
+          - "✅ Environment is properly configured for AAP"
+          - ""
+          - "This EE can be used with Ansible Automation Platform for:"
+          - "  - Cloud automation (AWS, GCP, Azure)"
+          - "  - Kubernetes/OpenShift operations"
+          - "  - Infrastructure as Code (Terraform)"
+          - "  - System administration"
+          - "  - Network configuration"
+          - "  - Security operations"
+          - ""
+          - "Report saved to: /tmp/aap-compatibility-report.json"

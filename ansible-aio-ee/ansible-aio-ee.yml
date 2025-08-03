@@ -97,6 +97,10 @@ additional_build_steps:
     - RUN curl -LO "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux.tar.gz"
     - RUN tar xzf openshift-client-linux.tar.gz && mv oc /usr/local/bin/ && rm openshift-client-linux.tar.gz
 
+    # Install HashiCorp Vault CLI (latest stable)
+    - RUN curl -LO "https://releases.hashicorp.com/vault/1.15.6/vault_1.15.6_linux_amd64.zip"
+    - RUN unzip vault_1.15.6_linux_amd64.zip && mv vault /usr/local/bin/ && rm vault_1.15.6_linux_amd64.zip
+
     # Install AWS CLI v2 (latest)
     - RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
     - RUN unzip awscliv2.zip && ./aws/install && rm -rf aws awscliv2.zip
@@ -159,6 +163,7 @@ additional_build_steps:
     - RUN helm version
     - RUN terraform version
     - RUN oc version
+    - RUN vault version
     - RUN aws --version
     - RUN gcloud version
     - RUN ansible --version

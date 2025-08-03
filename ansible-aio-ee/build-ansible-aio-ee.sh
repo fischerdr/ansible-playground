@@ -149,6 +149,7 @@ test_ee() {
     docker run --rm "${EE_NAME}:${EE_TAG}" helm version
     docker run --rm "${EE_NAME}:${EE_TAG}" terraform version
     docker run --rm "${EE_NAME}:${EE_TAG}" oc version
+    docker run --rm "${EE_NAME}:${EE_TAG}" vault version
     docker run --rm "${EE_NAME}:${EE_TAG}" aws --version
     docker run --rm "${EE_NAME}:${EE_TAG}" gcloud version
     

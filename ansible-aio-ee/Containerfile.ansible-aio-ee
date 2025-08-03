@@ -89,6 +89,12 @@ RUN curl -LO "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/s
     mv oc /usr/local/bin/ && \
     rm openshift-client-linux.tar.gz
 
+# Install HashiCorp Vault CLI (Layer 6a: Vault tools)
+RUN curl -LO "https://releases.hashicorp.com/vault/1.15.6/vault_1.15.6_linux_amd64.zip" && \
+    unzip vault_1.15.6_linux_amd64.zip && \
+    mv vault /usr/local/bin/ && \
+    rm vault_1.15.6_linux_amd64.zip
+
 # Install AWS CLI v2 (Layer 7: AWS tools)
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
     unzip awscliv2.zip && \
@@ -132,6 +138,7 @@ RUN python3 --version && \
     helm version && \
     terraform version && \
     oc version && \
+    vault version && \
     aws --version && \
     gcloud version && \
     ansible --version

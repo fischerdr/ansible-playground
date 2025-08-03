@@ -79,7 +79,7 @@ check_dependencies() {
         print_success "tools/ directory found"
         
         # Check individual tools
-        local tools=("kubectl" "helm" "terraform" "oc" "awscliv2.zip" "google-cloud-sdk.tar.gz")
+        local tools=("kubectl" "helm" "terraform" "oc" "vault" "awscliv2.zip" "google-cloud-sdk.tar.gz")
         for tool in "${tools[@]}"; do
             if [[ -f "tools/$tool" ]]; then
                 print_success "✓ tools/$tool"
@@ -283,10 +283,11 @@ COPY tools/kubectl /usr/local/bin/kubectl
 COPY tools/helm /usr/local/bin/helm
 COPY tools/terraform /usr/local/bin/terraform
 COPY tools/oc /usr/local/bin/oc
+COPY tools/vault /usr/local/bin/vault
 COPY tools/awscliv2.zip /tmp/awscliv2.zip
 COPY tools/google-cloud-sdk.tar.gz /tmp/google-cloud-sdk.tar.gz
 
-RUN chmod +x /usr/local/bin/kubectl /usr/local/bin/helm /usr/local/bin/terraform /usr/local/bin/oc
+RUN chmod +x /usr/local/bin/kubectl /usr/local/bin/helm /usr/local/bin/terraform /usr/local/bin/oc /usr/local/bin/vault
 
 # Install AWS CLI from local archive (Layer 4: AWS CLI)
 RUN cd /tmp && \
@@ -346,6 +347,7 @@ RUN python3 --version && \
     which helm && \
     which terraform && \
     which oc && \
+    which vault && \
     which aws && \
     which gcloud && \
     ansible --version
@@ -378,6 +380,7 @@ test_ee() {
     docker run --rm "${EE_NAME}:${EE_TAG}" which helm
     docker run --rm "${EE_NAME}:${EE_TAG}" which terraform
     docker run --rm "${EE_NAME}:${EE_TAG}" which oc
+    docker run --rm "${EE_NAME}:${EE_TAG}" which vault
     docker run --rm "${EE_NAME}:${EE_TAG}" which aws
     docker run --rm "${EE_NAME}:${EE_TAG}" which gcloud
     

@@ -97,6 +97,9 @@ additional_build_steps:
     - COPY tools/oc /usr/local/bin/oc
     - RUN chmod +x /usr/local/bin/oc
 
+    - COPY tools/vault /usr/local/bin/vault
+    - RUN chmod +x /usr/local/bin/vault
+
     # Install AWS CLI from local archive
     - COPY tools/awscliv2.zip /tmp/awscliv2.zip
     - RUN cd /tmp && unzip awscliv2.zip && ./aws/install && rm -rf aws awscliv2.zip
@@ -163,7 +166,7 @@ additional_build_steps:
 
     # Verify installations (skip version checks that require network)
     - RUN python3 --version && python --version
-    - RUN which kubectl && which helm && which terraform && which oc && which aws && which gcloud
+    - RUN which kubectl && which helm && which terraform && which oc && which vault && which aws && which gcloud
     - RUN ansible --version
 
     # Clean up temporary files and caches

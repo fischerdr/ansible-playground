@@ -123,6 +123,18 @@ download_tools() {
         print_warning "oc already exists, skipping"
     fi
     
+    # Download HashiCorp Vault CLI
+    print_status "Downloading HashiCorp Vault CLI..."
+    if ! [ -f "vault" ]; then
+        curl -LO "https://releases.hashicorp.com/vault/1.15.6/vault_1.15.6_linux_amd64.zip"
+        unzip vault_1.15.6_linux_amd64.zip
+        rm vault_1.15.6_linux_amd64.zip
+        chmod +x vault
+        print_success "HashiCorp Vault CLI downloaded"
+    else
+        print_warning "vault already exists, skipping"
+    fi
+    
     # Download AWS CLI
     print_status "Downloading AWS CLI..."
     if ! [ -f "awscliv2.zip" ]; then

@@ -5,12 +5,14 @@ A comprehensive Ansible Execution Environment designed for air-gapped (offline) 
 ## 🔒 **Air-gapped Features**
 
 ### **Offline Capability**
+
 - All tools are pre-downloaded and stored locally
 - Python packages installed from local wheels
 - Ansible collections installed from local archives
 - No internet access required during build
 
 ### **Security Benefits**
+
 - Complete control over all dependencies
 - No external downloads during build
 - Audit trail of all included components
@@ -19,20 +21,25 @@ A comprehensive Ansible Execution Environment designed for air-gapped (offline) 
 ## 📦 **Included Tools & Components**
 
 ### **Base Environment**
+
 - **Base Image**: Red Hat Universal Base Image 8 (stream)
 - **Python Version**: 3.11 (set as default interpreter)
 - **Ansible**: Latest stable version with all dependencies
 
 ### **Cloud & Container Tools**
+
 - **kubectl**: Kubernetes command-line tool
 - **Helm**: Kubernetes package manager
 - **Terraform**: Infrastructure as Code tool
 - **OpenShift CLI (oc)**: OpenShift command-line tool
+- **HashiCorp Vault CLI**: Secret management command-line tool
 - **AWS CLI v2**: Amazon Web Services command-line interface
 - **Google Cloud SDK**: Google Cloud Platform tools (gcloud, gsutil, bq)
 
 ### **Ansible Collections**
+
 All collections from your requirements are included locally:
+
 - `amazon.aws` - AWS cloud modules
 - `ansible.posix` - POSIX system modules
 - `ansible.scm` - Source control management
@@ -59,6 +66,7 @@ All collections from your requirements are included locally:
 │   ├── helm
 │   ├── terraform
 │   ├── oc
+│   ├── vault
 │   ├── awscliv2.zip
 │   └── google-cloud-sdk.tar.gz
 ├── wheels/                            # Python wheel files
@@ -85,6 +93,7 @@ Run this phase in an environment with internet access:
 ```
 
 This will create:
+
 - `tools/` directory with all binary tools
 - `wheels/` directory with Python packages
 - `collections/` directory with Ansible collections
@@ -92,6 +101,7 @@ This will create:
 ### **Phase 2: Transfer to Air-gapped Environment**
 
 Transfer the entire project directory to your air-gapped environment using approved methods:
+
 - Removable media (USB, CD/DVD)
 - Secure file transfer
 - Physical transport
@@ -114,6 +124,7 @@ In your air-gapped environment:
 ## 🔧 **Build Options**
 
 ### **Preparation Phase Commands**
+
 ```bash
 # Full preparation (recommended)
 ./prepare-airgapped-build.sh
@@ -131,6 +142,7 @@ In your air-gapped environment:
 ```
 
 ### **Build Phase Commands**
+
 ```bash
 # Basic build
 ./build-airgapped-ee.sh
@@ -154,12 +166,14 @@ In your air-gapped environment:
 ## ✅ **Validation**
 
 ### **Dependency Check**
+
 ```bash
 # Verify all local dependencies are available
 ./build-airgapped-ee.sh --check-deps
 ```
 
 Expected output:
+
 ```
 [SUCCESS] tools/ directory found
 [SUCCESS] ✓ tools/kubectl
@@ -174,6 +188,7 @@ Expected output:
 ```
 
 ### **Build Testing**
+
 ```bash
 # Test the built EE
 ./build-airgapped-ee.sh --test
@@ -187,6 +202,7 @@ docker run --rm ansible-aio-ee-airgapped:latest helm version
 ## 🚀 **Usage Examples**
 
 ### **Running Ansible Playbooks**
+
 ```bash
 # Run playbook with air-gapped EE
 docker run --rm -v $(pwd):/workspace ansible-aio-ee-airgapped:latest ansible-playbook playbook.yml
@@ -196,6 +212,7 @@ docker run --rm -v $(pwd):/workspace ansible-aio-ee-airgapped:latest ansible-pla
 ```
 
 ### **Cloud Operations**
+
 ```bash
 # Kubernetes operations
 docker run --rm -v ~/.kube:/tmp/.kube ansible-aio-ee-airgapped:latest kubectl get pods
@@ -208,6 +225,7 @@ docker run --rm -v $(pwd):/workspace ansible-aio-ee-airgapped:latest terraform i
 ```
 
 ### **Interactive Shell**
+
 ```bash
 # Access the EE shell
 docker run -it --rm ansible-aio-ee-airgapped:latest /bin/bash
@@ -219,17 +237,20 @@ docker run -it --rm -v $(pwd):/workspace ansible-aio-ee-airgapped:latest /bin/ba
 ## 🔧 **Customization**
 
 ### **Adding New Tools**
+
 1. Download the tool binary in the preparation phase
 2. Add it to the `tools/` directory
 3. Update `ansible-aio-ee-airgapped.yml` to copy and install the tool
 4. Rebuild the EE
 
 ### **Adding Python Packages**
+
 1. Add the package to `requirements-airgapped.txt`
 2. Run `pip download` to get the wheel files
 3. Rebuild the EE
 
 ### **Adding Ansible Collections**
+
 1. Add the collection to `requirements-airgapped.yml`
 2. Download the collection using `ansible-galaxy collection download`
 3. Rebuild the EE
@@ -237,6 +258,7 @@ docker run -it --rm -v $(pwd):/workspace ansible-aio-ee-airgapped:latest /bin/ba
 ## 🛡️ **Security Considerations**
 
 ### **Advantages**
+
 - Complete control over all dependencies
 - No external network access during build
 - Audit trail of all included components
@@ -244,6 +266,7 @@ docker run -it --rm -v $(pwd):/workspace ansible-aio-ee-airgapped:latest /bin/ba
 - Suitable for classified environments
 
 ### **Best Practices**
+
 - Verify checksums of downloaded tools
 - Scan all dependencies for vulnerabilities
 - Keep local dependencies updated
@@ -255,6 +278,7 @@ docker run -it --rm -v $(pwd):/workspace ansible-aio-ee-airgapped:latest /bin/ba
 ### **Common Issues**
 
 #### **Missing Dependencies**
+
 ```bash
 # Error: tools/kubectl missing
 # Solution: Run preparation script again
@@ -262,6 +286,7 @@ docker run -it --rm -v $(pwd):/workspace ansible-aio-ee-airgapped:latest /bin/ba
 ```
 
 #### **Build Failures**
+
 ```bash
 # Check dependencies first
 ./build-airgapped-ee.sh --check-deps
@@ -271,6 +296,7 @@ docker run -it --rm -v $(pwd):/workspace ansible-aio-ee-airgapped:latest /bin/ba
 ```
 
 #### **Tool Not Found in Container**
+
 ```bash
 # Check if tool is installed
 docker run --rm ansible-aio-ee-airgapped:latest which <tool_name>
@@ -280,6 +306,7 @@ docker run --rm ansible-aio-ee-airgapped:latest echo $PATH
 ```
 
 ### **Debug Steps**
+
 1. Verify all local dependencies are present
 2. Check file permissions on tools
 3. Review build logs for errors
@@ -294,10 +321,12 @@ The air-gapped EE includes specific versions of tools downloaded during preparat
 - **Helm**: v3.14.4
 - **Terraform**: v1.7.5
 - **OpenShift CLI**: Latest stable (downloaded at preparation time)
+- **HashiCorp Vault CLI**: v1.15.6
 - **AWS CLI**: v2 (latest at preparation time)
 - **Google Cloud SDK**: Latest (downloaded at preparation time)
 
 To update versions:
+
 1. Run the preparation script again with `--clean`
 2. Transfer updated files to air-gapped environment
 3. Rebuild the EE
@@ -305,6 +334,7 @@ To update versions:
 ## 📋 **Checklist for Air-gapped Deployment**
 
 ### **Preparation Phase** ✅
+
 - [ ] Run `./prepare-airgapped-build.sh` with internet access
 - [ ] Verify all tools downloaded to `tools/` directory
 - [ ] Verify Python wheels downloaded to `wheels/` directory
@@ -312,17 +342,20 @@ To update versions:
 - [ ] Create secure transfer package
 
 ### **Transfer Phase** ✅
+
 - [ ] Transfer entire project directory to air-gapped environment
 - [ ] Verify file integrity after transfer
 - [ ] Ensure all files have correct permissions
 
 ### **Build Phase** ✅
+
 - [ ] Run `./build-airgapped-ee.sh --check-deps`
 - [ ] Build EE with `./build-airgapped-ee.sh`
 - [ ] Test EE with `./build-airgapped-ee.sh --test`
 - [ ] Verify all tools work correctly
 
 ### **Deployment Phase** ✅
+
 - [ ] Tag EE for your registry
 - [ ] Push to internal registry (if applicable)
 - [ ] Test with actual playbooks

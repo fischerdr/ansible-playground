@@ -22,6 +22,9 @@ dependencies:
   # External requirements
   galaxy: requirements.yml
   python: requirements.txt
+  
+  # Additional Python requirements (will be handled in build steps)
+  # requirements-collections.txt will be installed via additional_build_steps
 
   # System dependencies
   system: |
@@ -80,6 +83,10 @@ additional_build_steps:
   append_base:
     # Update Python pip and install base tools
     - RUN python3.11 -m pip install -U pip setuptools wheel
+    
+    # Install collection-specific requirements
+    - COPY requirements-collections.txt /tmp/requirements-collections.txt
+    - RUN python3.11 -m pip install -r /tmp/requirements-collections.txt
 
     # Install kubectl (latest stable)
     - RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
@@ -111,8 +118,8 @@ additional_build_steps:
     - RUN ln -s /root/google-cloud-sdk/bin/gsutil /usr/local/bin/gsutil
     - RUN ln -s /root/google-cloud-sdk/bin/bq /usr/local/bin/bq
 
-    # Install additional Python packages for cloud operations
-    - RUN python3.11 -m pip install awscli boto3 google-cloud-sdk kubernetes openshift
+    # Note: Cloud Python packages now managed via requirements-collections.txt
+    # This avoids version conflicts and duplication
 
   append_final:
     # Update system and clean up

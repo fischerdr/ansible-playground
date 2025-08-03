@@ -9,6 +9,7 @@ set -euo pipefail
 TOOLS_DIR="tools"
 COLLECTIONS_DIR="collections"
 WHEELS_DIR="wheels"
+WHEELS_COLLECTIONS_DIR="wheels-collections"
 VERBOSE=false
 
 # Colors for output
@@ -48,6 +49,7 @@ OPTIONS:
     --tools-only            Download only tools (skip Python wheels and collections)
     --wheels-only           Download only Python wheels (skip tools and collections)
     --collections-only      Download only Ansible collections (skip tools and wheels)
+    --update-collection-deps Update collection dependencies and download wheels
     --clean                 Clean existing downloads before starting
 
 EXAMPLES:
@@ -66,6 +68,7 @@ create_directories() {
     mkdir -p "$TOOLS_DIR"
     mkdir -p "$COLLECTIONS_DIR"
     mkdir -p "$WHEELS_DIR"
+    mkdir -p "$WHEELS_COLLECTIONS_DIR"
     
     print_success "Directories created"
 }
@@ -157,6 +160,54 @@ download_tools() {
     print_success "All tools downloaded to $TOOLS_DIR/"
 }
 
+# Function to update collection dependencies
+update_collection_dependencies() {
+    print_status "Updating collection dependencies for air-gapped build..."
+    
+    # Check if the collection dependency script exists
+    if [[ ! -f "../scripts/update_collection_requirements.py" ]]; then
+        print_error "Collection dependency script not found at ../scripts/update_collection_requirements.py"
+        print_error "Make sure you're running this from the ansible-aio-ee-airgapped directory"
+        return 1
+    fi
+    
+    # Copy collections from parent directory if available
+    if [[ -d "../collections" ]]; then
+        print_status "Using collections from parent directory..."
+        cp -r ../collections ./temp-collections
+        
+        # Run collection dependency discovery
+        cd ..
+        python scripts/update_collection_requirements.py --collections-dir temp-collections --output ansible-aio-ee-airgapped/requirements-collections-airgapped.txt
+        cd ansible-aio-ee-airgapped
+        
+        # Clean up temporary collections
+        rm -rf temp-collections
+    else
+        print_warning "No collections directory found in parent. You may need to install collections first."
+        print_status "Creating minimal collection requirements file..."
+        
+        # Create a basic collection requirements file based on installed collections
+        cat > requirements-collections-airgapped.txt << 'EOF'
+# requirements-collections-airgapped.txt
+# Minimal collection dependencies for air-gapped build
+# This file should be updated after installing collections
+
+# Core dependencies that are typically required
+jsonpatch
+requests-oauthlib  
+botocore>=1.34.0
+jsonschema
+textfsm
+ttp
+xmltodict
+netaddr>=0.10.1
+EOF
+    fi
+    
+    print_success "Collection dependencies updated"
+}
+
 # Function to download Python wheels
 download_wheels() {
     print_status "Downloading Python wheels..."
@@ -169,16 +220,19 @@ download_wheels() {
     # Download wheels for air-gapped requirements
     pip download -r requirements-airgapped.txt -d "$WHEELS_DIR/"
     
+    # Download wheels for collection dependencies if file exists
+    if [[ -f "requirements-collections-airgapped.txt" ]]; then
+        print_status "Downloading collection dependency wheels..."
+        pip download -r requirements-collections-airgapped.txt -d "$WHEELS_COLLECTIONS_DIR/" || print_warning "Some collection dependency wheels may not be available"
+    fi
+    
     # Also download wheels for the main project requirements if available
     if [[ -f "../requirements.txt" ]]; then
         print_status "Found main project requirements.txt, downloading additional wheels..."
         pip download -r ../requirements.txt -d "$WHEELS_DIR/" || print_warning "Some main project wheels may not be available"
     fi
     
-    # Download additional cloud SDK wheels if available
-    pip download awscli boto3 google-cloud-sdk kubernetes openshift -d "$WHEELS_DIR/" || print_warning "Some cloud SDK wheels may not be available"
-    
-    print_success "Python wheels downloaded to $WHEELS_DIR/"
+    print_success "Python wheels downloaded to $WHEELS_DIR/ and $WHEELS_COLLECTIONS_DIR/"
 }
 
 # Function to download Ansible collections
@@ -224,6 +278,11 @@ clean_downloads() {
         rm -rf "$WHEELS_DIR"
         print_success "Cleaned $WHEELS_DIR/"
     fi
+    
+    if [ -d "$WHEELS_COLLECTIONS_DIR" ]; then
+        rm -rf "$WHEELS_COLLECTIONS_DIR"
+        print_success "Cleaned $WHEELS_COLLECTIONS_DIR/"
+    fi
 }
 
 # Function to create air-gapped build instructions
@@ -249,13 +308,16 @@ After running the preparation script, you should have:
 │   ├── oc
 │   ├── awscliv2.zip
 │   └── google-cloud-sdk.tar.gz
-├── wheels/                         # Python wheels
+├── wheels/                         # Python wheels (main requirements)
+│   └── *.whl files
+├── wheels-collections/             # Python wheels (collection dependencies)  
 │   └── *.whl files
 ├── collections/                    # Ansible collections
 │   └── ansible_collections/
 ├── ansible-aio-ee-airgapped.yml   # EE definition
 ├── requirements-airgapped.yml     # Collections requirements
-├── requirements-airgapped.txt     # Python requirements
+├── requirements-airgapped.txt     # Python requirements (main)
+├── requirements-collections-airgapped.txt  # Collection dependencies
 └── build-airgapped-ee.sh          # Build script
 ```
 
@@ -285,14 +347,27 @@ docker run --rm ansible-aio-ee-airgapped:latest helm version
 1. **Missing tools**: Ensure all files in tools/ directory are present
 2. **Permission errors**: Check that binary files in tools/ are executable
 3. **Collection errors**: Verify collections are properly downloaded in collections/
-4. **Python package errors**: Check that wheels are available in wheels/
+4. **Python package errors**: Check that wheels are available in wheels/ and wheels-collections/
+5. **Collection dependency errors**: Ensure requirements-collections-airgapped.txt was generated during preparation
+6. **Offline build failures**: Verify all required wheels are present in both wheels directories
 
 ## Updating
 
 To update tools or dependencies:
-1. Run the preparation script again in an internet-connected environment
+1. Run the preparation script again in an internet-connected environment:
+   ```bash
+   ./prepare-airgapped-build.sh --clean --update-collection-deps
+   ```
 2. Transfer the updated files to your air-gapped environment
 3. Rebuild the EE
+
+## Collection Dependency Management
+
+This air-gapped EE now includes automatic collection dependency discovery:
+- Collection dependencies are discovered during preparation phase
+- Python wheels for collection dependencies are downloaded separately
+- Dependencies are installed during EE build without internet access
+- Ensures all collection modules have required Python packages
 EOF
 
     print_success "Created AIRGAPPED-BUILD-INSTRUCTIONS.md"
@@ -302,6 +377,7 @@ EOF
 DOWNLOAD_TOOLS=true
 DOWNLOAD_WHEELS=true
 DOWNLOAD_COLLECTIONS=true
+UPDATE_COLLECTION_DEPS=true
 CLEAN_FIRST=false
 
 while [[ $# -gt 0 ]]; do
@@ -330,6 +406,11 @@ while [[ $# -gt 0 ]]; do
             DOWNLOAD_TOOLS=false
             DOWNLOAD_WHEELS=false
             DOWNLOAD_COLLECTIONS=true
+            UPDATE_COLLECTION_DEPS=false
+            shift
+            ;;
+        --update-collection-deps)
+            UPDATE_COLLECTION_DEPS=true
             shift
             ;;
         --clean)
@@ -355,6 +436,11 @@ main() {
     
     # Create directories
     create_directories
+    
+    # Update collection dependencies first if requested
+    if [[ "$UPDATE_COLLECTION_DEPS" == "true" ]]; then
+        update_collection_dependencies
+    fi
     
     # Download components based on options
     if [[ "$DOWNLOAD_TOOLS" == "true" ]]; then

@@ -53,11 +53,8 @@ tox-ansible==25.4.0
 virtualenv==20.30.0
 
 # Python development dependencies
-rich
-python-dotenv
+rich==13.7.0
+python-dotenv==1.0.0
 
-# Cloud SDK dependencies (install only if wheels are available)
-# These will be installed from local wheels if present, otherwise skipped
-# google-cloud-sdk
-# awscli
-# openshift
+# Note: Collection-specific dependencies are now handled by requirements-collections-airgapped.txt
+# This separation ensures better dependency management and avoids conflicts

@@ -109,11 +109,13 @@ RUN curl https://sdk.cloud.google.com | bash && \
 
 # Copy requirements files (Layer 9: Requirements)
 COPY requirements.txt /tmp/requirements.txt
+COPY requirements-collections.txt /tmp/requirements-collections.txt
 COPY requirements.yml /tmp/requirements.yml
 
 # Install Python dependencies (Layer 10: Python packages)
+# Main requirements first, then collection-specific requirements
 RUN python3.11 -m pip install -r /tmp/requirements.txt && \
-    python3.11 -m pip install awscli boto3 google-cloud-sdk kubernetes openshift
+    python3.11 -m pip install -r /tmp/requirements-collections.txt
 
 # Install Ansible collections (Layer 11: Ansible collections)
 RUN ansible-galaxy collection install -r /tmp/requirements.yml

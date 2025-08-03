@@ -8,9 +8,15 @@ ansible-navigator:
   execution-environment:
     enabled: true
     container-engine: podman
-    image: quay.io/ansible/ansible-runner:latest
+    # Use the enhanced AIO EE with collection dependencies
+    image: localhost/ansible-aio-ee:latest
     pull:
       policy: missing
+    
+    # Mount project directory for development
+    container-options:
+      - "--volume=${PWD}:/workspace:Z"
+      - "--workdir=/workspace"
 
   # Ansible settings
   ansible:

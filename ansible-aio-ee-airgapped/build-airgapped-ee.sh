@@ -106,6 +106,15 @@ check_dependencies() {
         print_status "Found $wheel_count wheel files"
     fi
     
+    # Check for collection wheels directory
+    if [[ ! -d "wheels-collections" ]]; then
+        print_warning "wheels-collections/ directory not found. Collection dependencies may not be available offline."
+    else
+        print_success "wheels-collections/ directory found"
+        local collection_wheel_count=$(find wheels-collections/ -name "*.whl" | wc -l)
+        print_status "Found $collection_wheel_count collection dependency wheel files"
+    fi
+    
     # Check for requirements files
     if [[ -f "requirements-airgapped.txt" ]]; then
         print_success "✓ requirements-airgapped.txt"
@@ -119,6 +128,13 @@ check_dependencies() {
     else
         print_error "✗ requirements-airgapped.yml missing"
         missing_deps=$((missing_deps + 1))
+    fi
+    
+    # Check for collection requirements file
+    if [[ -f "requirements-collections-airgapped.txt" ]]; then
+        print_success "✓ requirements-collections-airgapped.txt"
+    else
+        print_warning "⚠ requirements-collections-airgapped.txt missing (collection dependencies may not be complete)"
     fi
     
     # Check for EE definition file
@@ -308,14 +324,39 @@ RUN cd /root && \
 COPY requirements-airgapped.txt /tmp/requirements-airgapped.txt
 COPY requirements-airgapped.yml /tmp/requirements-airgapped.yml
 
+# Copy collection requirements if available
+RUN if [ -f "requirements-collections-airgapped.txt" ]; then \
+        cp requirements-collections-airgapped.txt /tmp/requirements-collections-airgapped.txt; \
+    else \
+        echo "# No collection requirements file found" > /tmp/requirements-collections-airgapped.txt; \
+    fi
+
 # Copy local wheels if available (Layer 7: Local wheels)
 COPY wheels/ /tmp/wheels/
 
+# Copy collection wheels if available
+RUN if [ -d "wheels-collections" ] && [ "$(ls -A wheels-collections)" ]; then \
+        mkdir -p /tmp/wheels-collections && cp wheels-collections/*.whl /tmp/wheels-collections/; \
+    else \
+        mkdir -p /tmp/wheels-collections; \
+    fi
+
 # Install Python dependencies (Layer 8: Python packages)
+# Install main requirements first
 RUN if [ -d "/tmp/wheels" ] && [ "$(ls -A /tmp/wheels)" ]; then \
         python3.11 -m pip install --no-index --find-links /tmp/wheels -r /tmp/requirements-airgapped.txt; \
     else \
         python3.11 -m pip install -r /tmp/requirements-airgapped.txt; \
+    fi
+
+# Install collection dependencies
+RUN if [ -s "/tmp/requirements-collections-airgapped.txt" ] && [ -d "/tmp/wheels-collections" ] && [ "$(ls -A /tmp/wheels-collections)" ]; then \
+        python3.11 -m pip install --no-index --find-links /tmp/wheels-collections -r /tmp/requirements-collections-airgapped.txt; \
+    elif [ -s "/tmp/requirements-collections-airgapped.txt" ]; then \
+        echo "Collection dependency wheels not found, attempting online install..."; \
+        python3.11 -m pip install -r /tmp/requirements-collections-airgapped.txt || echo "Collection dependencies installation failed - may not be fully offline"; \
+    else \
+        echo "No collection requirements file found, skipping collection dependencies"; \
     fi
 
 # Copy and install Ansible collections (Layer 9: Collections)

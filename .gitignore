@@ -18,7 +18,7 @@ artifacts/*
 ansible-aio-ee-airgapped/wheels/*
 ansible-aio-ee-airgapped/wheels-collections/*
 ansible-aio-ee-airgapped/collections/*
-
+ansible-aio-ee-airgapped/tools/*
 
 # Python
 # https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore

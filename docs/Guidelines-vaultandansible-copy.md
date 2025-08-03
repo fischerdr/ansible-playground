@@ -401,6 +401,7 @@ Ansible Tower (or Red Hat Ansible Automation Platform) provides a centralized pl
    - RADIUS for multi-factor authentication
 
 3. **Team-Based Access** - Organize users into teams with specific permissions:
+
    ```yaml
    # Example Tower/RHAAP RBAC structure
    teams:
@@ -415,6 +416,7 @@ Ansible Tower (or Red Hat Ansible Automation Platform) provides a centralized pl
 ### Credential Management
 
 1. **Credential Types** - Create custom credential types for Vault integration:
+
    ```yaml
    # Example custom credential type for Vault
    credential_types:
@@ -452,6 +454,7 @@ Ansible Tower (or Red Hat Ansible Automation Platform) provides a centralized pl
 ### Secure Job Templates
 
 1. **Execution Environment Isolation** - Use dedicated execution environments:
+
    ```yaml
    # Example job template with secure execution environment
    job_templates:
@@ -487,6 +490,7 @@ Ansible Tower (or Red Hat Ansible Automation Platform) provides a centralized pl
    - Restricted token policies based on job requirements
 
 2. **Secret Lookup Pattern** - Standardize secret retrieval:
+
    ```yaml
    # Example of secure Vault lookup in a playbook
    - name: Retrieve database credentials
@@ -529,6 +533,7 @@ Callback plugins provide powerful mechanisms for tracking, logging, and auditing
 ### Implementing Audit Callback Plugins
 
 1. **Comprehensive Logging** - Enable detailed logging callbacks:
+
    ```yaml
    # ansible.cfg configuration
    [defaults]
@@ -540,6 +545,7 @@ Callback plugins provide powerful mechanisms for tracking, logging, and auditing
    ```
 
 2. **Custom Security Audit Callback** - Develop specialized audit plugins:
+
    ```python
    # Example security audit callback plugin
    from ansible.plugins.callback import CallbackBase
@@ -574,6 +580,7 @@ Callback plugins provide powerful mechanisms for tracking, logging, and auditing
    ```
 
 3. **Vault-Specific Auditing** - Track Vault operations:
+
    ```python
    # Vault audit callback snippet
    def v2_runner_on_ok(self, result):
@@ -600,6 +607,7 @@ Callback plugins provide powerful mechanisms for tracking, logging, and auditing
    - Use structured logging formats (JSON)
 
 2. **Real-time Monitoring** - Implement alerting for suspicious activities:
+
    ```yaml
    # Example Ansible Tower webhook notification for security events
    notifications:
@@ -630,6 +638,7 @@ Callback plugins provide powerful mechanisms for tracking, logging, and auditing
    - Ensure secure log destruction at end of lifecycle
 
 3. **Sensitive Data Filtering** - Prevent secret exposure in logs:
+
    ```yaml
    # Example no_log usage in playbooks
    - name: Configure application with database credentials

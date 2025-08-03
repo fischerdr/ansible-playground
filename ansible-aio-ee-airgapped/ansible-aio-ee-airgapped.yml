@@ -22,7 +22,7 @@ dependencies:
   # External requirements - will be copied locally
   galaxy: requirements-airgapped.yml
   python: requirements-airgapped.txt
-
+  
   # Additional Python requirements (will be handled in build steps)
   # requirements-collections-airgapped.txt will be installed via additional_build_steps
 
@@ -66,7 +66,6 @@ dependencies:
     unzip [platform:rpm]
     which [platform:rpm]
     jq [platform:rpm]
-    yq [platform:rpm]
 
     # Additional tools for cloud operations
     ca-certificates [platform:rpm]
@@ -76,7 +75,7 @@ dependencies:
 additional_build_steps:
   prepend_base:
     # Enable CodeReady Builder (CRB) repository for additional packages
-    - RUN dnf -y install dnf-utils
+    - RUN dnf -y install dnf-utils unzip
     - RUN dnf config-manager --set-enabled crb || dnf config-manager --set-enabled powertools || true
 
   append_base:
@@ -86,11 +85,8 @@ additional_build_steps:
     # Install collection-specific requirements from local wheels
     - COPY requirements-collections-airgapped.txt /tmp/requirements-collections-airgapped.txt
     - COPY wheels-collections/ /tmp/wheels-collections/
-    - RUN if [ -d "/tmp/wheels-collections" ] && [ "$(ls -A /tmp/wheels-collections)" ]; then \
-        python3.11 -m pip install --no-index --find-links /tmp/wheels-collections -r /tmp/requirements-collections-airgapped.txt; \
-      else \
-        echo "No collection dependency wheels found, skipping collection requirements"; \
-      fi
+    - RUN if [ -d "/tmp/wheels-collections" ] && [ "$(ls -A /tmp/wheels-collections)" ]; then python3.11 -m pip install --no-index --find-links /tmp/wheels-collections -r /tmp/requirements-collections-airgapped.txt; else echo "No collection dependency wheels found, attempting online install..."; python3.11 -m pip install -r /tmp/requirements-collections-airgapped.txt || echo "Collection dependencies installation failed - may not be fully offline"; fi
+
 
     # Create directories for local tools
     - RUN mkdir -p /tmp/tools /usr/local/bin
@@ -125,11 +121,8 @@ additional_build_steps:
 
     # Install Python packages from local wheels (if available)
     - COPY wheels/ /tmp/wheels/
-    - RUN if [ -d "/tmp/wheels" ] && [ "$(ls -A /tmp/wheels)" ]; then \
-        python3.11 -m pip install --no-index --find-links /tmp/wheels -r /tmp/requirements-airgapped.txt; \
-      else \
-        python3.11 -m pip install -r /tmp/requirements-airgapped.txt; \
-      fi
+    - COPY _build/requirements.txt /tmp/requirements-airgapped.txt
+    - RUN if [ -d "/tmp/wheels" ] && [ "$(ls -A /tmp/wheels)" ]; then python3.11 -m pip install --no-index --find-links /tmp/wheels -r /tmp/requirements-airgapped.txt; else python3.11 -m pip install -r /tmp/requirements-airgapped.txt; fi
 
   append_final:
     # Update system and clean up

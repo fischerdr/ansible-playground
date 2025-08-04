@@ -250,7 +250,7 @@ build_with_ansible_builder() {
             --file context/ansible-aio-ee-airgapped.yml \
             --context context \
             --tag "${EE_NAME}:${EE_TAG}" \
-            $build_args; then
+            "$build_args"; then
             print_success "Air-gapped EE built successfully with ansible-builder"
         else
             print_error "Failed to build air-gapped EE with ansible-builder"
@@ -265,7 +265,7 @@ build_with_ansible_builder() {
             --no-cache \
             --file ansible-aio-ee-airgapped.yml \
             --tag "${EE_NAME}:${EE_TAG}" \
-            $build_args; then
+            "$build_args"; then
             print_success "Air-gapped EE built successfully with ansible-builder"
             cd ..
         else
@@ -718,10 +718,7 @@ main() {
     if [[ "$PUSH_IMAGE" == "true" ]]; then
         print_status "Registry: ${REGISTRY}:${EE_TAG}"
     fi
-    
-    # Clean up build artifacts
-    cleanup
-    
+
     print_status "Next steps:"
     echo "1. Test the EE: ./build-airgapped-ee.sh --test"
     echo "2. Use the EE: docker run -it --rm ${EE_NAME}:${EE_TAG} /bin/bash"

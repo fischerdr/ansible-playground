@@ -241,24 +241,39 @@ build_with_ansible_builder() {
         build_args="--verbosity 3"
     fi
     
-    # Change to context directory and build
-    print_status "Changing to context directory for build..."
-    cd context
-    
-    print_status "Running ansible-builder build..."
-    if ansible-builder build \
-        --file ansible-aio-ee-airgapped.yml \
-        --tag "${EE_NAME}:${EE_TAG}" \
-        $build_args .; then
-        print_success "Air-gapped EE built successfully with ansible-builder"
+    # Check if ansible-builder supports --context
+    if ansible-builder build --help | grep -q "\-\-context"; then
+        # Use --context if available (newer versions)
+        print_status "Running ansible-builder build with --context..."
+        if ansible-builder build \
+            --no-cache \
+            --file context/ansible-aio-ee-airgapped.yml \
+            --context context \
+            --tag "${EE_NAME}:${EE_TAG}" \
+            $build_args; then
+            print_success "Air-gapped EE built successfully with ansible-builder"
+        else
+            print_error "Failed to build air-gapped EE with ansible-builder"
+            exit 1
+        fi
     else
-        print_error "Failed to build air-gapped EE with ansible-builder"
-        cd ..
-        exit 1
+        # Fallback: change directory and run from context (older versions)
+        print_status "Running ansible-builder build from context directory..."
+        cd context
+        
+        if ansible-builder build \
+            --no-cache \
+            --file ansible-aio-ee-airgapped.yml \
+            --tag "${EE_NAME}:${EE_TAG}" \
+            $build_args; then
+            print_success "Air-gapped EE built successfully with ansible-builder"
+            cd ..
+        else
+            print_error "Failed to build air-gapped EE with ansible-builder"
+            cd ..
+            exit 1
+        fi
     fi
-    
-    # Return to parent directory
-    cd ..
 }
 
 # Function to build with Docker

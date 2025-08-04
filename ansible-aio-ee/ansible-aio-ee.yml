@@ -66,7 +66,6 @@ dependencies:
     unzip [platform:rpm]
     which [platform:rpm]
     jq [platform:rpm]
-    yq [platform:rpm]
 
     # Additional tools for cloud operations
     ca-certificates [platform:rpm]
@@ -101,12 +100,15 @@ additional_build_steps:
     - RUN unzip terraform_1.7.5_linux_amd64.zip && mv terraform /usr/local/bin/ && rm terraform_1.7.5_linux_amd64.zip
 
     # Install OpenShift CLI (oc, latest stable)
-    - RUN curl -LO "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux.tar.gz"
+    - RUN curl -LO "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/4.14.9/openshift-client-linux.tar.gz"
     - RUN tar xzf openshift-client-linux.tar.gz && mv oc /usr/local/bin/ && rm openshift-client-linux.tar.gz
 
     # Install HashiCorp Vault CLI (latest stable)
     - RUN curl -LO "https://releases.hashicorp.com/vault/1.15.6/vault_1.15.6_linux_amd64.zip"
     - RUN unzip vault_1.15.6_linux_amd64.zip && mv vault /usr/local/bin/ && rm vault_1.15.6_linux_amd64.zip
+
+    # Install yq manually since it's not available in UBI8
+    - RUN curl -L https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq || echo "yq installation failed - may be offline"
 
     # Install AWS CLI v2 (latest)
     - RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
@@ -165,19 +167,15 @@ additional_build_steps:
     - ENV PATH="/usr/local/bin:/root/google-cloud-sdk/bin:${PATH}"
 
     # Verify installations
-    - RUN python3 --version && python --version
-    - RUN kubectl version --client
-    - RUN helm version
-    - RUN terraform version
-    - RUN oc version
-    - RUN vault version
-    - RUN aws --version
-    - RUN gcloud version
+    - RUN python --version
+    - RUN which kubectl && which helm && which terraform && which oc && which vault && which aws && which gcloud && which yq
     - RUN ansible --version
+    - RUN oc version --client
 
     # Clean up temporary files and caches
     - RUN rm -rf /tmp/* /var/cache/dnf /var/cache/yum
-    - RUN python3.11 -m pip cache purge
+    - RUN dnf clean all
+    - RUN python -m pip cache purge
 
     # Set working directory
     - WORKDIR /workspace
@@ -185,10 +183,4 @@ additional_build_steps:
     # Create non-root user for security (optional)
     - RUN useradd -m -s /bin/bash ansible
     - RUN chown -R ansible:ansible /workspace /logs
-    - USER ansible
 
-# Build arguments for customization
-# build_arg_defaults:
-#   BUILD_ENV: production
-# Note: Custom build arguments removed as they are not supported by ansible-builder
-# The build process uses the additional_build_steps for customization

@@ -304,9 +304,7 @@ main() {
     if [[ "$PUSH_IMAGE" == "true" ]]; then
         print_status "Registry: ${REGISTRY}:${EE_TAG}"
     fi
-    
-    # Clean up build artifacts
-    cleanup
+
 }
 
 # Run main function

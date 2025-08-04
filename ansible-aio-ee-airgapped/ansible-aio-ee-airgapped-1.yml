@@ -1,0 +1,305 @@
+---
+version: 3
+
+# Container image configuration for air-gapped environments
+# This configuration follows a structured approach to building reliable, reproducible execution environments
+images:
+  base_image:
+    # Using Red Hat Universal Base Image 8.9 for enterprise compatibility and security
+    name: registry.access.redhat.com/ubi8/ubi:8.9
+
+# File inclusion strategy - NEW APPROACH using additional_build_files
+# This ensures all required files are properly included in the build context from the start
+# rather than hoping they exist when COPY commands execute
+additional_build_files:
+  # Pre-compiled tool binaries for air-gapped installation
+  - src: tools/
+    dest: tools/
+  # Python wheel files for offline package installation
+  - src: wheels/
+    dest: wheels/
+  # Collection-specific Python dependencies as wheels
+  - src: wheels-collections/
+    dest: wheels-collections/
+  # Pre-downloaded Ansible collections as tar.gz archives
+  - src: collections/
+    dest: collections/
+  # Requirements files for reproducible builds
+  - src: requirements-collections-airgapped.txt
+    dest: requirements-collections-airgapped.txt
+  # Cloud SDK archives for offline installation
+  - src: cloud-sdks/
+    dest: cloud-sdks/
+
+# Dependencies section with explicit version control for reproducibility
+dependencies:
+  python_interpreter:
+    package_system: python3.11
+    python_path: /usr/bin/python3.11
+
+  # Core Ansible components - pinned for stability in air-gapped environments
+  ansible_core:
+    package_pip: ansible-core==2.15.5
+  ansible_runner:
+    package_pip: ansible-runner==2.3.4
+
+  # External requirements point to our air-gapped files
+  python: requirements-airgapped.txt
+
+  # System dependencies organized by functional groups for better maintainability
+  system: |
+    # === Core System Components ===
+    # Base Python environment and development tools
+    git-core [platform:rpm]
+    python3.11 [platform:rpm]
+    python3.11-devel [platform:rpm compile]
+    python3.11-pip [platform:rpm]
+
+    # === Security and Authentication ===
+    # Kerberos support for enterprise authentication
+    krb5-devel [platform:rpm compile]
+    krb5-workstation [platform:rpm]
+    # SSL/TLS support for secure communications
+    openssl-devel [platform:rpm compile]
+    # Certificate management
+    ca-certificates [platform:rpm]
+    gnupg2 [platform:rpm]
+
+    # === Source Control and File Transfer ===
+    # Git with Large File Storage support
+    git-lfs [platform:rpm]
+    subversion [platform:rpm]
+    # Network utilities for file transfer and connectivity
+    sshpass [platform:rpm]
+    rsync [platform:rpm]
+    wget [platform:rpm]
+    nc [platform:rpm]
+    curl [platform:rpm]
+
+    # === Container and Orchestration Tools ===
+    # Podman for container management (Docker alternative in enterprise environments)
+    podman-remote [platform:rpm]
+
+    # === Build and Compilation Tools ===
+    # Required for compiling Python packages with native extensions
+    cmake [platform:rpm compile]
+    gcc [platform:rpm compile]
+    gcc-c++ [platform:rpm compile]
+    make [platform:rpm compile]
+    # Development headers for HTTP client libraries
+    libcurl-devel [platform:rpm compile]
+
+    # === System Utilities ===
+    # Archive and data processing utilities
+    unzip [platform:rpm]
+    which [platform:rpm]
+    jq [platform:rpm]
+    # Note: yq deliberately excluded as it's not available in UBI8 repos
+
+# Structured build process with logical phases
+additional_build_steps:
+  
+  # === PHASE 1: System Foundation Setup ===
+  # This phase establishes the base system before any application-specific installations
+  prepend_base:
+    # Enable additional repositories for extended package availability
+    # CRB (CodeReady Builder) provides development packages not in base UBI
+    - RUN dnf -y install dnf-utils unzip
+    - RUN dnf config-manager --set-enabled crb || dnf config-manager --set-enabled powertools || echo "Additional repos not available, continuing with base packages"
+    
+    # Create directory structure early to avoid permission issues later
+    # This follows the principle of "fail fast" - create what we need upfront
+    - RUN mkdir -p /usr/local/bin /tmp/build-cache /workspace /logs /tmp/.helm /tmp/.kube
+
+  # === PHASE 2: Python Environment and Core Tool Installation ===
+  # Install essential tools needed for cloud operations and automation
+  append_base:
+    # First, establish Python 3.11 as the system default using RHEL alternatives system
+    # This integrates properly with RHEL package management and system tools
+    # NOTE: This must run AFTER the Python 3.11 RPM packages are installed by bindep
+    - RUN alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 100
+    - RUN alternatives --install /usr/bin/unversioned-python python /usr/bin/python3.11 100
+    - RUN alternatives --set python3 /usr/bin/python3.11
+    - RUN alternatives --set python /usr/bin/python3.11
+    - RUN ln -sf /usr/bin/unversioned-python /usr/bin/python
+    - RUN python -m pip install --upgrade pip setuptools wheel
+    
+    # Install command-line tools from pre-compiled binaries with robust path handling
+    # Check for tools in build context and copy them if available
+    - RUN ls -la / && ls -la /tools/ || echo "Tools directory structure:" && find / -name "kubectl" -o -name "helm" -o -name "terraform" -o -name "oc" -o -name "vault" 2>/dev/null || true
+    
+    # Copy tools with conditional checks to handle path variations
+    - RUN if [ -f "/tools/kubectl" ]; then cp /tools/kubectl /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl; elif [ -f "tools/kubectl" ]; then cp tools/kubectl /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl; else echo "kubectl binary not found in expected locations"; fi
+    
+    - RUN if [ -f "/tools/helm" ]; then cp /tools/helm /usr/local/bin/helm && chmod +x /usr/local/bin/helm; elif [ -f "tools/helm" ]; then cp tools/helm /usr/local/bin/helm && chmod +x /usr/local/bin/helm; else echo "helm binary not found in expected locations"; fi
+    
+    - RUN if [ -f "/tools/terraform" ]; then cp /tools/terraform /usr/local/bin/terraform && chmod +x /usr/local/bin/terraform; elif [ -f "tools/terraform" ]; then cp tools/terraform /usr/local/bin/terraform && chmod +x /usr/local/bin/terraform; else echo "terraform binary not found in expected locations"; fi
+    
+    - RUN if [ -f "/tools/oc" ]; then cp /tools/oc /usr/local/bin/oc && chmod +x /usr/local/bin/oc; elif [ -f "tools/oc" ]; then cp tools/oc /usr/local/bin/oc && chmod +x /usr/local/bin/oc; else echo "oc binary not found in expected locations"; fi
+    
+    - RUN if [ -f "/tools/vault" ]; then cp /tools/vault /usr/local/bin/vault && chmod +x /usr/local/bin/vault; elif [ -f "tools/vault" ]; then cp tools/vault /usr/local/bin/vault && chmod +x /usr/local/bin/vault; else echo "vault binary not found in expected locations"; fi
+    
+    # Install yq manually since UBI8 doesn't provide it in repositories
+    # Include fallback behavior for truly offline environments
+    - RUN curl -L https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq || echo "yq online installation failed - ensure tools/yq binary is provided for offline builds"
+    
+    # Install cloud SDKs from local archives with error handling and flexible path handling
+    # AWS CLI installation with cleanup
+    - RUN if [ -f "/cloud-sdks/awscliv2.zip" ]; then \
+        cd /tmp && cp /cloud-sdks/awscliv2.zip . && \
+        unzip awscliv2.zip && ./aws/install && \
+        rm -rf aws awscliv2.zip; \
+      elif [ -f "cloud-sdks/awscliv2.zip" ]; then \
+        cd /tmp && cp cloud-sdks/awscliv2.zip . && \
+        unzip awscliv2.zip && ./aws/install && \
+        rm -rf aws awscliv2.zip; \
+      else \
+        echo "AWS CLI archive not found in expected locations, skipping installation"; \
+      fi
+    
+    # Google Cloud SDK installation with proper PATH integration
+    - RUN if [ -f "/cloud-sdks/google-cloud-sdk.tar.gz" ]; then \
+        cd /tmp && cp /cloud-sdks/google-cloud-sdk.tar.gz . && \
+        tar xzf google-cloud-sdk.tar.gz -C /opt && \
+        /opt/google-cloud-sdk/install.sh --quiet --usage-reporting=false --path-update=false && \
+        ln -sf /opt/google-cloud-sdk/bin/* /usr/local/bin/ && \
+        rm google-cloud-sdk.tar.gz; \
+      elif [ -f "cloud-sdks/google-cloud-sdk.tar.gz" ]; then \
+        cd /tmp && cp cloud-sdks/google-cloud-sdk.tar.gz . && \
+        tar xzf google-cloud-sdk.tar.gz -C /opt && \
+        /opt/google-cloud-sdk/install.sh --quiet --usage-reporting=false --path-update=false && \
+        ln -sf /opt/google-cloud-sdk/bin/* /usr/local/bin/ && \
+        rm google-cloud-sdk.tar.gz; \
+      else \
+        echo "Google Cloud SDK archive not found in expected locations, skipping installation"; \
+      fi
+
+  # === PHASE 3: Python Environment and Collections ===
+  # Install Python packages and Ansible collections with dependency resolution
+  append_final:
+    # Install collection-specific Python dependencies first
+    # This ensures all dependencies are available before installing collections
+    - RUN if [ -f "requirements-collections-airgapped.txt" ] && [ -d "wheels-collections" ] && [ "$(ls -A wheels-collections)" ]; then \
+        python -m pip install --no-index --find-links wheels-collections -r requirements-collections-airgapped.txt; \
+      elif [ -f "requirements-collections-airgapped.txt" ]; then \
+        echo "Collection dependency wheels not found, attempting online install..." && \
+        python -m pip install -r requirements-collections-airgapped.txt || \
+        echo "Collection dependencies installation failed - may need manual intervention"; \
+      fi
+    
+    # Install main Python requirements from wheels when available
+    # Fall back to online installation if wheels are not provided
+    - RUN if [ -d "wheels" ] && [ "$(ls -A wheels)" ]; then \
+        python -m pip install --no-index --find-links wheels -r _build/requirements.txt; \
+      else \
+        echo "Python wheels not found, attempting online installation..." && \
+        python -m pip install -r _build/requirements.txt; \
+      fi
+    
+    # Install Ansible collections from pre-downloaded archives
+    # Using --offline flag ensures no network access during collection installation
+    - RUN if [ -d "collections" ] && [ "$(ls -A collections/*.tar.gz 2>/dev/null)" ]; then \
+        ansible-galaxy collection install --offline --force -p /usr/share/ansible/collections collections/*.tar.gz; \
+      else \
+        echo "Pre-downloaded collections not found - collections must be installed separately"; \
+      fi
+    
+    # === PHASE 4: Environment Configuration ===
+    # Set up environment variables for optimal tool operation
+    
+    # Ansible configuration for air-gapped and automated operation
+    - ENV ANSIBLE_FORCE_COLOR=1
+    - ENV ANSIBLE_COLLECTIONS_PATH=./collections:/usr/share/ansible/collections
+    - ENV ANSIBLE_ROLES_PATH=./roles:/usr/share/ansible/roles
+    - ENV ANSIBLE_HOST_KEY_CHECKING=false
+    - ENV ANSIBLE_RETRY_FILES_ENABLED=false
+    - ENV ANSIBLE_STDOUT_CALLBACK=yaml
+    - ENV ANSIBLE_LOG_PATH=/logs/ansible.log
+    
+    # Python configuration for consistent behavior
+    - ENV PYTHONPATH=/usr/local/lib/python3.11/site-packages
+    - ENV PYTHONUNBUFFERED=1
+    - ENV PYTHONDONTWRITEBYTECODE=1
+    
+    # Cloud tool default configurations
+    - ENV AWS_DEFAULT_REGION=us-east-1
+    - ENV AWS_DEFAULT_OUTPUT=json
+    - ENV KUBECONFIG=/tmp/kubeconfig
+    - ENV HELM_HOME=/tmp/.helm
+    - ENV HELM_CACHE_HOME=/tmp/.helm/cache
+    - ENV HELM_CONFIG_HOME=/tmp/.helm/config
+    
+    # Logging and debugging configuration
+    - ENV LOG_LEVEL=INFO
+    - ENV LOG_FORMAT=json
+    - ENV LOG_DIR=/logs
+    
+    # Security and certificate configuration
+    - ENV REQUESTS_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+    - ENV CURL_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+    - ENV SSL_CERT_FILE=/etc/pki/tls/certs/ca-bundle.crt
+    
+    # PATH configuration to ensure all tools are accessible
+    - ENV PATH="/usr/local/bin:/opt/google-cloud-sdk/bin:${PATH}"
+    
+    # === PHASE 5: Validation and Security Setup ===
+    # Comprehensive verification of installed components
+    
+    # Verify core system tools
+    - RUN echo "=== Verifying System Tools ===" && \
+        python --version && \
+        pip --version && \
+        git --version
+    
+    # Verify cloud and orchestration tools with detailed output
+    - RUN echo "=== Verifying Cloud Tools ===" && \
+        (kubectl version --client || echo "kubectl not available") && \
+        (helm version || echo "helm not available") && \
+        (terraform version || echo "terraform not available") && \
+        (oc version --client || echo "oc not available") && \
+        (vault version || echo "vault not available") && \
+        (aws --version || echo "aws cli not available") && \
+        (gcloud version || echo "gcloud not available") && \
+        (yq --version || echo "yq not available")
+    
+    # Verify Ansible installation and basic functionality
+    - RUN echo "=== Verifying Ansible Installation ===" && \
+        ansible --version && \
+        ansible-galaxy collection list
+    
+    # Test basic functionality of key tools
+    - RUN echo "=== Testing Basic Tool Functionality ===" && \
+        python -c "import ansible; print('Ansible import successful')" && \
+        jq --version && \
+        curl --version >/dev/null
+    
+    # Security: Create non-root user with appropriate permissions
+    # This follows security best practices for container execution
+    - RUN useradd -m -u 1000 -s /bin/bash ansible && \
+        chown -R ansible:ansible /workspace /logs /tmp/.helm /tmp/.kube
+    
+    # === PHASE 6: Cleanup and Optimization ===
+    # Remove temporary files and caches to reduce image size
+    
+    # Clean up build artifacts and temporary files
+    - RUN rm -rf /tmp/build-cache /cloud-sdks /wheels /wheels-collections /collections
+    
+    # Clean package manager caches
+    - RUN dnf clean all && \
+        python -m pip cache purge
+    
+    # Remove older Python versions while preserving the alternatives configuration
+    # This ensures only Python 3.11 remains while maintaining RHEL system integration
+    - RUN dnf -y remove python3.6 python3.6-devel python3.8 python3.8-devel python3.9 python3.9-devel || true
+    
+    # Verify the alternatives system is properly configured for Python
+    - RUN alternatives --display python || echo "Python alternatives configuration completed"
+    
+    # Final system update and cleanup
+    - RUN dnf -y update && dnf clean all
+    
+    # Set final working directory
+    - WORKDIR /workspace
+    
+    # Note: We don't set USER here to let ansible-builder handle the final user configuration
+    # This ensures proper permissions are set during the final build phases

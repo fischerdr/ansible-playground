@@ -10,7 +10,7 @@
 
 After running the preparation script, you should have:
 
-```text
+```
 ├── tools/                          # Binary tools
 │   ├── kubectl
 │   ├── helm
@@ -25,7 +25,7 @@ After running the preparation script, you should have:
 ├── collections/                    # Ansible collections
 │   └── ansible_collections/
 ├── ansible-aio-ee-airgapped.yml   # EE definition
-├── requirements-airgapped.yml     # Collections requirements
+├── requirements-airgapped.yml     # Collections requirements (auto-generated)
 ├── requirements-airgapped.txt     # Python requirements (main)
 ├── requirements-collections-airgapped.txt  # Collection dependencies
 └── build-airgapped-ee.sh          # Build script
@@ -34,13 +34,11 @@ After running the preparation script, you should have:
 ## Building the EE
 
 ### Using ansible-builder (recommended)
-
 ```bash
 ansible-builder build --file ansible-aio-ee-airgapped.yml --tag ansible-aio-ee-airgapped:latest
 ```
 
 ### Using Docker directly
-
 ```bash
 docker build -f Containerfile.ansible-aio-ee-airgapped -t ansible-aio-ee-airgapped:latest .
 ```
@@ -62,25 +60,41 @@ docker run --rm ansible-aio-ee-airgapped:latest helm version
 4. **Python package errors**: Check that wheels are available in wheels/ and wheels-collections/
 5. **Collection dependency errors**: Ensure requirements-collections-airgapped.txt was generated during preparation
 6. **Offline build failures**: Verify all required wheels are present in both wheels directories
+7. **Collection installation failures**: Check that requirements-airgapped.yml was generated and points to /tmp/collections
 
 ## Updating
 
 To update tools or dependencies:
-
 1. Run the preparation script again in an internet-connected environment:
-
    ```bash
    ./prepare-airgapped-build.sh --clean --update-collection-deps
    ```
-
 2. Transfer the updated files to your air-gapped environment
 3. Rebuild the EE
 
-## Collection Dependency Management
+## Collection Management
 
-This air-gapped EE now includes automatic collection dependency discovery:
-
-- Collection dependencies are discovered during preparation phase
-- Python wheels for collection dependencies are downloaded separately
-- Dependencies are installed during EE build without internet access
+This air-gapped EE now includes enhanced collection management:
+- Collections are downloaded during preparation phase
+- A requirements-airgapped.yml file is automatically generated pointing to /tmp/collections
+- Collection dependencies are discovered and wheels downloaded separately
+- Collections are installed during EE build without internet access using file:// URLs
 - Ensures all collection modules have required Python packages
+
+## Collection Requirements File
+
+The `requirements-airgapped.yml` file is automatically generated during preparation and contains:
+- Collection names and versions extracted from downloaded tar.gz files
+- Source URLs pointing to `/tmp/collections/` for offline installation
+- Proper YAML formatting for ansible-galaxy collection install
+
+Example format:
+```yaml
+collections:
+  - name: kubernetes.core
+    version: 2.4.0
+    source: file:///tmp/collections/kubernetes-core-2.4.0.tar.gz
+  - name: amazon.aws
+    version: 6.0.0
+    source: file:///tmp/collections/amazon-aws-6.0.0.tar.gz
+```

@@ -71,6 +71,8 @@ dependencies:
 
 # Additional build steps for air-gapped environment
 additional_build_steps:
+  # Remove pre_cleanup section entirely - let ansible-builder handle /output permissions
+
   prepend_base:
     # Enable CodeReady Builder (CRB) repository for additional packages
     - RUN dnf -y install dnf-utils unzip
@@ -135,21 +137,14 @@ additional_build_steps:
     # Remove Python 3.6/3.8/3.9 if present (keep only 3.11)
     - RUN dnf -y remove python3.6 python3.6-devel python3.8 python3.8-devel python3.9 python3.9-devel || true
 
-    # # Set Python 3.11 as default
-    # - RUN alternatives --install /usr/bin/python python /usr/bin/python3.11 311
-    # - RUN alternatives --set python /usr/bin/python3.11
-    # - RUN ln -sf /usr/bin/python3.11 /usr/bin/python3
-    # Set Python 3.11 as default using alternatives system (Layer 2: Python setup)
+    # Set Python 3.11 as default using alternatives system
     - RUN alternatives --install /usr/bin/unversioned-python python /usr/bin/python3.11 1
     - RUN alternatives --set python /usr/bin/python3.11
     - RUN ln -sf /usr/bin/unversioned-python /usr/bin/python
-    # - RUN  /usr/bin/python -m pip install -U pip setuptools wheel
 
     # Install Ansible collections from pre-downloaded files
     - COPY collections/ /tmp/collections/
     - RUN ansible-galaxy collection install -v --offline -p /usr/share/ansible/collections /tmp/collections/*.tar.gz
-    # - COPY requirements-airgapped.yml /tmp/requirements-airgapped.yml
-    # - RUN if [ -f "/tmp/requirements-airgapped.yml" ]; then ansible-galaxy collection install -r /tmp/requirements-airgapped.yml -p /usr/share/ansible/collections; elif [ -d "/tmp/collections" ] && [ "$(ls -A /tmp/collections)" ]; then echo "Installing collections from local archives..."; find /tmp/collections -name "*.tar.gz" -exec ansible-galaxy collection install {} -p /usr/share/ansible/collections \; || echo "Collection installation failed"; else echo "No collections found to install"; fi
 
     # Ansible configuration
     - ENV ANSIBLE_FORCE_COLOR=1
@@ -185,17 +180,17 @@ additional_build_steps:
     - RUN ansible --version
     - RUN oc version --client
 
-    # Clean up temporary files and caches
-    - RUN rm -Rf /tmp/* /var/cache/dnf /var/cache/yum /tmp/collections /tmp/wheels /tmp/wheels-collections /tmp/requirements-airgapped.txt /tmp/requirements-collections-airgapped.txt
+    # Clean up temporary files and caches - BE SPECIFIC about what to remove
+    - RUN rm -rf /tmp/tools /tmp/awscliv2.zip /tmp/google-cloud-sdk.tar.gz /tmp/collections /tmp/wheels /tmp/wheels-collections /tmp/requirements-airgapped.txt /tmp/requirements-collections-airgapped.txt
+    - RUN dnf clean all
     - RUN python -m pip cache purge
 
     # Set working directory
     - WORKDIR /workspace
 
-    # Create non-root user for security
+    # Create non-root user for security but DON'T switch to it yet
     - RUN useradd -m -s /bin/bash ansible
     - RUN chown -R ansible:ansible /workspace /logs
-    - USER ansible
 
-# Note: Custom build arguments removed as they are not supported by ansible-builder
-# The build process uses the additional_build_steps for customization
+    # DO NOT switch to non-root user here - let ansible-builder handle final cleanup as root
+    # The USER directive will be handled by ansible-builder's final steps

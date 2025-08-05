@@ -62,7 +62,7 @@
         - name: "Check ansible-runner installation"
           ansible.builtin.command:
             cmd: >-
-              python3 -c "import ansible_runner; print('ansible-runner version: ' + ansible_runner.__version__)"
+              python3 -c "from ansible_runner.utils.importlib_compat import importlib_metadata; importlib_metadata.version('ansible_runner')"
           register: ansible_runner_check
           changed_when: false
 

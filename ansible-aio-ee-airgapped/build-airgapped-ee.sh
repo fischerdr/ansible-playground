@@ -121,25 +121,25 @@ check_dependencies() {
     fi
     
     # Check for requirements files
-    if [[ -f "requirements-airgapped.txt" ]]; then
-        print_success "✓ requirements-airgapped.txt"
+    if [[ -f "requirements.txt" ]]; then
+        print_success "✓ requirements.txt"
     else
-        print_error "✗ requirements-airgapped.txt missing"
+        print_error "✗ requirements.txt missing"
         missing_deps=$((missing_deps + 1))
     fi
     
-    if [[ -f "requirements-airgapped.yml" ]]; then
-        print_success "✓ requirements-airgapped.yml"
+    if [[ -f "requirements.yml" ]]; then
+        print_success "✓ requirements.yml"
     else
-        print_error "✗ requirements-airgapped.yml missing"
+        print_error "✗ requirements.yml missing"
         missing_deps=$((missing_deps + 1))
     fi
     
     # Check for collection requirements file
-    if [[ -f "requirements-collections-airgapped.txt" ]]; then
-        print_success "✓ requirements-collections-airgapped.txt"
+    if [[ -f "requirements-collections.txt" ]]; then
+        print_success "✓ requirements-collections.txt"
     else
-        print_warning "⚠ requirements-collections-airgapped.txt missing (collection dependencies may not be complete)"
+        print_warning "⚠ requirements-collections.txt missing (collection dependencies may not be complete)"
     fi
     
     # Check for EE definition file
@@ -208,7 +208,7 @@ prepare_build_context() {
     done
     
     # Copy requirements files
-    for req_file in requirements-airgapped.txt requirements-airgapped.yml requirements-collections-airgapped.txt; do
+    for req_file in requirements.txt requirements.yml requirements-collections.txt; do
         if [[ -f "$req_file" ]]; then
             print_status "Copying $req_file to context directory..."
             cp "$req_file" context/
@@ -410,11 +410,11 @@ RUN cd /root && \
     ln -s /root/google-cloud-sdk/bin/bq /usr/local/bin/bq
 
 # Copy requirements files (Layer 6: Requirements)
-COPY requirements-airgapped.txt /tmp/requirements-airgapped.txt
-COPY requirements-airgapped.yml /tmp/requirements-airgapped.yml
+COPY requirements.txt /tmp/requirements.txt
+COPY requirements.yml /tmp/requirements.yml
 
 # Copy collection requirements if available
-COPY requirements-collections-airgapped.txt /tmp/requirements-collections-airgapped.txt
+COPY requirements-collections.txt /tmp/requirements-collections.txt
 
 # Copy local wheels if available (Layer 7: Local wheels)
 COPY wheels/ /tmp/wheels/
@@ -424,10 +424,10 @@ COPY wheels-collections/ /tmp/wheels-collections/
 
 # Install Python dependencies (Layer 8: Python packages)
 # Install collection dependencies first (they may be needed by main requirements)
-RUN if [ -s "/tmp/requirements-collections-airgapped.txt" ] && [ -d "/tmp/wheels-collections" ] && [ "$(ls -A /tmp/wheels-collections)" ]; then \
+RUN if [ -s "/tmp/requirements-collections.txt" ] && [ -d "/tmp/wheels-collections" ] && [ "$(ls -A /tmp/wheels-collections)" ]; then \
         echo "Installing collection dependencies from local wheels..."; \
-        python -m pip install --no-index --find-links /tmp/wheels-collections -r /tmp/requirements-collections-airgapped.txt; \
-    elif [ -s "/tmp/requirements-collections-airgapped.txt" ]; then \
+        python -m pip install --no-index --find-links /tmp/wheels-collections -r /tmp/requirements-collections.txt; \
+    elif [ -s "/tmp/requirements-collections.txt" ]; then \
         echo "Collection dependency wheels not found, attempting online install..."; \
         python -m pip install -r /tmp/requirements-collections-airgapped.txt || echo "Collection dependencies installation failed - may not be fully offline"; \
     else \
@@ -437,10 +437,10 @@ RUN if [ -s "/tmp/requirements-collections-airgapped.txt" ] && [ -d "/tmp/wheels
 # Install main requirements
 RUN if [ -d "/tmp/wheels" ] && [ "$(ls -A /tmp/wheels)" ]; then \
         echo "Installing main requirements from local wheels..."; \
-        python -m pip install --no-index --find-links /tmp/wheels -r /tmp/requirements-airgapped.txt; \
+        python -m pip install --no-index --find-links /tmp/wheels -r /tmp/requirements.txt; \
     else \
         echo "Main requirement wheels not found, attempting online install..."; \
-        python -m pip install -r /tmp/requirements-airgapped.txt; \
+        python -m pip install -r /tmp/requirements.txt; \
     fi
 
 # Copy and install Ansible collections (Layer 9: Collections)
@@ -448,10 +448,10 @@ COPY collections/ /tmp/collections/
 RUN if [ -d "/tmp/collections" ] && [ "$(ls -A /tmp/collections)" ]; then \
         echo "Installing collections from local archives..."; \
         find /tmp/collections -name "*.tar.gz" -exec ansible-galaxy collection install {} -p /usr/share/ansible/collections \; || \
-        ansible-galaxy collection install -r /tmp/requirements-airgapped.yml -p /usr/share/ansible/collections; \
+        ansible-galaxy collection install -r /tmp/requirements.yml -p /usr/share/ansible/collections; \
     else \
         echo "No local collections found, installing from requirements..."; \
-        ansible-galaxy collection install -r /tmp/requirements-airgapped.yml -p /usr/share/ansible/collections; \
+        ansible-galaxy collection install -r /tmp/requirements.yml -p /usr/share/ansible/collections; \
     fi
 
 # Remove old Python versions and clean up (Layer 10: Cleanup)

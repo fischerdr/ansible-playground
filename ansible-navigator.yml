@@ -9,14 +9,10 @@ ansible-navigator:
     enabled: true
     container-engine: podman
     # Use the enhanced AIO EE with collection dependencies
-    image: localhost/ansible-aio-ee:latest
+    # image: localhost/ansible-aio-ee:latest
+    image: ansible-minimal-ee:v0.0.1
     pull:
       policy: missing
-    
-    # Mount project directory for development
-    container-options:
-      - "--volume=${PWD}:/workspace:Z"
-      - "--workdir=/workspace"
 
   # Ansible settings
   ansible:
@@ -27,13 +23,13 @@ ansible-navigator:
   # Playbook run settings
   playbook-artifact:
     enable: true
-    save-as: "{playbook_dir}/{playbook_name}-artifact-{time_stamp}.json"
+    save-as: "tmp/{playbook_name}-artifact-{time_stamp}.json"
 
   # Logging settings
   logging:
     level: debug
     append: false
-    file: "./logs/ansible-navigator-{time_stamp}.log"
+    file: "./logs/ansible-navigator.log"
 
   # User Interface mode (interactive, stdout, or json)
   mode: interactive

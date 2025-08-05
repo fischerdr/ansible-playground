@@ -223,10 +223,10 @@ EOF
         cd ..
         if [[ "$VERBOSE" == "true" ]]; then
             podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
-                bash -c "cd /workspace && /usr/bin/unversioned-python scripts/update_collection_requirements.py --collections-dir ansible-aio-ee-airgapped/temp-collections --output ansible-aio-ee-airgapped/requirements-collections-airgapped.txt"
+                bash -c "cd /workspace && /usr/bin/unversioned-python scripts/update_collection_requirements.py --collections-dir ansible-aio-ee-airgapped/temp-collections --output ansible-aio-ee-airgapped/requirements-collections.txt"
         else
             podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
-                bash -c "cd /workspace && /usr/bin/unversioned-python scripts/update_collection_requirements.py --collections-dir ansible-aio-ee-airgapped/temp-collections --output ansible-aio-ee-airgapped/requirements-collections-airgapped.txt" >/dev/null 2>&1
+                bash -c "cd /workspace && /usr/bin/unversioned-python scripts/update_collection_requirements.py --collections-dir ansible-aio-ee-airgapped/temp-collections --output ansible-aio-ee-airgapped/requirements-collections.txt" >/dev/null 2>&1
         fi
         cd ansible-aio-ee-airgapped
         
@@ -241,8 +241,8 @@ EOF
         print_status "Creating minimal collection requirements file..."
         
         # Create a basic collection requirements file based on installed collections
-        cat > requirements-collections-airgapped.txt << 'EOF'
-# requirements-collections-airgapped.txt
+        cat > requirements-collections.txt << 'EOF'
+# requirements-collections.txt
 # Minimal collection dependencies for air-gapped build
 # This file should be updated after installing collections
 
@@ -305,22 +305,22 @@ EOF
     print_status "Downloading main requirement wheels with Python 3.11..."
     if [[ "$VERBOSE" == "true" ]]; then
         podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
-            bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r requirements-airgapped.txt -d $WHEELS_DIR/"
+            bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r requirements.txt -d $WHEELS_DIR/"
     else
         podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
-            bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r requirements-airgapped.txt -d $WHEELS_DIR/" >/dev/null 2>&1
+            bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r requirements.txt -d $WHEELS_DIR/" >/dev/null 2>&1
     fi
     
     # Download wheels for collection dependencies if file exists
-    if [[ -f "requirements-collections-airgapped.txt" ]]; then
+    if [[ -f "requirements-collections.txt" ]]; then
         print_status "Downloading collection dependency wheels with Python 3.11..."
         if [[ "$VERBOSE" == "true" ]]; then
             podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
-                bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r requirements-collections-airgapped.txt -d $WHEELS_COLLECTIONS_DIR/" || \
+                bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r requirements-collections.txt -d $WHEELS_COLLECTIONS_DIR/" || \
                 print_warning "Some collection dependency wheels may not be available"
         else
             podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
-                bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r requirements-collections-airgapped.txt -d $WHEELS_COLLECTIONS_DIR/" >/dev/null 2>&1 || \
+                bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r requirements-collections.txt -d $WHEELS_COLLECTIONS_DIR/" >/dev/null 2>&1 || \
                 print_warning "Some collection dependency wheels may not be available"
         fi
     fi
@@ -357,14 +357,14 @@ download_collections() {
     
     # Download collections to local directory
     # Try local requirements first, then fall back to main project requirements
-    if [[ -f "requirements-airgapped.yml" ]]; then
-        print_status "Using local requirements-airgapped.yml..."
-        ansible-galaxy collection download -r requirements-airgapped.yml -p "$COLLECTIONS_DIR/"
+    if [[ -f "requirements.yml" ]]; then
+        print_status "Using local requirements.yml..."
+        ansible-galaxy collection download -r requirements.yml -p "$COLLECTIONS_DIR/"
     elif [[ -f "../requirements.yml" ]]; then
         print_status "Using main project requirements.yml..."
         ansible-galaxy collection download -r ../requirements.yml -p "$COLLECTIONS_DIR/"
     else
-        print_error "No requirements.yml file found (checked requirements-airgapped.yml and ../requirements.yml)"
+        print_error "No requirements.yml file found (checked requirements.yml and ../requirements.yml)"
         return 1
     fi
     

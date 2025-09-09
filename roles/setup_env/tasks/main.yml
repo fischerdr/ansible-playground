@@ -1,0 +1,79 @@
+---
+# Main tasks file for setup_env role
+# Purpose: Configure Kubernetes environment by retrieving kubeconfig and SSH private key from Vault
+# Dependencies: kubernetes.core and community.hashi_vault collections
+# Variables: cluster_name, kubeconfig_dir, vault_token, vault_token_file, inventory_url
+
+- name: "Validate required variables are defined"
+  ansible.builtin.assert:
+    that:
+      - cluster_name is defined
+      - cluster_name | string | length > 0
+    fail_msg: "Required variable 'cluster_name' is not defined or empty"
+    success_msg: "All required variables validated successfully"
+  tags:
+    - validation
+    - always
+
+- name: "Validate cluster name format"
+  ansible.builtin.assert:
+    that:
+      - cluster_name is match(cluster_name_with_zone_pattern) or cluster_name is match(cluster_name_without_zone_pattern)
+    fail_msg: |
+      Invalid cluster name format. Expected formats:
+      - With zone: <cluster_user>-<platform>-<env>-<region><zone>-<id>
+      - Without zone: <cluster_user>-<platform>-<env>-<region>-<id>
+      Provided: {{ cluster_name }}
+    success_msg: "Cluster name format is valid"
+  tags:
+    - validation
+    - always
+
+# No external tools required - using Ansible built-in modules
+
+- name: "Parse cluster name and configure variables"
+  ansible.builtin.include_tasks:
+    file: parse_cluster_name.yml
+  tags:
+    - cluster_setup
+    - variables
+
+- name: "Retrieve inventory data and configure Vault"
+  ansible.builtin.include_tasks:
+    file: configure_vault.yml
+  tags:
+    - vault
+    - inventory
+
+- name: "Retrieve credentials from Vault"
+  ansible.builtin.include_tasks:
+    file: retrieve_credentials.yml
+  tags:
+    - vault
+    - credentials
+
+- name: "Write credentials to files"
+  ansible.builtin.include_tasks:
+    file: write_credentials.yml
+  tags:
+    - files
+    - credentials
+
+- name: "Test kubeconfig connection"
+  ansible.builtin.include_tasks:
+    file: test_connection.yml
+  tags:
+    - testing
+    - validation
+
+- name: "Display setup completion status"
+  ansible.builtin.debug:
+    msg: |
+      SUCCESS: Successfully configured Kubernetes environment for {{ cluster_name }}
+      Kubeconfig location: {{ kubeconfig_path }}
+      SSH Key location: {{ ssh_key_path }}
+
+      To use this configuration, you can run:
+      export KUBECONFIG={{ kubeconfig_path }}
+  tags:
+    - completion

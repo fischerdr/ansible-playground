@@ -1,0 +1,30 @@
+---
+galaxy_info:
+  author: Ansible Playground Team
+  description: Configure Kubernetes environment by retrieving kubeconfig and SSH private key from Vault
+  company: Ansible Playground
+  license: GPLv2
+  min_ansible_version: '2.9'
+  platforms:
+    - name: EL
+      versions:
+        - '7'
+        - '8'
+        - '9'
+    - name: Ubuntu
+      versions:
+        - bionic   # 18.04
+        - focal    # 20.04
+        - jammy    # 22.04
+  galaxy_tags:
+    - kubernetes
+    - vault
+    - kubeconfig
+    - ssh
+    - environment
+    - setup
+
+dependencies: []
+collections:
+  - kubernetes.core
+  - community.hashi_vault

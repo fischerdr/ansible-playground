@@ -1,0 +1,58 @@
+---
+# Configure Vault settings based on inventory data
+# Purpose: Retrieve inventory data and configure Vault connection parameters
+
+- name: "Retrieve cluster information from inventory service"
+  ansible.builtin.uri:
+    url: "{{ inventory_url }}/{{ cluster_name }}"
+    method: GET
+    headers:
+      Accept: "application/json"
+    validate_certs: "{{ validate_certs }}"
+    ca_path: "{{ ca_cert_path if validate_certs else omit }}"
+    timeout: 30
+  register: inventory_response
+  failed_when: inventory_response.status != 200
+  tags:
+    - vault
+    - inventory
+
+- name: "Check if platform Vault configuration exists in inventory"
+  ansible.builtin.set_fact:
+    platform_vault_exists: "{{ inventory_response.json.kubernetes_platform.secrets_management.platform_vault[0] is defined }}"
+  tags:
+    - vault
+    - inventory
+
+- name: "Configure Vault using platform configuration from inventory"
+  ansible.builtin.set_fact:
+    vault_address: "{{ inventory_response.json.kubernetes_platform.secrets_management.platform_vault[0].address }}"
+    vault_namespace: "{{ inventory_response.json.kubernetes_platform.secrets_management.platform_vault[0].namespace }}"
+    vault_mount_point: "{{ inventory_response.json.kubernetes_platform.secrets_management.platform_vault[0].default_path.split('/')[0] }}"
+    vault_default_path: "{{ inventory_response.json.kubernetes_platform.secrets_management.platform_vault[0].default_path.split('/')[1:] | join('/') }}"
+  when: platform_vault_exists | bool
+  tags:
+    - vault
+    - inventory
+
+- name: "Configure Vault using default configuration based on environment"
+  ansible.builtin.set_fact:
+    vault_address: "{{ vault_prod_address if cluster_env == 'prod' else vault_test_address if cluster_env == 'test' else vault_eng_address if cluster_env == 'dev' and cluster_user == 'eng' else vault_dev_address }}"
+    vault_default_path: "{{ cluster_user }}/{{ cluster_name }}"
+  when: not (platform_vault_exists | bool)
+  tags:
+    - vault
+    - inventory
+
+- name: "Display Vault configuration"
+  ansible.builtin.debug:
+    msg: |
+      Vault configuration:
+        Address: {{ vault_address }}
+        Namespace: {{ vault_namespace }}
+        Mount Point: {{ vault_mount_point }}
+        Default Path: {{ vault_default_path }}
+  when: debug_mode | bool
+  tags:
+    - vault
+    - debug

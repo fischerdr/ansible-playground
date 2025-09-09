@@ -1,0 +1,96 @@
+---
+# Test kubeconfig connection
+# Purpose: Verify that the retrieved kubeconfig can successfully connect to the cluster
+
+- name: "Test kubeconfig connection with comprehensive validation"
+  block:
+    - name: "Test kubeconfig connection by listing nodes"
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+        kubeconfig: "{{ kubeconfig_path | default(kubeconfig_data | from_yaml) }}"
+        validate_certs: "{{ validate_certs }}"
+      register: node_test_result
+      ignore_errors: true
+      no_log: true
+      tags:
+        - testing
+        - validation
+
+    - name: "Test kubeconfig connection by listing pods"
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: default
+        kubeconfig: "{{ kubeconfig_path | default(kubeconfig_data | from_yaml) }}"
+        validate_certs: "{{ validate_certs }}"
+      register: pod_test_result
+      ignore_errors: true
+      no_log: true
+      tags:
+        - testing
+        - validation
+
+    - name: "Display successful node connection information"
+      ansible.builtin.debug:
+        msg: |
+          Successfully connected to cluster using kubeconfig
+          Found {{ node_test_result.resources | length }} nodes in the cluster
+          Node names: {{ node_test_result.resources | map(attribute='metadata.name') | list }}
+      when: node_test_result is not failed
+      tags:
+        - testing
+        - validation
+
+    - name: "Display successful pod connection information"
+      ansible.builtin.debug:
+        msg: |
+          Successfully connected to cluster using kubeconfig
+          Found {{ pod_test_result.resources | length }} pods in default namespace
+          Pod names: {{ pod_test_result.resources | map(attribute='metadata.name') | list }}
+      when: pod_test_result is not failed
+      tags:
+        - testing
+        - validation
+
+  rescue:
+    - name: "Log connection test failure details"
+      ansible.builtin.debug:
+        msg: |
+          Connection test failed:
+          - Node test: {{ 'FAILED' if node_test_result is failed else 'SUCCESS' }}
+          - Pod test: {{ 'FAILED' if pod_test_result is failed else 'SUCCESS' }}
+          - Node error: {{ node_test_result.msg | default('N/A') }}
+          - Pod error: {{ pod_test_result.msg | default('N/A') }}
+      tags:
+        - testing
+        - validation
+
+    - name: "Set connection test failure flag"
+      ansible.builtin.set_fact:
+        connection_test_failed: true
+      tags:
+        - testing
+        - validation
+
+  always:
+    - name: "Verify at least one connection test succeeded"
+      ansible.builtin.assert:
+        that:
+          - node_test_result is not failed or pod_test_result is not failed
+        fail_msg: |
+          Both connection tests failed:
+          - Node test error: {{ node_test_result.msg | default('Unknown error') }}
+          - Pod test error: {{ pod_test_result.msg | default('Unknown error') }}
+          Please verify the kubeconfig is valid and the cluster is accessible.
+        success_msg: "At least one connection test succeeded - cluster is accessible"
+      tags:
+        - testing
+        - validation
+
+    - name: "Log connection test completion"
+      ansible.builtin.debug:
+        msg: "Kubeconfig connection test completed with status: {{ 'SUCCESS' if connection_test_failed | default(false) == false else 'FAILED' }}"
+      tags:
+        - testing
+        - validation

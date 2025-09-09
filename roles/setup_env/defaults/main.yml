@@ -1,0 +1,39 @@
+---
+# Default variables for setup_env role
+# These can be overridden by group_vars, host_vars, or playbook variables
+
+# Vault configuration
+vault_token_file: "{{ ansible_env.HOME }}/.vault-token"
+vault_prod_address: "https://vault-prod.example.com"
+vault_dev_address: "https://vault-dev.example.com"
+vault_test_address: "https://vault-test.example.com"
+vault_eng_address: "https://vault-eng.example.com"
+vault_namespace: "automation"
+vault_mount_point: "secret"
+
+# Inventory service configuration
+inventory_url: "https://inventory.example.com"
+
+# SSL/TLS configuration
+validate_certs: true
+ca_cert_path: "/etc/ssl/certs/ca-certificates.crt"
+
+# Output configuration
+kubeconfig_dir: "kube_configs"
+
+# Debug configuration
+debug_mode: false
+
+# Cluster name format validation patterns
+cluster_name_with_zone_pattern: '^[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+[abc]-[a-z0-9]+$'
+cluster_name_without_zone_pattern: '^[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-z0-9]+$'
+
+# Environment mapping for cluster name parsing
+cluster_env_mapping:
+  p: "prod"
+  t: "test"
+  d: "dev"
+
+# File permissions
+kubeconfig_file_mode: '0600'
+ssh_key_file_mode: '0600'

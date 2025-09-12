@@ -78,40 +78,58 @@ additional_build_steps:
     - RUN dnf -y install dnf-utils unzip
     - RUN dnf config-manager --set-enabled crb || dnf config-manager --set-enabled powertools || true
 
-    # Create directories for local tools EARLY
-    - RUN mkdir -p /tmp/tools /usr/local/bin
+    # Create directories for tools EARLY
+    - RUN mkdir -p /usr/local/bin
 
     # Install all tools BEFORE bindep introspection runs
-    # Copy local tool binaries (these need to be provided in tools/ directory)
-    - COPY tools/kubectl /usr/local/bin/kubectl
-    - RUN chmod +x /usr/local/bin/kubectl
+    # Download tools from artifactory repository
+    - RUN curl -L https://artifactory.company.com/repository/tools/kubectl -o /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl || echo "kubectl download failed - may be offline"
 
-    - COPY tools/helm /usr/local/bin/helm
-    - RUN chmod +x /usr/local/bin/helm
+    # Download and install Helm
+    - RUN curl -L https://artifactory.company.com/repository/tools/helm-v3.14.4-linux-amd64.tar.gz -o /tmp/helm.tar.gz && \
+      cd /tmp && tar xzf helm.tar.gz && \
+      mv linux-amd64/helm /usr/local/bin/helm && \
+      chmod +x /usr/local/bin/helm && \
+      rm -rf linux-amd64 helm.tar.gz || echo "Helm download failed - may be offline"
 
-    - COPY tools/terraform /usr/local/bin/terraformall,
-    - RUN chmod +x /usr/local/bin/terraform
+    # Download and install Terraform
+    - RUN curl -L https://artifactory.company.com/repository/tools/terraform_1.7.5_linux_amd64.zip -o /tmp/terraform.zip && \
+      cd /tmp && unzip terraform.zip && \
+      mv terraform /usr/local/bin/terraform && \
+      chmod +x /usr/local/bin/terraform && \
+      rm terraform.zip || echo "Terraform download failed - may be offline"
 
-    - COPY tools/oc /usr/local/bin/oc
-    - RUN chmod +x /usr/local/bin/oc
+    # Download and install OpenShift CLI
+    - RUN curl -L https://artifactory.company.com/repository/tools/openshift-client-linux.tar.gz -o /tmp/oc.tar.gz && \
+      cd /tmp && tar xzf oc.tar.gz && \
+      mv oc /usr/local/bin/oc && \
+      chmod +x /usr/local/bin/oc && \
+      rm oc.tar.gz || echo "OpenShift CLI download failed - may be offline"
 
-    - COPY tools/vault /usr/local/bin/vault
-    - RUN chmod +x /usr/local/bin/vault
+    # Download and install HashiCorp Vault CLI
+    - RUN curl -L https://artifactory.company.com/repository/tools/vault_1.15.6_linux_amd64.zip -o /tmp/vault.zip && \
+      cd /tmp && unzip vault.zip && \
+      mv vault /usr/local/bin/vault && \
+      chmod +x /usr/local/bin/vault && \
+      rm vault.zip || echo "Vault CLI download failed - may be offline"
 
     # Install yq manually since it's not available in UBI8
-    - RUN curl -L https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq || echo "yq installation failed - may be offline"
+    - RUN curl -L https://artifactory.company.com/repository/tools/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq || echo "yq download failed - may be offline"
 
-    # Install AWS CLI from local archive
-    - COPY tools/awscliv2.zip /tmp/awscliv2.zip
-    - RUN cd /tmp && unzip awscliv2.zip && ./aws/install && rm -rf aws awscliv2.zip
+    # Download and install AWS CLI from artifactory
+    - RUN curl -L https://artifactory.company.com/repository/tools/awscliv2.zip -o /tmp/awscliv2.zip && \
+      cd /tmp && unzip awscliv2.zip && \
+      ./aws/install && \
+      rm -rf aws awscliv2.zip || echo "AWS CLI download failed - may be offline"
 
-    # Install Google Cloud SDK from local archive
-    - COPY tools/google-cloud-sdk.tar.gz /tmp/google-cloud-sdk.tar.gz
-    - RUN cd /root && tar xzf /tmp/google-cloud-sdk.tar.gz && rm /tmp/google-cloud-sdk.tar.gz
-    - RUN /root/google-cloud-sdk/install.sh --quiet --usage-reporting=false --path-update=false
-    - RUN ln -s /root/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud
-    - RUN ln -s /root/google-cloud-sdk/bin/gsutil /usr/local/bin/gsutil
-    - RUN ln -s /root/google-cloud-sdk/bin/bq /usr/local/bin/bq
+    # Download and install Google Cloud SDK from artifactory
+    - RUN curl -L https://artifactory.company.com/repository/tools/google-cloud-sdk.tar.gz -o /tmp/google-cloud-sdk.tar.gz && \
+      cd /root && tar xzf /tmp/google-cloud-sdk.tar.gz && \
+      rm /tmp/google-cloud-sdk.tar.gz && \
+      /root/google-cloud-sdk/install.sh --quiet --usage-reporting=false --path-update=false && \
+      ln -s /root/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud && \
+      ln -s /root/google-cloud-sdk/bin/gsutil /usr/local/bin/gsutil && \
+      ln -s /root/google-cloud-sdk/bin/bq /usr/local/bin/bq || echo "Google Cloud SDK download failed - may be offline"
 
     # Update PATH to include all tools for subsequent steps
     - ENV PATH="/usr/local/bin:/root/google-cloud-sdk/bin:${PATH}"
@@ -181,7 +199,7 @@ additional_build_steps:
     - RUN oc version --client
 
     # Clean up temporary files and caches - BE SPECIFIC about what to remove
-    - RUN rm -rf /tmp/tools /tmp/awscliv2.zip /tmp/google-cloud-sdk.tar.gz /tmp/collections /tmp/wheels /tmp/wheels-collections /tmp/requirements.txt /tmp/requirements-collections.txt
+    - RUN rm -rf /tmp/helm.tar.gz /tmp/terraform.zip /tmp/oc.tar.gz /tmp/vault.zip /tmp/awscliv2.zip /tmp/google-cloud-sdk.tar.gz /tmp/collections /tmp/wheels /tmp/wheels-collections /tmp/requirements.txt /tmp/requirements-collections.txt
     - RUN dnf clean all
     - RUN python -m pip cache purge
 

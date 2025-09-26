@@ -83,53 +83,55 @@ additional_build_steps:
 
     # Install all tools BEFORE bindep introspection runs
     # Download tools from artifactory repository
-    - RUN curl -L https://artifactory.company.com/repository/tools/kubectl -o /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl || echo "kubectl download failed - may be offline"
+    - RUN curl -L https://artifactory.company.com/repository/tools/kubectl -o /usr/local/bin/kubectl
+    - RUN chmod +x /usr/local/bin/kubectl
 
     # Download and install Helm
-    - RUN curl -L https://artifactory.company.com/repository/tools/helm-v3.14.4-linux-amd64.tar.gz -o /tmp/helm.tar.gz && \
-      cd /tmp && tar xzf helm.tar.gz && \
-      mv linux-amd64/helm /usr/local/bin/helm && \
-      chmod +x /usr/local/bin/helm && \
-      rm -rf linux-amd64 helm.tar.gz || echo "Helm download failed - may be offline"
+    - RUN curl -L https://artifactory.company.com/repository/tools/helm-v3.14.4-linux-amd64.tar.gz -o /tmp/helm.tar.gz
+    - RUN cd /tmp && tar xzf helm.tar.gz
+    - RUN mv linux-amd64/helm /usr/local/bin/helm
+    - RUN chmod +x /usr/local/bin/helm
+    - RUN rm -rf linux-amd64 helm.tar.gz
 
     # Download and install Terraform
-    - RUN curl -L https://artifactory.company.com/repository/tools/terraform_1.7.5_linux_amd64.zip -o /tmp/terraform.zip && \
-      cd /tmp && unzip terraform.zip && \
-      mv terraform /usr/local/bin/terraform && \
-      chmod +x /usr/local/bin/terraform && \
-      rm terraform.zip || echo "Terraform download failed - may be offline"
+    - RUN curl -L https://artifactory.company.com/repository/tools/terraform_1.7.5_linux_amd64.zip -o /tmp/terraform.zip
+    - RUN cd /tmp && unzip terraform.zip
+    - RUN mv terraform /usr/local/bin/terraform
+    - RUN chmod +x /usr/local/bin/terraform
+    - RUN rm terraform.zip
 
     # Download and install OpenShift CLI
-    - RUN curl -L https://artifactory.company.com/repository/tools/openshift-client-linux.tar.gz -o /tmp/oc.tar.gz && \
-      cd /tmp && tar xzf oc.tar.gz && \
-      mv oc /usr/local/bin/oc && \
-      chmod +x /usr/local/bin/oc && \
-      rm oc.tar.gz || echo "OpenShift CLI download failed - may be offline"
+    - RUN curl -L https://artifactory.company.com/repository/tools/openshift-client-linux.tar.gz -o /tmp/oc.tar.gz
+    - RUN cd /tmp && tar xzf oc.tar.gz
+    - RUN mv oc /usr/local/bin/oc
+    - RUN chmod +x /usr/local/bin/oc
+    - RUN rm oc.tar.gz
 
     # Download and install HashiCorp Vault CLI
-    - RUN curl -L https://artifactory.company.com/repository/tools/vault_1.15.6_linux_amd64.zip -o /tmp/vault.zip && \
-      cd /tmp && unzip vault.zip && \
-      mv vault /usr/local/bin/vault && \
-      chmod +x /usr/local/bin/vault && \
-      rm vault.zip || echo "Vault CLI download failed - may be offline"
+    - RUN curl -L https://artifactory.company.com/repository/tools/vault_1.15.6_linux_amd64.zip -o /tmp/vault.zip
+    - RUN cd /tmp && unzip vault.zip
+    - RUN mv vault /usr/local/bin/vault
+    - RUN chmod +x /usr/local/bin/vault
+    - RUN rm vault.zip
 
     # Install yq manually since it's not available in UBI8
-    - RUN curl -L https://artifactory.company.com/repository/tools/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq || echo "yq download failed - may be offline"
+    - RUN curl -L https://artifactory.company.com/repository/tools/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq
 
     # Download and install AWS CLI from artifactory
-    - RUN curl -L https://artifactory.company.com/repository/tools/awscliv2.zip -o /tmp/awscliv2.zip && \
-      cd /tmp && unzip awscliv2.zip && \
-      ./aws/install && \
-      rm -rf aws awscliv2.zip || echo "AWS CLI download failed - may be offline"
+    - RUN curl -L https://artifactory.company.com/repository/tools/awscliv2.zip -o /tmp/awscliv2.zip
+    - RUN cd /tmp && unzip awscliv2.zip
+    - RUN ./aws/install
+    - RUN rm -rf aws awscliv2.zip
 
     # Download and install Google Cloud SDK from artifactory
-    - RUN curl -L https://artifactory.company.com/repository/tools/google-cloud-sdk.tar.gz -o /tmp/google-cloud-sdk.tar.gz && \
-      cd /root && tar xzf /tmp/google-cloud-sdk.tar.gz && \
-      rm /tmp/google-cloud-sdk.tar.gz && \
-      /root/google-cloud-sdk/install.sh --quiet --usage-reporting=false --path-update=false && \
-      ln -s /root/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud && \
-      ln -s /root/google-cloud-sdk/bin/gsutil /usr/local/bin/gsutil && \
-      ln -s /root/google-cloud-sdk/bin/bq /usr/local/bin/bq || echo "Google Cloud SDK download failed - may be offline"
+    - RUN curl -L https://artifactory.company.com/repository/tools/google-cloud-sdk.tar.gz -o /tmp/google-cloud-sdk.tar.gz
+    - RUN mkdir -p /opt/google-cloud-sdk
+    - RUN tar xzf /tmp/google-cloud-sdk.tar.gz -C /opt/google-cloud-sdk --strip-components=1
+    - RUN /opt/google-cloud-sdk/install.sh --quiet --usage-reporting=false --path-update=false
+    - RUN ln -sf /opt/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud
+    - RUN ln -sf /opt/google-cloud-sdk/bin/gsutil /usr/local/bin/gsutil
+    - RUN ln -sf /opt/google-cloud-sdk/bin/bq /usr/local/bin/bq
+    - RUN rm -f /tmp/google-cloud-sdk.tar.gz
 
     # Update PATH to include all tools for subsequent steps
     - ENV PATH="/usr/local/bin:/root/google-cloud-sdk/bin:${PATH}"
@@ -141,12 +143,14 @@ additional_build_steps:
     # Install collection-specific requirements from local wheels
     - COPY requirements-collections.txt /tmp/requirements-collections.txt
     - COPY wheels-collections/ /tmp/wheels-collections/
-    - RUN if [ -d "/tmp/wheels-collections" ] && [ "$(ls -A /tmp/wheels-collections)" ]; then python3.11 -m pip install --no-index --find-links /tmp/wheels-collections -r /tmp/requirements-collections.txt; else echo "No collection dependency wheels found, attempting online install..."; python3.11 -m pip install -r /tmp/requirements-collections.txt || echo "Collection dependencies installation failed - may not be fully offline"; fi
+    - RUN if [ -d "/tmp/wheels-collections" ] && [ "$(ls -A /tmp/wheels-collections)" ]; then echo "Installing from local wheels..."; python3.11 -m pip install --no-index --find-links /tmp/wheels-collections -r /tmp/requirements-collections.txt; else echo "No collection dependency wheels found, attempting online install..."; fi
+    - RUN if [ ! -d "/tmp/wheels-collections" ] || [ ! "$(ls -A /tmp/wheels-collections)" ]; then python3.11 -m pip install -r /tmp/requirements-collections.txt; fi
 
     # Install Python packages from local wheels (if available)
     - COPY wheels/ /tmp/wheels/
     - COPY _build/requirements.txt /tmp/requirements.txt
-    - RUN if [ -d "/tmp/wheels" ] && [ "$(ls -A /tmp/wheels)" ]; then python3.11 -m pip install --no-index --find-links /tmp/wheels -r /tmp/requirements.txt; else python3.11 -m pip install -r /tmp/requirements.txt; fi
+    - RUN if [ -d "/tmp/wheels" ] && [ "$(ls -A /tmp/wheels)" ]; then echo "Installing from local wheels..."; python3.11 -m pip install --no-index --find-links /tmp/wheels -r /tmp/requirements.txt; else echo "Installing from online sources..."; fi
+    - RUN if [ ! -d "/tmp/wheels" ] || [ ! "$(ls -A /tmp/wheels)" ]; then python3.11 -m pip install -r /tmp/requirements.txt; fi
 
   append_final:
     # Update system and clean up
@@ -199,7 +203,17 @@ additional_build_steps:
     - RUN oc version --client
 
     # Clean up temporary files and caches - BE SPECIFIC about what to remove
-    - RUN rm -rf /tmp/helm.tar.gz /tmp/terraform.zip /tmp/oc.tar.gz /tmp/vault.zip /tmp/awscliv2.zip /tmp/google-cloud-sdk.tar.gz /tmp/collections /tmp/wheels /tmp/wheels-collections /tmp/requirements.txt /tmp/requirements-collections.txt
+    - RUN rm -rf /tmp/helm.tar.gz
+    - RUN rm -rf /tmp/terraform.zip
+    - RUN rm -rf /tmp/oc.tar.gz
+    - RUN rm -rf /tmp/vault.zip
+    - RUN rm -rf /tmp/awscliv2.zip
+    - RUN rm -rf /tmp/google-cloud-sdk.tar.gz
+    - RUN rm -rf /tmp/collections
+    - RUN rm -rf /tmp/wheels
+    - RUN rm -rf /tmp/wheels-collections
+    - RUN rm -rf /tmp/requirements.txt
+    - RUN rm -rf /tmp/requirements-collections.txt
     - RUN dnf clean all
     - RUN python -m pip cache purge
 

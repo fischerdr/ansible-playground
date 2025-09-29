@@ -3,23 +3,26 @@ galaxy_info:
   author: pyplayground
   description: Vault multi-namespace monitoring role
   company: pyplayground
-  license: MIT
+  license: GPLv2
   min_ansible_version: "2.9"
   platforms:
     - name: EL
       versions:
-        - 7
-        - 8
-        - 9
+        - '7'
+        - '8'
+        - '9'
     - name: Ubuntu
       versions:
-        - 18.04
-        - 20.04
-        - 22.04
+        - bionic   # 18.04
+        - focal    # 20.04
+        - jammy    # 22.04
   galaxy_tags:
-    - vault
     - kubernetes
+    - vault
+    - vaultmultinamespacemonitor
     - monitoring
-    - security
 
 dependencies: []
+collections:
+  - kubernetes.core
+  - community.general

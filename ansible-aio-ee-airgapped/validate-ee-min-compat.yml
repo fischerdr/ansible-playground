@@ -90,13 +90,13 @@
         - name: "Validate tool availability"
           ansible.builtin.assert:
             that:
-              - "tool.rc == 0"
-            fail_msg: "Required tool {{ tool.item }} is not available in PATH"
-            success_msg: "Tool {{ tool.item }} is available"
+              - "tool_result.rc == 0"
+            fail_msg: "Required tool {{ tool_result.item }} is not available in PATH"
+            success_msg: "Tool {{ tool_result.item }} is available"
           loop: "{{ tool_check.results }}"
           loop_control:
-            loop_var: tool
-            label: "{{ tool.item }}"
+            loop_var: tool_result
+            label: "{{ tool_result.item }}"
 
         - name: "Get tool versions"
           ansible.builtin.shell:
@@ -113,11 +113,11 @@
 
         - name: "Display tool versions"
           ansible.builtin.debug:
-            msg: "{{ tool.item }}: {{ tool.stdout | default('Version check failed') }}"
+            msg: "{{ tool_result.item }}: {{ tool_result.stdout | default('Version check failed') }}"
           loop: "{{ tool_versions.results }}"
           loop_control:
-            loop_var: tool
-            label: "{{ tool.item }}"
+            loop_var: tool_result
+            label: "{{ tool_result.item }}"
 
     - name: "Validate Python packages"
       tags: pypkg
@@ -136,13 +136,13 @@
         - name: "Validate Python packages"
           ansible.builtin.assert:
             that:
-              - "python_package.rc == 0"
-            fail_msg: "Required Python package {{ python_package.item }} is not available"
-            success_msg: "Python package {{ python_package.item }} is available"
+              - "package_result.rc == 0"
+            fail_msg: "Required Python package {{ package_result.item }} is not available"
+            success_msg: "Python package {{ package_result.item }} is available"
           loop: "{{ python_package_check.results }}"
           loop_control:
-            loop_var: python_package
-            label: "{{ python_package.item }}"
+            loop_var: package_result
+            label: "{{ package_result.item }}"
 
     - name: "Test cloud SDK functionality"
       tags: cloudsdk

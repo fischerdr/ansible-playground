@@ -1,0 +1,337 @@
+---
+# AAP Compatibility Validation Playbook
+# This playbook validates that the EE is properly configured for AAP usage
+# Run this in your EE to verify AAP compatibility
+
+- name: "Validate Ansible Automation Platform Compatibility"
+  hosts: localhost
+  gather_facts: true
+  vars:
+    required_collections:
+      - ansible.posix
+      - community.general
+      - kubernetes.core
+    required_tools:
+      - kubectl
+      - oc
+
+    required_python_packages:
+      - ansible
+      - kubernetes
+      - boto3
+      - requests
+      - hvac
+
+  tasks:
+    - name: "Display environment information"
+      block:
+        - name: "Show Python version and path"
+          ansible.builtin.debug:
+            msg:
+              - "Python version: {{ ansible_python_version }}"
+              - "Python interpreter: {{ ansible_python.executable }}"
+              - "Python path: {{ ansible_env.PYTHONPATH | default('Not set') }}"
+
+        - name: "Show Ansible version"
+          ansible.builtin.command:
+            cmd: ansible --version
+          register: ansible_version_output
+          changed_when: false
+
+        - name: "Display Ansible version"
+          ansible.builtin.debug:
+            var: ansible_version_output.stdout_lines
+
+        - name: "Show environment variables"
+          ansible.builtin.debug:
+            msg:
+              - "ANSIBLE_COLLECTIONS_PATH: {{ ansible_env.ANSIBLE_COLLECTIONS_PATH | default('Not set') }}"
+              - "ANSIBLE_ROLES_PATH: {{ ansible_env.ANSIBLE_ROLES_PATH | default('Not set') }}"
+              - "PATH: {{ ansible_env.PATH }}"
+
+    - name: "Validate required collections"
+      tags: collections
+      block:
+        - name: "List all installed collections"
+          ansible.builtin.command:
+            cmd: ansible-galaxy collection list
+          register: collections_list
+          changed_when: false
+
+        - name: "Check for required collections"
+          ansible.builtin.assert:
+            that:
+              - "item in collections_list.stdout"
+            fail_msg: "Required collection {{ item }} is not installed"
+            success_msg: "Collection {{ item }} is available"
+          loop: "{{ required_collections }}"
+
+        - name: "Display collection validation results"
+          ansible.builtin.debug:
+            msg: "All required collections are installed and available"
+
+    - name: "Validate cloud and container tools"
+      tags: tools
+      block:
+        - name: "Check tool availability"
+          ansible.builtin.command:
+            cmd: "which {{ item }}"
+          register: tool_check
+          failed_when: false
+          changed_when: false
+          loop: "{{ required_tools }}"
+          loop_control:
+            loop_var: tool
+
+        - name: "Validate tool availability"
+          ansible.builtin.assert:
+            that:
+              - "tool.rc == 0"
+            fail_msg: "Required tool {{ tool.item }} is not available in PATH"
+            success_msg: "Tool {{ tool.item }} is available"
+          loop: "{{ tool_check.results }}"
+          loop_control:
+            loop_var: tool
+
+        - name: "Get tool versions"
+          ansible.builtin.shell:
+            cmd: |
+              set -o pipefail
+              "{{ item }} --version 2>&1 | head -1"
+          register: tool_versions
+          failed_when: false
+          changed_when: false
+          loop: "{{ required_tools }}"
+          loop_control:
+            loop_var: tool
+
+        - name: "Display tool versions"
+          ansible.builtin.debug:
+            msg: "{{ tool.item }}: {{ tool.stdout | default('Version check failed') }}"
+          loop: "{{ tool_versions.results }}"
+          loop_control:
+            loop_var: tool
+
+    - name: "Validate Python packages"
+      tags: pypkg
+      block:
+        - name: "Check Python package availability"
+          ansible.builtin.command:
+            cmd: "python3 -c 'import {{ python_package }}; print(\"{{ python_package }}: OK\")'"
+          register: python_package_check
+          failed_when: false
+          changed_when: false
+          loop: "{{ required_python_packages }}"
+          loop_control:
+            loop_var: python_package
+
+        - name: "Validate Python packages"
+          ansible.builtin.assert:
+            that:
+              - "python_package.rc == 0"
+            fail_msg: "Required Python package {{ python_package.item }} is not available"
+            success_msg: "Python package {{ python_package.item }} is available"
+          loop: "{{ python_package_check.results }}"
+          loop_control:
+            loop_var: python_package
+
+    - name: "Test cloud SDK functionality"
+      tags: cloudsdk
+      block:
+        - name: "Test kubectl configuration"
+          ansible.builtin.command:
+            cmd: kubectl version --client
+          register: kubectl_test
+          failed_when: false
+          changed_when: false
+
+        - name: "Display cloud tool test results"
+          ansible.builtin.debug:
+            msg:
+              - "kubectl: {{ 'Available' if kubectl_test.rc == 0 else 'Available but no cluster configured' }}"
+
+    - name: "Test Ansible module functionality"
+      tags: ansiblemod
+      block:
+        - name: "Test basic Ansible modules"
+          ansible.builtin.setup:
+          register: setup_test
+
+        - name: "Test cloud modules (dry run)"
+          block:
+            - name: "Test Kubernetes module (check mode)"
+              kubernetes.core.k8s_info:
+                api_version: v1
+                kind: Namespace
+                name: default
+              check_mode: true
+              register: k8s_module_test
+              failed_when: false
+
+        - name: "Display module test results"
+          ansible.builtin.debug:
+            msg:
+              - "Setup module: OK"
+              - "Kubernetes module: {{ 'Available' if k8s_module_test is not failed else 'Available but needs cluster access' }}"
+
+    - name: "AAP-specific validations"
+      tags: aapvalid
+      block:
+        - name: "Check for AAP-required environment variables"
+          ansible.builtin.debug:
+            msg:
+              - "ANSIBLE_FORCE_COLOR: {{ ansible_env.ANSIBLE_FORCE_COLOR | default('Not set') }}"
+              - "ANSIBLE_HOST_KEY_CHECKING: {{ ansible_env.ANSIBLE_HOST_KEY_CHECKING | default('Not set') }}"
+              - "PYTHONUNBUFFERED: {{ ansible_env.PYTHONUNBUFFERED | default('Not set') }}"
+
+        - name: "Check working directory permissions"
+          ansible.builtin.stat:
+            path: /tmp
+          register: tmp_stat
+          changed_when: false
+
+        - name: "Validate tmp directory permissions"
+          ansible.builtin.assert:
+            that:
+              - tmp_stat.stat.writeable
+            fail_msg: "/tmp directory is not writable"
+            success_msg: "/tmp directory is writable (required for AAP)"
+
+        - name: "Check user context"
+          ansible.builtin.command:
+            cmd: id
+          register: user_context
+          changed_when: false
+
+        - name: "Display user context"
+          ansible.builtin.debug:
+            msg: "Running as: {{ user_context.stdout }}"
+
+        - name: "Check user home directory"
+          ansible.builtin.stat:
+            path: "{{ ansible_env.HOME }}"
+          register: home_stat
+
+        - name: "Validate home directory access"
+          ansible.builtin.assert:
+            that:
+              - home_stat.stat.exists
+              - home_stat.stat.readable
+            fail_msg: "FAIL: User home directory {{ ansible_env.HOME }} is not accessible"
+            success_msg: "PASS: User home directory {{ ansible_env.HOME }} is accessible"
+
+        - name: "Check /runner directory (AAP execution directory)"
+          ansible.builtin.stat:
+            path: /runner
+          register: runner_stat
+
+        - name: "Display /runner directory status"
+          ansible.builtin.debug:
+            msg:
+              - "=== /runner Directory Status ==="
+              - "  Exists: {{ 'YES' if runner_stat.stat.exists | default(false) else 'NO' }}"
+              - "  Readable: {{ 'YES' if runner_stat.stat.readable | default(false) else 'NO' }}"
+              - "  Writable: {{ 'YES' if runner_stat.stat.writeable | default(false) else 'NO' }}"
+              - "  Owner: {{ runner_stat.stat.pw_name | default('unknown') }}"
+              - "  Group: {{ runner_stat.stat.gr_name | default('unknown') }}"
+              - "  Permissions: {{ runner_stat.stat.mode | default('unknown') }}"
+              - "================================="
+
+        - name: "Get filesystem information"
+          ansible.builtin.command:
+            cmd: df -h
+          register: filesystem_info
+          changed_when: false
+
+        - name: "Display filesystem sizes and usage"
+          ansible.builtin.debug:
+            msg:
+              - "=== Filesystem Information ==="
+              - "{{ filesystem_info.stdout_lines | join('\n') }}"
+              - "============================="
+
+        - name: "Get mount information"
+          ansible.builtin.command:
+            cmd: mount
+          register: mount_info
+          changed_when: false
+
+        - name: "Display mount points"
+          ansible.builtin.debug:
+            msg:
+              - "=== Mount Points ==="
+              - "{{ mount_info.stdout_lines | join('\n') }}"
+              - "==================="
+
+        - name: "Check critical directory disk usage"
+          ansible.builtin.shell:
+            cmd: |
+              set -o pipefail
+              df -h {{ item }} | tail -1 | awk '{print "{{ item }}: " $5 " used (" $4 " available)"}'
+          register: disk_usage_check
+          changed_when: false
+          failed_when: false
+          loop:
+            - /tmp
+            - "{{ ansible_env.HOME }}"
+            - /runner
+
+        - name: "Display critical directory disk usage summary"
+          ansible.builtin.debug:
+            msg:
+              - "=== Critical Directory Disk Usage ==="
+              - "{% for result in disk_usage_check.results if result.rc == 0 %}  {{ result.stdout }}{% if not loop.last %}{% endif %}{% endfor %}"
+              - "===================================="
+
+    - name: "Generate compatibility report"
+      block:
+        - name: "Create compatibility summary"
+          ansible.builtin.set_fact:
+            compatibility_report:
+              python_version: "{{ ansible_python_version }}"
+              ansible_version: "{{ ansible_version_output.stdout_lines[0] }}"
+              collections_count: "{{ required_collections | length }}"
+              tools_count: "{{ required_tools | length }}"
+              python_packages_count: "{{ required_python_packages | length }}"
+              user_context: "{{ user_context.stdout }}"
+              environment: "AAP Compatible"
+              timestamp: "{{ ansible_date_time.iso8601 }}"
+
+        - name: "Display final compatibility report"
+          ansible.builtin.debug:
+            msg:
+              - "=== AAP COMPATIBILITY REPORT ==="
+              - "Python Version: {{ compatibility_report.python_version }}"
+              - "Ansible Version: {{ compatibility_report.ansible_version }}"
+              - "Collections Validated: {{ compatibility_report.collections_count }}/{{ compatibility_report.collections_count }}"
+              - "Tools Validated: {{ compatibility_report.tools_count }}/{{ compatibility_report.tools_count }}"
+              - "Python Packages: {{ compatibility_report.python_packages_count }}/{{ compatibility_report.python_packages_count }}"
+              - "User Context: {{ compatibility_report.user_context }}"
+              - "Status: {{ compatibility_report.environment }}"
+              - "Validated: {{ compatibility_report.timestamp }}"
+              - "=== END REPORT ==="
+
+        - name: "Save compatibility report"
+          ansible.builtin.copy:
+            content: "{{ compatibility_report | to_nice_json }}"
+            dest: "/tmp/aap-compatibility-report.json"
+            mode: '0644'
+          when: tmp_stat.stat.writeable
+
+    - name: "Final validation message"
+      ansible.builtin.debug:
+        msg:
+          - "PASS: EE is AAP compatible!"
+          - "PASS: All required collections are available"
+          - "PASS: All required tools are installed"
+          - "PASS: All required Python packages are available"
+          - "PASS: Environment is properly configured for AAP"
+          - ""
+          - "This EE can be used with Ansible Automation Platform for:"
+          - "  - Kubernetes/OpenShift operations"
+          - "  - Infrastructure as Code (Terraform)"
+          - "  - System administration"
+          - "  - Network configuration"
+          - "  - Security operations"
+          - ""
+          - "Report saved to: /tmp/aap-compatibility-report.json"

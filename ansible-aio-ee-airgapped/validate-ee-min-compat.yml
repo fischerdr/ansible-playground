@@ -61,10 +61,13 @@
         - name: "Check for required collections"
           ansible.builtin.assert:
             that:
-              - "item in collections_list.stdout"
-            fail_msg: "Required collection {{ item }} is not installed"
-            success_msg: "Collection {{ item }} is available"
+              - "collection in collections_list.stdout"
+            fail_msg: "Required collection {{ collection }} is not installed"
+            success_msg: "Collection {{ collection }} is available"
           loop: "{{ required_collections }}"
+          loop_control:
+            loop_var: collection
+            label: "{{ collection }}"
 
         - name: "Display collection validation results"
           ansible.builtin.debug:
@@ -75,13 +78,14 @@
       block:
         - name: "Check tool availability"
           ansible.builtin.command:
-            cmd: "which {{ item }}"
+            cmd: "which {{ tool }}"
           register: tool_check
           failed_when: false
           changed_when: false
           loop: "{{ required_tools }}"
           loop_control:
             loop_var: tool
+            label: "{{ tool }}"
 
         - name: "Validate tool availability"
           ansible.builtin.assert:
@@ -92,18 +96,20 @@
           loop: "{{ tool_check.results }}"
           loop_control:
             loop_var: tool
+            label: "{{ tool.item }}"
 
         - name: "Get tool versions"
           ansible.builtin.shell:
             cmd: |
               set -o pipefail
-              "{{ item }} --version 2>&1 | head -1"
+              "{{ tool }} --version 2>&1 | head -1"
           register: tool_versions
           failed_when: false
           changed_when: false
           loop: "{{ required_tools }}"
           loop_control:
             loop_var: tool
+            label: "{{ tool }}"
 
         - name: "Display tool versions"
           ansible.builtin.debug:
@@ -111,6 +117,7 @@
           loop: "{{ tool_versions.results }}"
           loop_control:
             loop_var: tool
+            label: "{{ tool.item }}"
 
     - name: "Validate Python packages"
       tags: pypkg
@@ -124,6 +131,7 @@
           loop: "{{ required_python_packages }}"
           loop_control:
             loop_var: python_package
+            label: "{{ python_package }}"
 
         - name: "Validate Python packages"
           ansible.builtin.assert:
@@ -134,6 +142,7 @@
           loop: "{{ python_package_check.results }}"
           loop_control:
             loop_var: python_package
+            label: "{{ python_package.item }}"
 
     - name: "Test cloud SDK functionality"
       tags: cloudsdk
@@ -267,14 +276,18 @@
           ansible.builtin.shell:
             cmd: |
               set -o pipefail
-              df -h {{ item }} | tail -1 | awk '{print "{{ item }}: " $5 " used (" $4 " available)"}'
+              df -h {{ directory }} | tail -1 | awk '{print "{{ directory }}: " $5 " used (" $4 " available)"}'
           register: disk_usage_check
           changed_when: false
           failed_when: false
           loop:
+            - /apps
             - /tmp
             - "{{ ansible_env.HOME }}"
             - /runner
+          loop_control:
+            loop_var: directory
+            label: "{{ directory }}"
 
         - name: "Display critical directory disk usage summary"
           ansible.builtin.debug:

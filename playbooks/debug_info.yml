@@ -2,20 +2,13 @@
 # Description: Display available Python libraries and Ansible collections
 
 - name: Display Python and Ansible Environment Information
-  hosts: localhost
+  hosts: all
   gather_facts: false
   tasks:
     - name: Get current date
       ansible.builtin.command: date +%Y-%m-%d
       register: current_date
       changed_when: false
-      no_log: false
-
-    - name: Ensure tmp directory exists
-      ansible.builtin.file:
-        path: "{{ playbook_dir }}/tmp"
-        state: directory
-        mode: '0755'
       no_log: false
 
     - name: Get current user
@@ -30,6 +23,13 @@
       changed_when: false
       no_log: false
 
+    - name: Ensure tmp directory exists
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/tmp"
+        state: directory
+        mode: '0755'
+      no_log: false
+
     - name: List user home directory contents
       ansible.builtin.shell: ls -la $HOME
       register: home_contents
@@ -42,89 +42,126 @@
       changed_when: false
       no_log: false
 
+
+    - name: Show mount and df information
+      block:
+        - name: Show current mount points
+          ansible.builtin.command: mount
+          register: mount_output
+          changed_when: false
+          no_log: false
+
+        - name: Display mount points
+          ansible.builtin.debug:
+            msg: "{{ mount_output.stdout_lines | join('\n') }}"
+          changed_when: false
+          no_log: false
+
+        - name: Display df -h
+          ansible.builtin.command: df -h
+          register: df_output
+          changed_when: false
+          no_log: false
+
+        - name: Display df -h`
+          ansible.builtin.debug:
+            msg: "{{ df_output.stdout_lines | join('\n') }}"
+          changed_when: false
+          no_log: false
+
     - name: Get Python Version and Path
-      ansible.builtin.command: python3 --version
-      register: python_version
-      changed_when: false
-      no_log: false
+      block:
+        - name: Get Python Version
+          ansible.builtin.command: python3 --version
+          register: python_version
+          changed_when: false
+          no_log: false
 
-    - name: Get Python Path
-      ansible.builtin.command: python3 -c "import sys; print('\n'.join(sys.path))"
-      register: python_path
-      changed_when: false
-      no_log: false
+        - name: Get Python Path
+          ansible.builtin.command: python3 -c "import sys; print('\n'.join(sys.path))"
+          register: python_path
+          changed_when: false
+          no_log: false
 
-    - name: List Installed Python Packages
-      ansible.builtin.command: pip list
-      register: pip_packages
-      changed_when: false
-      no_log: false
+        - name: List Installed Python Packages
+          ansible.builtin.command: pip list
+          register: pip_packages
+          changed_when: false
+          no_log: false
 
     - name: Get Ansible Version
-      ansible.builtin.command: ansible --version
-      register: my_ansible_version
-      changed_when: false
-      no_log: false
+      block:
+        - name: Get Ansible Version
+          ansible.builtin.command: ansible --version
+          register: my_ansible_version
+          changed_when: false
+          no_log: false
 
     - name: Show Ansible galaxy info
-      ansible.builtin.command: ansible-galaxy --version
-      register: ansible_galaxy_info
-      changed_when: false
-      no_log: false
+      block:
+        - name: Show Ansible galaxy info
+          ansible.builtin.command: ansible-galaxy --version
+          register: ansible_galaxy_info
+          changed_when: false
+          no_log: false
+          failed_when: false
 
-    - name: List Installed Ansible Collections
-      ansible.builtin.command: ansible-galaxy collection list
-      register: ansible_collections
-      changed_when: false
-      no_log: false
-      ignore_errors: true
+
+        - name: List Installed Ansible Collections
+          ansible.builtin.command: ansible-galaxy collection list
+          register: ansible_collections
+          changed_when: false
+          no_log: false
+          failed_when: false
 
     - name: Find all Python executables in common locations
-      ansible.builtin.shell:
-        cmd: find /usr/bin /usr/local/bin /opt /usr/local /opt/rh -name "python*" -type f -executable 2>/dev/null || true
-      register: python_executables
-      changed_when: false
-      no_log: false
+      block:
+        - name: Find all Python executables in common locations
+          ansible.builtin.shell:
+            cmd: find /usr/bin /usr/local/bin /opt /usr/local /opt/rh -name "python*" -type f -executable 2>/dev/null || true
+          register: python_executables
+          changed_when: false
+          no_log: false
 
-    - name: Get Python alternatives (Fedora)
-      ansible.builtin.shell:
-        cmd: alternatives --display python 2>/dev/null || true
-      register: python_alternatives
-      changed_when: false
-      no_log: false
+        - name: Get Python alternatives (Fedora)
+          ansible.builtin.shell:
+            cmd: alternatives --display python 2>/dev/null || true
+          register: python_alternatives
+          changed_when: false
+          no_log: false
 
-    - name: Get Python3 alternatives (Fedora)
-      ansible.builtin.shell:
-        cmd: alternatives --display python3 2>/dev/null || true
-      register: python3_alternatives
-      changed_when: false
-      no_log: false
+        - name: Get Python3 alternatives (Fedora)
+          ansible.builtin.shell:
+            cmd: alternatives --display python3 2>/dev/null || true
+          register: python3_alternatives
+          changed_when: false
+          no_log: false
 
-    - name: Check Python symlinks in common locations
-      ansible.builtin.shell:
-        cmd: |
-          for dir in /usr/bin /usr/local/bin /opt /usr/local /opt/rh; do
-            if [ -d "$dir" ]; then
-              echo "=== $dir ==="
-              ls -la $dir/python* 2>/dev/null || true
-            fi
-          done
-      register: python_symlinks
-      changed_when: false
-      no_log: false
+        - name: Check Python symlinks in common locations
+          ansible.builtin.shell:
+            cmd: |
+              for dir in /usr/bin /usr/local/bin /opt /usr/local /opt/rh; do
+                if [ -d "$dir" ]; then
+                  echo "=== $dir ==="
+                  ls -la $dir/python* 2>/dev/null || true
+                fi
+              done
+          register: python_symlinks
+          changed_when: false
+          no_log: false
 
-    - name: Get Python version from which command
-      ansible.builtin.command: which python3
-      register: python3_which
-      changed_when: false
-      no_log: false
+        - name: Get Python version from which command
+          ansible.builtin.command: which python3
+          register: python3_which
+          changed_when: false
+          no_log: false
 
-    - name: Get Python version from which command (python)
-      ansible.builtin.shell: |
-        which python
-      register: python_which
-      changed_when: false
-      no_log: false
+        - name: Get Python version from which command (python)
+          ansible.builtin.shell: |
+            which python
+          register: python_which
+          changed_when: false
+          no_log: false
 
     - name: Generate debug information
       ansible.builtin.set_fact:

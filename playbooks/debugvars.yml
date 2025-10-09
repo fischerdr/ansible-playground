@@ -3,21 +3,89 @@
   hosts: all
   gather_facts: true
   tasks:
+    - name: Gather essential facts only
+      ansible.builtin.setup:
+        gather_subset:
+          - '!all'
+          - '!min'
+          - ansible_architecture
+          - ansible_distribution
+          - ansible_distribution_version
+          - ansible_python_version
+          - ansible_user_id
+          - ansible_user_gecos
+          - ansible_user_gid
+          - ansible_user_uid
+          - ansible_user_shell
+          - ansible_user_dir
+          - ansible_ssh_host_key_ecdsa_public
+          - ansible_ssh_host_key_ed25519_public
+          - ansible_ssh_host_key_rsa_public
+          - ansible_default_ipv4
+          - ansible_default_ipv6
+          - ansible_fqdn
+          - ansible_hostname
+          - ansible_domain
+          - ansible_nodename
+          - ansible_machine
+          - ansible_kernel
+          - ansible_kernel_version
+          - ansible_os_family
+          - ansible_pkg_mgr
+          - ansible_selinux
+          - ansible_service_mgr
+          - ansible_system
+          - ansible_system_capabilities
+          - ansible_system_capabilities_enforced
+          - ansible_virtualization_role
+          - ansible_virtualization_type
+          - ansible_processor
+          - ansible_processor_cores
+          - ansible_processor_count
+          - ansible_processor_threads_per_core
+          - ansible_processor_vcpus
+          - ansible_memtotal_mb
+          - ansible_memfree_mb
+          - ansible_swaptotal_mb
+          - ansible_swapfree_mb
+          - ansible_mounts
+          - ansible_devices
+          - ansible_dns
+          - ansible_interfaces
+          - ansible_env
+          - ansible_date_time
+          - ansible_local
+        filter: "ansible_*"
+      register: essential_facts
+
     - name: Validate required variables
       ansible.builtin.assert:
         that:
           - inventory_hostname is defined
         msg: "Required variables are not set"
 
-    - name: Print Ansible facts
+    - name: Print essential facts gathered
       ansible.builtin.debug:
         msg: |
-          Ansible Facts:
+          Essential Facts Gathered:
           - Architecture: {{ ansible_architecture }}
           - Distribution: {{ ansible_distribution }}
           - Distribution Version: {{ ansible_distribution_version }}
           - Python Version: {{ ansible_python_version }}
-      when: ansible_facts is defined
+          - Hostname: {{ ansible_hostname }}
+          - FQDN: {{ ansible_fqdn }}
+          - Default IPv4: {{ ansible_default_ipv4.address | default('undefined') }}
+          - Default IPv6: {{ ansible_default_ipv6.address | default('undefined') }}
+          - OS Family: {{ ansible_os_family }}
+          - Package Manager: {{ ansible_pkg_mgr }}
+          - Service Manager: {{ ansible_service_mgr }}
+          - Virtualization: {{ ansible_virtualization_type | default('physical') }}
+          - Memory Total: {{ ansible_memtotal_mb }}MB
+          - CPU Cores: {{ ansible_processor_cores }}
+          - CPU Count: {{ ansible_processor_count }}
+          - Kernel: {{ ansible_kernel }}
+          - SELinux: {{ ansible_selinux.status | default('disabled') }}
+      when: essential_facts is defined
 
     - name: Print detailed host variables
       ansible.builtin.debug:
@@ -141,3 +209,21 @@
           - {{ key }}
           {%- endif %}
           {% endfor %}
+
+    - name: Print all available facts
+      ansible.builtin.debug:
+        msg: |
+          All Available Facts:
+          {% for key, value in ansible_facts.items() | sort %}
+          {{ key }}: {{ value | to_nice_json }}
+          {% endfor %}
+      when: ansible_facts is defined
+
+    - name: Print all variables available to current host
+      ansible.builtin.debug:
+        msg: |
+          All Variables Available to Current Host ({{ inventory_hostname }}):
+          {% for key, value in vars.items() | sort %}
+          {{ key }}: {{ value | to_nice_json }}
+          {% endfor %}
+      no_log: true  # Hide potentially sensitive variable values

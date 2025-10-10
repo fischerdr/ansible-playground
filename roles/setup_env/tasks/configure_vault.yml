@@ -2,6 +2,25 @@
 # Configure Vault settings based on inventory data
 # Purpose: Retrieve inventory data and configure Vault connection parameters
 
+- name: Verify ca cert path file exists
+  ansible.builtin.stat:
+    path: "{{ ca_cert_path }}"
+  register: ca_cert_path_file_exists
+  tags:
+    - vault
+    - inventory
+
+- name: Assert ca cert path file exists
+  ansible.builtin.assert:
+    that:
+      - ca_cert_path_file_exists.stat.exists | bool
+    fail_msg: "CA cert path file does not exist at {{ ca_cert_path }}"
+    success_msg: "CA cert path file exists at {{ ca_cert_path }}"
+  tags:
+    - vault
+    - inventory
+
+
 - name: "Retrieve cluster information from inventory service"
   ansible.builtin.uri:
     url: "{{ inventory_url }}/{{ cluster_name }}"

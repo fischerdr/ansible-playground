@@ -1,6 +1,33 @@
 ---
 # Configure Vault settings based on inventory data
 # Purpose: Retrieve inventory data and configure Vault connection parameters
+- name: "Check critical directorys"
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      ls -lart {{ directory }}
+  register: directory_check
+  changed_when: false
+  failed_when: false
+  loop:
+    - /apps
+    - "{{ playbook_dir }}"
+    - "{{ ansible_env.HOME }}"
+    - /etc/ssl/certs/
+    - /etc/pki/ca-trust/extracted/openssl/
+    - /etc/pki/ca-trust/source/anchors/
+    - /tmp
+    - /runner
+  loop_control:
+    loop_var: directory
+    label: "{{ directory }}"
+
+- name: Display directory check
+  ansible.builtin.debug:
+    msg: "{{ directory_check }}"
+  tags:
+    - vault
+    - inventory
 
 - name: Verify ca cert path file exists
   ansible.builtin.stat:

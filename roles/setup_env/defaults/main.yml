@@ -3,7 +3,7 @@
 # These can be overridden by group_vars, host_vars, or playbook variables
 
 # Vault configuration
-vault_token_file: "{{ ansible_playbook_dir }}/tmp/.vault-token"
+vault_token_file: "{{ playbook_dir }}/tmp/.vault-token"
 vault_prod_address: "https://vault-prod.example.com"
 vault_dev_address: "https://vault-dev.example.com"
 vault_test_address: "https://vault-test.example.com"
@@ -19,7 +19,7 @@ validate_certs: true
 ca_cert_path: "/etc/ssl/certs/ca-certificates.crt"
 
 # Output configuration
-kubeconfig_dir: "{{ ansible_playbook_dir }}/tmp"
+kubeconfig_dir: "{{ playbook_dir }}/tmp"
 
 # Debug configuration
 debug_mode: false

@@ -1,19 +1,34 @@
+# Logs
 .logs/*
+
+# Ansible tmp files
 tmp/*
 *.retry
 *.vault
+
+# Ansible collections
 collections/*
 !collections/ansible_collections
 !collections/requirements.yml
 collections/ansible_collections/*
+
+# Ansible runner, navigator and artifacts
+.ansible/*
+artifacts/*
+ansible-aio-ee-airgapped/wheels/*
+ansible-aio-ee-airgapped/wheels-collections/*
+ansible-aio-ee-airgapped/collections/*
+ansible-aio-ee-airgapped/temp-collections/*
+ansible-aio-ee-airgapped/tools/*
+ansible-aio-ee-airgapped/context/*
+ansible-aio-ee/context/
+
+# Python
 # https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
-*.so
 
 # Distribution / packaging
 .Python

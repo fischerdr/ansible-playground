@@ -1,0 +1,9 @@
+---
+# Handlers for setup_env role
+# Purpose: Define handlers for service restarts and other event-driven tasks
+
+# Currently no handlers are needed for this role, but the file is here for future use
+# Example handlers could include:
+# - Restart services when configuration changes
+# - Reload configurations when files are updated
+# - Send notifications when setup completes or fails

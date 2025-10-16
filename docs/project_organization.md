@@ -6,7 +6,7 @@ This Ansible project is specifically designed to create and manage roles for int
 
 ## Project Structure
 
-```
+```text
 ansible-playground/
 ├── roles/
 │   └── setup_cluster_pxbkup/     # Main role for Portworx backup setup

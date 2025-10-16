@@ -7,13 +7,12 @@ ansible-navigator:
   # Execution Environment settings
   execution-environment:
     enabled: true
-    container-engine: docker
-    image: development-ee:latest
+    container-engine: podman
+    # Use the enhanced AIO EE with collection dependencies
+    # image: localhost/ansible-aio-ee:latest
+    image: ansible-minimal-ee:v0.0.1
     pull:
       policy: missing
-    volume-mounts:
-      - src: ~/.vault-token
-        dest: ~/.vault-token
 
   # Ansible settings
   ansible:
@@ -23,11 +22,14 @@ ansible-navigator:
 
   # Playbook run settings
   playbook-artifact:
-    enable: false
-    save-as: "{playbook_dir}/{playbook_name}-artifact-{time_stamp}.json"
+    enable: true
+    save-as: "tmp/{playbook_name}-artifact-{time_stamp}.json"
 
   # Logging settings
   logging:
     level: debug
-    append: true
+    append: false
     file: "./logs/ansible-navigator.log"
+
+  # User Interface mode (interactive, stdout, or json)
+  mode: interactive

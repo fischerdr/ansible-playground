@@ -1,0 +1,228 @@
+---
+version: 3
+
+# Container image configuration for air-gapped environments
+images:
+  base_image:
+    # Using Red Hat Universal Base Image 8 (stream) as requested
+    name: registry.access.redhat.com/ubi8/ubi:8.9
+
+# Dependencies section
+dependencies:
+  python_interpreter:
+    package_system: python3.11
+    python_path: /usr/bin/python3.11
+
+  # Core Ansible components
+  ansible_core:
+    package_pip: ansible-core
+  ansible_runner:
+    package_pip: ansible-runner
+
+  # External requirements - will be copied locally
+  # galaxy: requirements-airgapped.yml
+  python: requirements.txt
+
+  # System dependencies - Keep original but remove yq
+  system: |
+    # Base requirements
+    git-core [platform:rpm]
+    python3.11 [platform:rpm]
+    python3.11-devel [platform:rpm compile]
+    python3.11-pip [platform:rpm]
+
+    # Authentication and security
+    krb5-devel [platform:rpm compile]
+    krb5-workstation [platform:rpm]
+    openssl-devel [platform:rpm compile]
+
+    # Source control
+    git-lfs [platform:rpm]
+    subversion [platform:rpm]
+
+    # Network and file transfer
+    sshpass [platform:rpm]
+    rsync [platform:rpm]
+    wget [platform:rpm]
+    nc [platform:rpm]
+    curl [platform:rpm]
+
+    # Container management
+    podman-remote [platform:rpm]
+
+    # Build tools
+    cmake [platform:rpm compile]
+    gcc [platform:rpm compile]
+    gcc-c++ [platform:rpm compile]
+    make [platform:rpm compile]
+
+    # API and web service dependencies
+    libcurl-devel [platform:rpm compile]
+
+    # Utilities
+    unzip [platform:rpm]
+    which [platform:rpm]
+    jq [platform:rpm]
+    # REMOVED: yq [platform:rpm] - not available in UBI8, will install manually
+
+    # Additional tools for cloud operations
+    ca-certificates [platform:rpm]
+    gnupg2 [platform:rpm]
+
+# Additional build steps for air-gapped environment
+additional_build_steps:
+  # Remove pre_cleanup section entirely - let ansible-builder handle /output permissions
+
+  prepend_base:
+    # Enable CodeReady Builder (CRB) repository for additional packages
+    - RUN dnf -y install dnf-utils unzip
+    - RUN dnf config-manager --set-enabled crb || dnf config-manager --set-enabled powertools || true
+
+    # Create directories for tools EARLY
+    - RUN mkdir -p /usr/local/bin
+
+    # Install all tools BEFORE bindep introspection runs
+    # Download tools from artifactory repository
+    - RUN curl -L https://artifactory.company.com/repository/tools/kubectl -o /usr/local/bin/kubectl
+    - RUN chmod +x /usr/local/bin/kubectl
+
+    # Download and install Helm
+    - RUN curl -L https://artifactory.company.com/repository/tools/helm-v3.14.4-linux-amd64.tar.gz -o /tmp/helm.tar.gz
+    - RUN cd /tmp && tar xzf helm.tar.gz
+    - RUN mv linux-amd64/helm /usr/local/bin/helm
+    - RUN chmod +x /usr/local/bin/helm
+    - RUN rm -rf linux-amd64 helm.tar.gz
+
+    # Download and install Terraform
+    - RUN curl -L https://artifactory.company.com/repository/tools/terraform_1.7.5_linux_amd64.zip -o /tmp/terraform.zip
+    - RUN cd /tmp && unzip terraform.zip
+    - RUN mv terraform /usr/local/bin/terraform
+    - RUN chmod +x /usr/local/bin/terraform
+    - RUN rm terraform.zip
+
+    # Download and install OpenShift CLI
+    - RUN curl -L https://artifactory.company.com/repository/tools/openshift-client-linux.tar.gz -o /tmp/oc.tar.gz
+    - RUN cd /tmp && tar xzf oc.tar.gz
+    - RUN mv oc /usr/local/bin/oc
+    - RUN chmod +x /usr/local/bin/oc
+    - RUN rm oc.tar.gz
+
+    # Download and install HashiCorp Vault CLI
+    - RUN curl -L https://artifactory.company.com/repository/tools/vault_1.15.6_linux_amd64.zip -o /tmp/vault.zip
+    - RUN cd /tmp && unzip vault.zip
+    - RUN mv vault /usr/local/bin/vault
+    - RUN chmod +x /usr/local/bin/vault
+    - RUN rm vault.zip
+
+    # Install yq manually since it's not available in UBI8
+    - RUN curl -L https://artifactory.company.com/repository/tools/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq
+
+    # Download and install AWS CLI from artifactory
+    - RUN curl -L https://artifactory.company.com/repository/tools/awscliv2.zip -o /tmp/awscliv2.zip
+    - RUN cd /tmp && unzip awscliv2.zip
+    - RUN ./aws/install
+    - RUN rm -rf aws awscliv2.zip
+
+    # Download and install Google Cloud SDK from artifactory
+    - RUN curl -L https://artifactory.company.com/repository/tools/google-cloud-sdk.tar.gz -o /tmp/google-cloud-sdk.tar.gz
+    - RUN mkdir -p /opt/google-cloud-sdk
+    - RUN tar xzf /tmp/google-cloud-sdk.tar.gz -C /opt/google-cloud-sdk --strip-components=1
+    - RUN /opt/google-cloud-sdk/install.sh --quiet --usage-reporting=false --path-update=false
+    - RUN ln -sf /opt/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud
+    - RUN ln -sf /opt/google-cloud-sdk/bin/gsutil /usr/local/bin/gsutil
+    - RUN ln -sf /opt/google-cloud-sdk/bin/bq /usr/local/bin/bq
+    - RUN rm -f /tmp/google-cloud-sdk.tar.gz
+
+    # Update PATH to include all tools for subsequent steps
+    - ENV PATH="/usr/local/bin:/root/google-cloud-sdk/bin:${PATH}"
+
+  append_base:
+    # Update Python pip and install base tools
+    - RUN python3.11 -m pip install -U pip setuptools wheel
+
+    # Install collection-specific requirements from local wheels
+    - COPY requirements-collections.txt /tmp/requirements-collections.txt
+    - COPY wheels-collections/ /tmp/wheels-collections/
+    - RUN if [ -d "/tmp/wheels-collections" ] && [ "$(ls -A /tmp/wheels-collections)" ]; then echo "Installing from local wheels..."; python3.11 -m pip install --no-index --find-links /tmp/wheels-collections -r /tmp/requirements-collections.txt; else echo "No collection dependency wheels found, attempting online install..."; fi
+    - RUN if [ ! -d "/tmp/wheels-collections" ] || [ ! "$(ls -A /tmp/wheels-collections)" ]; then python3.11 -m pip install -r /tmp/requirements-collections.txt; fi
+
+    # Install Python packages from local wheels (if available)
+    - COPY wheels/ /tmp/wheels/
+    - COPY _build/requirements.txt /tmp/requirements.txt
+    - RUN if [ -d "/tmp/wheels" ] && [ "$(ls -A /tmp/wheels)" ]; then echo "Installing from local wheels..."; python3.11 -m pip install --no-index --find-links /tmp/wheels -r /tmp/requirements.txt; else echo "Installing from online sources..."; fi
+    - RUN if [ ! -d "/tmp/wheels" ] || [ ! "$(ls -A /tmp/wheels)" ]; then python3.11 -m pip install -r /tmp/requirements.txt; fi
+
+  append_final:
+    # Update system and clean up
+    - RUN dnf -y update && dnf clean all
+
+    # Remove Python 3.6/3.8/3.9 if present (keep only 3.11)
+    - RUN dnf -y remove python3.6 python3.6-devel python3.8 python3.8-devel python3.9 python3.9-devel || true
+
+    # Set Python 3.11 as default using alternatives system
+    - RUN alternatives --install /usr/bin/unversioned-python python /usr/bin/python3.11 1
+    - RUN alternatives --set python /usr/bin/python3.11
+    - RUN ln -sf /usr/bin/unversioned-python /usr/bin/python
+
+    # Install Ansible collections from pre-downloaded files
+    - COPY collections/ /tmp/collections/
+    - RUN ansible-galaxy collection install -v --offline -p /usr/share/ansible/collections /tmp/collections/*.tar.gz
+
+    # Ansible configuration
+    - ENV ANSIBLE_FORCE_COLOR=1
+    - ENV ANSIBLE_COLLECTIONS_PATH=./collections:/usr/share/ansible/collections
+    - ENV ANSIBLE_ROLES_PATH=./roles:/usr/share/ansible/roles
+    - ENV ANSIBLE_HOST_KEY_CHECKING=false
+    - ENV ANSIBLE_RETRY_FILES_ENABLED=false
+
+    # Python configuration
+    - ENV PYTHONPATH=/usr/local/lib/python3.11/site-packages
+    - ENV PYTHONUNBUFFERED=1
+
+    # Cloud tool configurations
+    - ENV AWS_DEFAULT_REGION=us-east-1
+    - ENV KUBECONFIG=/tmp/kubeconfig
+    - ENV HELM_HOME=/tmp/.helm
+
+    # Logging configuration
+    - ENV LOG_LEVEL=INFO
+    - ENV LOG_FORMAT=json
+    - ENV LOG_DIR=/logs
+
+    # Security settings
+    - ENV REQUESTS_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+    - ENV CURL_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+
+    # Create necessary directories
+    - RUN mkdir -p /tmp/.helm /tmp/.kube /logs
+
+    # Verify installations
+    - RUN python --version
+    - RUN which kubectl && which helm && which terraform && which oc && which vault && which aws && which gcloud && which yq
+    - RUN ansible --version
+    - RUN oc version --client
+
+    # Clean up temporary files and caches - BE SPECIFIC about what to remove
+    - RUN rm -rf /tmp/helm.tar.gz
+    - RUN rm -rf /tmp/terraform.zip
+    - RUN rm -rf /tmp/oc.tar.gz
+    - RUN rm -rf /tmp/vault.zip
+    - RUN rm -rf /tmp/awscliv2.zip
+    - RUN rm -rf /tmp/google-cloud-sdk.tar.gz
+    - RUN rm -rf /tmp/collections
+    - RUN rm -rf /tmp/wheels
+    - RUN rm -rf /tmp/wheels-collections
+    - RUN rm -rf /tmp/requirements.txt
+    - RUN rm -rf /tmp/requirements-collections.txt
+    - RUN dnf clean all
+    - RUN python -m pip cache purge
+
+    # Set working directory
+    # - WORKDIR /workspace
+
+    # Create non-root user for security but DON'T switch to it yet
+    # - RUN useradd -m -s /bin/bash ansible
+    # - RUN chown -R ansible:ansible /workspace /logs
+
+    # DO NOT switch to non-root user here - let ansible-builder handle final cleanup as root
+    # The USER directive will be handled by ansible-builder's final steps

@@ -1,0 +1,74 @@
+---
+# Setup Kubernetes Environment Playbook
+# Purpose: Configure Kubernetes environment for multiple clusters using the setup_env role
+# Dependencies: setup_env role, kubernetes.core and community.hashi_vault collections
+# No external tools required - uses Ansible built-in modules
+# Variables: clusters (list of cluster configurations)
+
+- name: "Setup Kubernetes environments for multiple clusters"
+  hosts: localhost
+  gather_facts: true
+  become: false
+  vars:
+    # List of clusters to configure
+    clusters:
+      - name: "user-k8s-p-us1a-cluster1"
+        kubeconfig_dir: "{{ ansible_env.HOME }}/.kube/prod"
+        debug_mode: false
+      - name: "user-k8s-t-us1b-cluster2"
+        kubeconfig_dir: "{{ ansible_env.HOME }}/.kube/test"
+        debug_mode: true
+      - name: "user-k8s-d-us1-cluster3"
+        kubeconfig_dir: "{{ ansible_env.HOME }}/.kube/dev"
+        debug_mode: true
+
+    # Global configuration
+    validate_certs: true
+    vault_namespace: "automation"
+
+  pre_tasks:
+    - name: "Validate clusters list is defined"
+      ansible.builtin.assert:
+        that:
+          - clusters is defined
+          - clusters | length > 0
+        fail_msg: "No clusters defined in the clusters list"
+        success_msg: "Clusters list validated successfully"
+      tags: [validation, always]
+
+    - name: "Display configuration summary"
+      ansible.builtin.debug:
+        msg: |
+          Setting up {{ clusters | length }} cluster(s):
+          {% for cluster in clusters %}
+          - {{ cluster.name }} -> {{ cluster.kubeconfig_dir }}
+          {% endfor %}
+      tags: [validation, summary]
+
+  tasks:
+    - name: "Setup Kubernetes environment for each cluster"
+      ansible.builtin.include_role:
+        name: setup_env
+      vars:
+        cluster_name: "{{ item.name }}"
+        kubeconfig_dir: "{{ item.kubeconfig_dir }}"
+        debug_mode: "{{ item.debug_mode | default(false) }}"
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "Setting up {{ item.name }}"
+      tags: [setup_env, k8s_setup]
+
+  post_tasks:
+    - name: "Display final setup summary"
+      ansible.builtin.debug:
+        msg: |
+          Successfully configured {{ clusters | length }} cluster(s):
+          {% for cluster in clusters %}
+          - {{ cluster.name }}: {{ cluster.kubeconfig_dir }}/{{ cluster.name }}.kubeconfig
+          {% endfor %}
+
+          To use these configurations, you can run:
+          {% for cluster in clusters %}
+          export KUBECONFIG={{ cluster.kubeconfig_dir }}/{{ cluster.name }}.kubeconfig  # {{ cluster.name }}
+          {% endfor %}
+      tags: [completion, summary]

@@ -1,0 +1,491 @@
+#!/bin/bash
+
+# Preparation script for Air-gapped Ansible Execution Environment
+# This script downloads all necessary tools and dependencies for offline building
+
+set -euo pipefail
+
+# Configuration
+TOOLS_DIR="tools"
+COLLECTIONS_DIR="collections"
+WHEELS_DIR="wheels"
+WHEELS_COLLECTIONS_DIR="wheels-collections"
+VERBOSE=false
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Function to print colored output
+print_status() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Function to show usage
+show_usage() {
+    cat << EOF
+Usage: $0 [OPTIONS]
+
+Prepare air-gapped build environment by downloading all necessary tools and dependencies.
+
+OPTIONS:
+    -h, --help              Show this help message
+    -v, --verbose           Enable verbose output
+    --tools-only            Download only tools (skip Python wheels and collections)
+    --wheels-only           Download only Python wheels (skip tools and collections)
+    --collections-only      Download only Ansible collections (skip tools and wheels)
+    --update-collection-deps Update collection dependencies and download wheels
+    --clean                 Clean existing downloads before starting
+
+EXAMPLES:
+    $0                      # Download everything
+    $0 -v                   # Download with verbose output
+    $0 --tools-only         # Download only binary tools
+    $0 --clean              # Clean and download everything
+
+EOF
+}
+
+# Function to create directories
+create_directories() {
+    print_status "Creating necessary directories..."
+    
+    mkdir -p "$TOOLS_DIR"
+    mkdir -p "$COLLECTIONS_DIR"
+    mkdir -p "$WHEELS_DIR"
+    mkdir -p "$WHEELS_COLLECTIONS_DIR"
+    
+    print_success "Directories created"
+}
+
+# Function to download tools
+download_tools() {
+    print_status "Downloading binary tools..."
+    
+    if [[ "$VERBOSE" == "true" ]]; then
+        print_status "Tools directory: $(pwd)/$TOOLS_DIR"
+    fi
+    
+    cd "$TOOLS_DIR"
+    
+    # Download kubectl
+    print_status "Downloading kubectl..."
+    if ! [ -f "kubectl" ]; then
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        print_success "kubectl downloaded"
+    else
+        print_warning "kubectl already exists, skipping"
+    fi
+    
+    # Download Helm
+    print_status "Downloading Helm..."
+    if ! [ -f "helm" ]; then
+        curl -LO "https://get.helm.sh/helm-v3.14.4-linux-amd64.tar.gz"
+        tar xzf helm-v3.14.4-linux-amd64.tar.gz
+        mv linux-amd64/helm ./
+        rm -rf linux-amd64 helm-v3.14.4-linux-amd64.tar.gz
+        chmod +x helm
+        print_success "Helm downloaded"
+    else
+        print_warning "helm already exists, skipping"
+    fi
+    
+    # Download Terraform
+    print_status "Downloading Terraform..."
+    if ! [ -f "terraform" ]; then
+        curl -LO "https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip"
+        unzip terraform_1.7.5_linux_amd64.zip
+        rm terraform_1.7.5_linux_amd64.zip
+        chmod +x terraform
+        print_success "Terraform downloaded"
+    else
+        print_warning "terraform already exists, skipping"
+    fi
+    
+    # Download OpenShift CLI
+    print_status "Downloading OpenShift CLI..."
+    if ! [ -f "oc" ]; then
+        #curl -LO "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/stable/openshift-client-linux.tar.gz"
+        curl -LO "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/4.14.9/openshift-client-linux.tar.gz"
+        tar xzf openshift-client-linux.tar.gz
+        rm openshift-client-linux.tar.gz || true  # Remove the archive
+        # Keep both kubectl and oc - they can coexist
+        chmod +x oc
+        if [ -f "kubectl" ]; then
+            chmod +x kubectl
+        fi
+        print_success "OpenShift CLI downloaded"
+    else
+        print_warning "oc already exists, skipping"
+    fi
+    
+    # Download HashiCorp Vault CLI
+    print_status "Downloading HashiCorp Vault CLI..."
+    if ! [ -f "vault" ]; then
+        curl -LO "https://releases.hashicorp.com/vault/1.15.6/vault_1.15.6_linux_amd64.zip"
+        unzip vault_1.15.6_linux_amd64.zip
+        rm vault_1.15.6_linux_amd64.zip
+        chmod +x vault
+        print_success "HashiCorp Vault CLI downloaded"
+    else
+        print_warning "vault already exists, skipping"
+    fi
+    
+    # Download AWS CLI
+    print_status "Downloading AWS CLI..."
+    if ! [ -f "awscliv2.zip" ]; then
+        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+        print_success "AWS CLI downloaded"
+    else
+        print_warning "awscliv2.zip already exists, skipping"
+    fi
+    
+    # Download Google Cloud SDK
+    print_status "Downloading Google Cloud SDK..."
+    if ! [ -f "google-cloud-sdk.tar.gz" ]; then
+        curl -L "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-462.0.1-linux-x86_64.tar.gz" -o "google-cloud-sdk.tar.gz"
+        print_success "Google Cloud SDK downloaded"
+    else
+        print_warning "google-cloud-sdk.tar.gz already exists, skipping"
+    fi
+    
+    cd ..
+    print_success "All tools downloaded to $TOOLS_DIR/"
+}
+
+# Function to update collection dependencies
+update_collection_dependencies() {
+    print_status "Updating collection dependencies for air-gapped build..."
+    
+    # Check if the collection dependency script exists
+    if [[ ! -f "../scripts/update_collection_requirements.py" ]]; then
+        print_error "Collection dependency script not found at ../scripts/update_collection_requirements.py"
+        print_error "Make sure you're running this from the ansible-aio-ee-airgapped directory"
+        return 1
+    fi
+    
+    # Copy collections from parent directory if available
+    if [[ -d "../collections" ]]; then
+        print_status "Using collections from parent directory..."
+        cp -r ../collections ./temp-collections
+        
+        # Use Python 3.11 for collection dependency discovery to match the target EE
+        print_status "Running collection dependency discovery with Python 3.11..."
+        
+        # Create a temporary container for Python 3.11 collection dependency discovery
+        local temp_container="temp-python311-collection-discovery"
+        
+        # Create a temporary Dockerfile for Python 3.11 collection discovery
+        cat > /tmp/Dockerfile.collection-discovery << 'EOF'
+FROM registry.access.redhat.com/ubi8/ubi:8.9
+RUN dnf -y install dnf-utils && \
+    dnf config-manager --set-enabled crb || dnf config-manager --set-enabled powertools || true && \
+    dnf -y install python3.11 python3.11-pip && \
+    # Set up Python alternatives properly for UBI 8.9
+    alternatives --install /usr/bin/unversioned-python python /usr/bin/python3.11 1 && \
+    alternatives --set python /usr/bin/python3.11 && \
+    # Install required Python packages for the collection dependency script
+    /usr/bin/unversioned-python -m pip install click rich packaging && \
+    dnf clean all
+WORKDIR /workspace
+EOF
+        
+        # Build the temporary image
+        if [[ "$VERBOSE" == "true" ]]; then
+            podman build -f /tmp/Dockerfile.collection-discovery -t "$temp_container" /tmp || {
+                print_error "Failed to build temporary container for collection discovery"
+                return 1
+            }
+        else
+            podman build -f /tmp/Dockerfile.collection-discovery -t "$temp_container" /tmp >/dev/null 2>&1 || {
+                print_error "Failed to build temporary container for collection discovery"
+                return 1
+            }
+        fi
+        
+        # Run collection dependency discovery with Python 3.11
+        cd ..
+        if [[ "$VERBOSE" == "true" ]]; then
+            podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
+                bash -c "cd /workspace && /usr/bin/unversioned-python scripts/update_collection_requirements.py --collections-dir ansible-aio-ee-airgapped/temp-collections --output ansible-aio-ee-airgapped/requirements-collections.txt"
+        else
+            podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
+                bash -c "cd /workspace && /usr/bin/unversioned-python scripts/update_collection_requirements.py --collections-dir ansible-aio-ee-airgapped/temp-collections --output ansible-aio-ee-airgapped/requirements-collections.txt" >/dev/null 2>&1
+        fi
+        cd ansible-aio-ee-airgapped
+        
+        # Clean up temporary container and Dockerfile
+        podman rmi "$temp_container" || true
+        rm -f /tmp/Dockerfile.collection-discovery
+        
+        # Clean up temporary collections
+        rm -rf temp-collections
+    else
+        print_warning "No collections directory found in parent. You may need to install collections first."
+        print_status "Creating minimal collection requirements file..."
+        
+        # Create a basic collection requirements file based on installed collections
+        cat > requirements-collections.txt << 'EOF'
+# requirements-collections.txt
+# Minimal collection dependencies for air-gapped build
+# This file should be updated after installing collections
+
+# Core dependencies that are typically required
+jsonpatch
+requests-oauthlib  
+botocore>=1.34.0
+jsonschema
+textfsm
+ttp
+xmltodict
+netaddr>=0.10.1
+EOF
+    fi
+    
+    print_success "Collection dependencies updated"
+}
+
+# Function to download Python wheels
+download_wheels() {
+    print_status "Downloading Python wheels for Python 3.11..."
+    
+    if [[ "$VERBOSE" == "true" ]]; then
+        print_status "Wheels directories: $WHEELS_DIR/ and $WHEELS_COLLECTIONS_DIR/"
+        print_status "Working directory: $(pwd)"
+    fi
+    
+    # Use a temporary Docker container with Python 3.11 to download wheels
+    # This ensures we get wheels compatible with the target Python version
+    local temp_container="temp-python311-wheel-download"
+    
+    # Create a temporary Dockerfile for Python 3.11 wheel downloads with proper alternatives setup
+    cat > /tmp/Dockerfile.wheel-download << 'EOF'
+FROM registry.access.redhat.com/ubi8/ubi:8.9
+RUN dnf -y install dnf-utils && \
+    dnf config-manager --set-enabled crb || dnf config-manager --set-enabled powertools || true && \
+    dnf -y install python3.11 python3.11-pip && \
+    # Set up Python alternatives properly for UBI 8.9
+    alternatives --install /usr/bin/unversioned-python python /usr/bin/python3.11 1 && \
+    alternatives --set python /usr/bin/python3.11 && \
+    dnf clean all
+WORKDIR /tmp
+EOF
+    
+    # Build the temporary image
+    print_status "Building temporary Python 3.11 container for wheel downloads..."
+    if [[ "$VERBOSE" == "true" ]]; then
+        podman build -f /tmp/Dockerfile.wheel-download -t "$temp_container" /tmp || {
+            print_error "Failed to build temporary container for wheel downloads"
+            return 1
+        }
+    else
+        podman build -f /tmp/Dockerfile.wheel-download -t "$temp_container" /tmp >/dev/null 2>&1 || {
+            print_error "Failed to build temporary container for wheel downloads"
+            return 1
+        }
+    fi
+    
+    # Download wheels for air-gapped requirements using Python 3.11
+    print_status "Downloading main requirement wheels with Python 3.11..."
+    if [[ "$VERBOSE" == "true" ]]; then
+        podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
+            bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r requirements.txt -d $WHEELS_DIR/"
+    else
+        podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
+            bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r requirements.txt -d $WHEELS_DIR/" >/dev/null 2>&1
+    fi
+    
+    # Download wheels for collection dependencies if file exists
+    if [[ -f "requirements-collections.txt" ]]; then
+        print_status "Downloading collection dependency wheels with Python 3.11..."
+        if [[ "$VERBOSE" == "true" ]]; then
+            podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
+                bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r requirements-collections.txt -d $WHEELS_COLLECTIONS_DIR/" || \
+                print_warning "Some collection dependency wheels may not be available"
+        else
+            podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
+                bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r requirements-collections.txt -d $WHEELS_COLLECTIONS_DIR/" >/dev/null 2>&1 || \
+                print_warning "Some collection dependency wheels may not be available"
+        fi
+    fi
+    
+    # Also download wheels for the main project requirements if available
+    if [[ -f "../requirements.txt" ]]; then
+        print_status "Found main project requirements.txt, downloading additional wheels with Python 3.11..."
+        if [[ "$VERBOSE" == "true" ]]; then
+            podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
+                bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r ../requirements.txt -d $WHEELS_DIR/" || \
+                print_warning "Some main project wheels may not be available"
+        else
+            podman run --rm -v "$(pwd):/workspace:Z" "$temp_container" \
+                bash -c "cd /workspace && /usr/bin/unversioned-python -m pip download -r ../requirements.txt -d $WHEELS_DIR/" >/dev/null 2>&1 || \
+                print_warning "Some main project wheels may not be available"
+        fi
+    fi
+    
+    # Clean up temporary container and Dockerfile
+    podman rmi "$temp_container" || true
+    rm -f /tmp/Dockerfile.wheel-download
+    
+    print_success "Python wheels downloaded to $WHEELS_DIR/ and $WHEELS_COLLECTIONS_DIR/"
+}
+
+# Function to download Ansible collections
+download_collections() {
+    print_status "Downloading Ansible collections..."
+    
+    if ! command -v ansible-galaxy &> /dev/null; then
+        print_error "ansible-galaxy is not available. Please install Ansible first."
+        return 1
+    fi
+    
+    # Download collections to local directory
+    # Try local requirements first, then fall back to main project requirements
+    if [[ -f "requirements.yml" ]]; then
+        print_status "Using local requirements.yml..."
+        ansible-galaxy collection download -r requirements.yml -p "$COLLECTIONS_DIR/"
+    elif [[ -f "../requirements.yml" ]]; then
+        print_status "Using main project requirements.yml..."
+        ansible-galaxy collection download -r ../requirements.yml -p "$COLLECTIONS_DIR/"
+    else
+        print_error "No requirements.yml file found (checked requirements.yml and ../requirements.yml)"
+        return 1
+    fi
+    
+    print_success "Ansible collections downloaded to $COLLECTIONS_DIR/"
+}
+
+# Function to clean existing downloads
+clean_downloads() {
+    print_status "Cleaning existing downloads..."
+    
+    if [ -d "$TOOLS_DIR" ]; then
+        rm -rf "$TOOLS_DIR"
+        print_success "Cleaned $TOOLS_DIR/"
+    fi
+    
+    if [ -d "$COLLECTIONS_DIR" ]; then
+        rm -rf "$COLLECTIONS_DIR"
+        print_success "Cleaned $COLLECTIONS_DIR/"
+    fi
+    
+    if [ -d "$WHEELS_DIR" ]; then
+        rm -rf "$WHEELS_DIR"
+        print_success "Cleaned $WHEELS_DIR/"
+    fi
+    
+    if [ -d "$WHEELS_COLLECTIONS_DIR" ]; then
+        rm -rf "$WHEELS_COLLECTIONS_DIR"
+        print_success "Cleaned $WHEELS_COLLECTIONS_DIR/"
+    fi
+}
+
+# Parse command line arguments
+DOWNLOAD_TOOLS=true
+DOWNLOAD_WHEELS=true
+DOWNLOAD_COLLECTIONS=true
+UPDATE_COLLECTION_DEPS=true
+CLEAN_FIRST=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_usage
+            exit 0
+            ;;
+        -v|--verbose)
+            VERBOSE=true
+            shift
+            ;;
+        --tools-only)
+            DOWNLOAD_TOOLS=true
+            DOWNLOAD_WHEELS=false
+            DOWNLOAD_COLLECTIONS=false
+            shift
+            ;;
+        --wheels-only)
+            DOWNLOAD_TOOLS=false
+            DOWNLOAD_WHEELS=true
+            DOWNLOAD_COLLECTIONS=false
+            shift
+            ;;
+        --collections-only)
+            DOWNLOAD_TOOLS=false
+            DOWNLOAD_WHEELS=false
+            DOWNLOAD_COLLECTIONS=true
+            UPDATE_COLLECTION_DEPS=false
+            shift
+            ;;
+        --update-collection-deps)
+            UPDATE_COLLECTION_DEPS=true
+            shift
+            ;;
+        --clean)
+            CLEAN_FIRST=true
+            shift
+            ;;
+        *)
+            print_error "Unknown option: $1"
+            show_usage
+            exit 1
+            ;;
+    esac
+done
+
+# Main execution
+main() {
+    print_status "Starting air-gapped environment preparation..."
+    
+    # Clean if requested
+    if [[ "$CLEAN_FIRST" == "true" ]]; then
+        clean_downloads
+        print_success "Cleaned existing downloads"
+        exit 0
+    fi
+    
+    # Create directories
+    create_directories
+    
+    # Update collection dependencies first if requested
+    if [[ "$UPDATE_COLLECTION_DEPS" == "true" ]]; then
+        update_collection_dependencies
+    fi
+    
+    # Download components based on options
+    if [[ "$DOWNLOAD_TOOLS" == "true" ]]; then
+        download_tools
+    fi
+    
+    if [[ "$DOWNLOAD_WHEELS" == "true" ]]; then
+        download_wheels
+    fi
+    
+    if [[ "$DOWNLOAD_COLLECTIONS" == "true" ]]; then
+        download_collections
+    fi
+        
+    print_success "Air-gapped environment preparation completed!"
+    print_status "Next steps:"
+    echo "1. Transfer this entire directory to your air-gapped environment"
+    echo "2. Follow the instructions in AIRGAPPED-BUILD-INSTRUCTIONS.md"
+    echo "3. Build the EE using ansible-builder or Docker"
+}
+
+# Run main function
+main "$@"

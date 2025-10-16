@@ -1,0 +1,181 @@
+---
+# Purpose: Manage S3 Certificate for Portworx backup integration
+# Dependencies: HashiCorp Vault, OpenShift/Kubernetes cluster access, hashi_vault lookup plugin
+# Variables:
+#   Required:
+#     - vault_parameters: Vault connection string (format: url=https://vault.example.com:8200,token=your_token)
+#     - cluster_user: User identifier for vault secret path construction
+#   Optional:
+#     - px_namespace: Portworx namespace (default: portworx)
+#     - oc_bin: Path to OpenShift CLI binary (default: /usr/local/bin/oc)
+#     - workdir_temp_folder: Temporary directory for operations (default: /tmp/px_cert)
+#     - over_write: Force overwrite existing secret (default: false)
+
+- name: "Manage S3 Certificate for Portworx backup integration"
+  hosts: localhost
+  gather_facts: false
+  vars:
+    # Required Variables (must be provided by user or inventory)
+    # vault_parameters: string - Vault connection string with URL and token
+    # cluster_user: string - User identifier for vault secret path
+
+    # Optional Variables (with sensible defaults)
+    px_namespace: "portworx"                    # Kubernetes namespace for Portworx components
+    oc_bin: "/usr/local/bin/oc"                # Path to OpenShift CLI binary
+    workdir_temp_folder: "/tmp/px_cert"        # Temporary directory for certificate operations
+    over_write: false                          # Force overwrite existing secrets
+
+    # Internal Variables (computed, do not override)
+    operation_timestamp: "{{ ansible_date_time.epoch }}"
+    operation_id: "s3-cert-update-{{ operation_timestamp }}"
+
+  tasks:
+    - name: "Validate required variables are defined and properly formatted"
+      ansible.builtin.assert:
+        that:
+          - vault_parameters is defined
+          - vault_parameters | length > 0
+          - cluster_user is defined
+          - cluster_user | length > 0
+          - px_namespace is defined
+          - px_namespace | length > 0
+          - oc_bin is defined
+          - workdir_temp_folder is defined
+        fail_msg: |
+          Required variables validation failed. Please ensure:
+          - vault_parameters: Vault connection string (format: url=https://vault.example.com:8200,token=your_token)
+          - cluster_user: User identifier for vault secret path
+          - px_namespace: Portworx namespace (current: {{ px_namespace | default('undefined') }})
+          - oc_bin: Path to OpenShift CLI binary (current: {{ oc_bin | default('undefined') }})
+          - workdir_temp_folder: Temporary working directory (current: {{ workdir_temp_folder | default('undefined') }})
+        success_msg: "All required variables validated successfully"
+      tags: [validation, always]
+
+    - name: "Ensure secure temporary directory exists"
+      ansible.builtin.file:
+        path: "{{ workdir_temp_folder }}"
+        state: directory
+        mode: '0700'
+        owner: "{{ ansible_user | default('root') }}"
+      register: temp_dir_result
+      tags: [filesystem, security]
+
+    - name: "Retrieve S3 bundle certificate from HashiCorp Vault"
+      ansible.builtin.set_fact:
+        s3bundle_crt: "{{ lookup('hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/' ~ cluster_user ~ '/portworx:data')['s3bundle.crt'] | trim }}"
+      no_log: true
+      tags: [vault, security, certificates]
+
+    - name: "Validate S3 bundle certificate content and format"
+      ansible.builtin.assert:
+        that:
+          - s3bundle_crt is defined
+          - s3bundle_crt | length > 0
+          - "'BEGIN CERTIFICATE' in s3bundle_crt"
+          - "'END CERTIFICATE' in s3bundle_crt"
+        fail_msg: |
+          Invalid S3 bundle certificate format retrieved from Vault.
+          Certificate must contain valid PEM format with BEGIN/END CERTIFICATE markers.
+        success_msg: "S3 bundle certificate format validated successfully"
+      tags: [validation, certificates]
+
+    - name: "Copy S3 bundle certificate to secure temporary file"
+      ansible.builtin.copy:
+        dest: "{{ workdir_temp_folder }}/s3bundle.crt"
+        content: "{{ s3bundle_crt }}"
+        mode: '0600'
+        owner: "{{ ansible_user | default('root') }}"
+        backup: true
+      register: copy_cert_result
+      no_log: true
+      tags: [filesystem, security, certificates]
+
+    - name: "Manage S3 certificate secret with comprehensive error handling"
+      tags: [certificates, kubernetes, secrets, main_operation]
+      block:
+        - name: "Check if S3 bundle certificate secret already exists"
+          ansible.builtin.shell: |
+            set -o pipefail
+            {{ oc_bin }} -n {{ px_namespace }} get secret px-s3bundle-cert --no-headers 2>/dev/null || echo "not_found"
+          register: secret_exists_check
+          changed_when: false
+          failed_when: false
+          tags: [kubernetes, secrets, validation]
+
+        - name: "Delete existing S3 bundle certificate secret if overwrite enabled"
+          ansible.builtin.shell: |
+            set -o pipefail
+            set -o nounset
+            set -o errexit
+            {{ oc_bin }} -n {{ px_namespace }} delete secret px-s3bundle-cert
+          register: delete_s3_cert_result
+          when:
+            - over_write | default(false) | bool
+            - "'not_found' not in secret_exists_check.stdout"
+          changed_when: delete_s3_cert_result.rc == 0
+          tags: [kubernetes, secrets, cleanup]
+
+        - name: "Create S3 bundle certificate secret"
+          ansible.builtin.shell: |
+            set -o pipefail
+            set -o nounset
+            set -o errexit
+            {{ oc_bin }} -n {{ px_namespace }} create secret generic px-s3bundle-cert \
+              --from-file={{ workdir_temp_folder }}/s3bundle.crt
+          register: create_s3_cert_result
+          when: "'not_found' in secret_exists_check.stdout or over_write | default(false) | bool"
+          changed_when: create_s3_cert_result.rc == 0
+          failed_when: >
+            create_s3_cert_result.rc != 0 and
+            'secrets "px-s3bundle-cert" already exists' not in create_s3_cert_result.stderr
+          tags: [kubernetes, secrets, certificates]
+
+        - name: "Verify secret creation"
+          ansible.builtin.shell: |
+            {{ oc_bin }} -n {{ px_namespace }} get secret px-s3bundle-cert -o jsonpath='{.metadata.name}'
+          register: verify_secret
+          changed_when: false
+          failed_when: verify_secret.stdout != "px-s3bundle-cert"
+          tags: [kubernetes, secrets, verification]
+
+      rescue:
+        - name: "Log detailed error information for troubleshooting"
+          ansible.builtin.debug:
+            msg: |
+              S3 certificate management failed:
+              - Secret exists check: {{ secret_exists_check.stdout | default('N/A') }}
+              - Delete result: {{ delete_s3_cert_result.stderr | default('N/A') }}
+              - Create result: {{ create_s3_cert_result.stderr | default('N/A') }}
+              - Verification: {{ verify_secret.stderr | default('N/A') }}
+              - Namespace: {{ px_namespace }}
+              - OC Binary: {{ oc_bin }}
+              - Operation ID: {{ operation_id }}
+
+        - name: "Set failure flag for monitoring"
+          ansible.builtin.set_fact:
+            certificate_operation_failed: true
+
+        - name: "Fail with comprehensive error message"
+          ansible.builtin.fail:
+            msg: |
+              S3 certificate secret management failed. Check the debug output above for details.
+              Troubleshooting steps:
+              1. Verify OpenShift CLI access: {{ oc_bin }} auth whoami
+              2. Check namespace exists: {{ oc_bin }} get namespace {{ px_namespace }}
+              3. Verify permissions to manage secrets in namespace {{ px_namespace }}
+
+      always:
+        - name: "Clean up temporary certificate file"
+          ansible.builtin.file:
+            path: "{{ workdir_temp_folder }}/s3bundle.crt"
+            state: absent
+          when: copy_cert_result is defined
+
+        - name: "Record operation status for monitoring"
+          ansible.builtin.debug:
+            msg: |
+              S3 certificate operation completed:
+              - Status: {{ 'FAILED' if certificate_operation_failed | default(false) else 'SUCCESS' }}
+              - Operation ID: {{ operation_id }}
+              - Timestamp: {{ ansible_date_time.iso8601 }}
+              - Namespace: {{ px_namespace }}

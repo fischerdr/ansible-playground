@@ -1,0 +1,118 @@
+---
+# Example playbook showing setup_env role integration as pre-task
+# Purpose: Demonstrate how to use setup_env role as a pre-task to override old paths and variables
+# Dependencies: setup_env role, kubernetes.core and community.hashi_vault collections
+# No external tools required - uses Ansible built-in modules
+# Variables: cluster_name (required), kubeconfig_dir (optional)
+
+- name: "Example: Using setup_env role as pre-task for existing playbooks"
+  hosts: localhost
+  gather_facts: true
+  become: false
+  vars:
+    # Required variable - cluster name to configure
+    cluster_name: "test-user-k8s-p-us1a-cluster1"
+
+    # Optional variables with examples
+    kubeconfig_dir: "{{ ansible_env.HOME }}/.kube/test_configs"
+    debug_mode: true
+    validate_certs: true
+
+    # Example of old variables that would be overridden by setup_env role
+    old_kubeconfig_path: "/old/path/to/kubeconfig"
+    old_ssh_key_path: "/old/path/to/ssh_key"
+    old_cluster_endpoint: "https://old-cluster.example.com"
+
+  pre_tasks:
+    - name: "Validate required variables are defined"
+      ansible.builtin.assert:
+        that:
+          - cluster_name is defined
+          - cluster_name | string | length > 0
+        fail_msg: "Required variable 'cluster_name' is not defined or empty"
+        success_msg: "All required variables validated successfully"
+      tags: [validation, always]
+
+    # Example: Using setup_env role as a pre-task to prepare environment
+    - name: "Setup Kubernetes environment using setup_env role"
+      ansible.builtin.include_role:
+        name: setup_env
+      tags: [setup_env, k8s_setup, pre_task]
+
+    # Example: Override old variables with new paths from setup_env role
+    - name: "Override old configuration paths with new setup_env paths"
+      ansible.builtin.set_fact:
+        # Override old kubeconfig path with new one from setup_env
+        kubeconfig_path: "{{ kubeconfig_dir }}/{{ cluster_name }}.kubeconfig"
+        # Override old SSH key path with new one from setup_env
+        ssh_key_path: "{{ kubeconfig_dir }}/{{ cluster_name }}.sshpriv"
+        # Example: Override old cluster endpoint (would come from kubeconfig parsing)
+        cluster_endpoint: "{{ kubeconfig_data | from_yaml | json_query('clusters[0].cluster.server') | default('unknown') }}"
+      tags: [setup_env, variable_override, pre_task]
+
+    - name: "Display path overrides for existing playbook compatibility"
+      ansible.builtin.debug:
+        msg: |
+          Path overrides applied:
+          - Old kubeconfig path: {{ old_kubeconfig_path }}
+          - New kubeconfig path: {{ kubeconfig_path }}
+          - Old SSH key path: {{ old_ssh_key_path }}
+          - New SSH key path: {{ ssh_key_path }}
+          - Old cluster endpoint: {{ old_cluster_endpoint }}
+          - New cluster endpoint: {{ cluster_endpoint }}
+      tags: [setup_env, variable_override, pre_task]
+
+  # Example tasks that would use the overridden variables
+  tasks:
+    - name: "Example: Use overridden kubeconfig path for cluster operations"
+      ansible.builtin.debug:
+        msg: |
+          Using new kubeconfig path: {{ kubeconfig_path }}
+          This would be used by subsequent tasks that need cluster access
+      tags: [example, cluster_operations]
+
+    - name: "Example: Use overridden SSH key path for node access"
+      ansible.builtin.debug:
+        msg: |
+          Using new SSH key path: {{ ssh_key_path }}
+          This would be used by tasks that need SSH access to cluster nodes
+      tags: [example, ssh_operations]
+
+    - name: "Example: Verify cluster connectivity using new configuration"
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+        kubeconfig: "{{ kubeconfig_path }}"
+        validate_certs: "{{ validate_certs }}"
+      register: cluster_nodes
+      ignore_errors: true
+      tags: [example, cluster_verification]
+
+    - name: "Display cluster information"
+      ansible.builtin.debug:
+        msg: |
+          Cluster connectivity test:
+          - Cluster endpoint: {{ cluster_endpoint }}
+          - Nodes found: {{ cluster_nodes.resources | length if cluster_nodes is not failed else 'Connection failed' }}
+          - Node names: {{ cluster_nodes.resources | map(attribute='metadata.name') | list if cluster_nodes is not failed else 'N/A' }}
+      when: cluster_nodes is not failed
+      tags: [example, cluster_verification]
+
+  post_tasks:
+    - name: "Display final configuration summary with overrides"
+      ansible.builtin.debug:
+        msg: |
+          Setup completed successfully for cluster: {{ cluster_name }}
+          Configuration paths overridden:
+          - Kubeconfig: {{ kubeconfig_path }}
+          - SSH Key: {{ ssh_key_path }}
+          - Cluster Endpoint: {{ cluster_endpoint }}
+
+          To use this configuration:
+          export KUBECONFIG={{ kubeconfig_path }}
+
+          Integration Notes:
+          - setup_env role was used as a pre-task to prepare environment
+          - Old variables were overridden with new paths from setup_env
+          - Existing playbook tasks can now use the new configuration paths
+      tags: [completion, summary, integration_example]

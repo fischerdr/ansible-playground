@@ -1,0 +1,155 @@
+---
+version: 3
+
+# Container image configuration for online environments
+images:
+  base_image:
+    # Using Red Hat Universal Base Image 8 (stream) as requested
+    name: registry.access.redhat.com/ubi8/ubi-minimal:latest
+
+# Dependencies section
+dependencies:
+  python_interpreter:
+    package_system: python3.11
+    python_path: /usr/bin/python3.11
+
+  # Core Ansible components
+  ansible_core:
+    package_pip: ansible-core
+  ansible_runner:
+    package_pip: ansible-runner
+
+  # External requirements - online installation
+  # galaxy: ../requirements.yml
+  python: requirements.txt
+
+  # System dependencies - Keep original but add yq back
+  system: |
+    # Base requirements
+    git-core [platform:rpm]
+    python3.11 [platform:rpm]
+    python3.11-devel [platform:rpm compile]
+    python3.11-pip [platform:rpm]
+
+    # Authentication and security
+    krb5-devel [platform:rpm compile]
+    krb5-workstation [platform:rpm]
+    openssl-devel [platform:rpm compile]
+
+    # Source control
+    git-lfs [platform:rpm]
+    subversion [platform:rpm]
+
+    # Network and file transfer
+    sshpass [platform:rpm]
+    rsync [platform:rpm]
+    wget [platform:rpm]
+    nc [platform:rpm]
+    curl [platform:rpm]
+
+    # Container management
+    podman-remote [platform:rpm]
+
+    # Build tools
+    cmake [platform:rpm compile]
+    gcc [platform:rpm compile]
+    gcc-c++ [platform:rpm compile]
+    make [platform:rpm compile]
+
+    # API and web service dependencies
+    libcurl-devel [platform:rpm compile]
+
+    # Utilities
+    unzip [platform:rpm]
+    which [platform:rpm]
+    jq [platform:rpm]
+
+    # Additional tools for cloud operations
+    ca-certificates [platform:rpm]
+    gnupg2 [platform:rpm]
+
+options:
+  package_manager_path: /usr/bin/microdnf
+
+
+additional_build_files:
+  - src: requirements-collections.txt
+    dest: tmp/
+  - src: requirements-minimal.yml
+    dest: tmp/
+
+# Additional build steps for online environment
+additional_build_steps:
+  prepend_base:
+    # Enable CodeReady Builder (CRB) repository for additional packages
+    - RUN microdnf -y install dnf-utils unzip
+    - RUN microdnf config-manager --set-enabled crb || microdnf config-manager --set-enabled powertools || true
+
+    # Create directories for tools
+    - RUN mkdir -p /usr/local/bin
+
+  append_base:
+
+    # Update Python pip and install base tools
+    - RUN python3.11 -m pip install -U pip setuptools wheel
+    - COPY _build/tmp/requirements-collections.txt /tmp/requirements-collections.txt
+    - RUN python3.11 -m pip install -r /tmp/requirements-collections.txt
+
+  append_final:
+    # Update system and clean up
+    - RUN microdnf -y update && microdnf clean all
+
+    # Debug filesystem size
+    - RUN df -h
+    - RUN ls -la /
+
+
+    # Remove Python 3.6/3.8/3.9 if present (keep only 3.11)
+    - RUN microdnf -y remove python3.6 python3.6-devel python3.8 python3.8-devel python3.9 python3.9-devel || true
+
+    # Set Python 3.11 as default using alternatives system
+    - RUN alternatives --install /usr/bin/unversioned-python python /usr/bin/python3.11 1
+    - RUN alternatives --set python /usr/bin/python3.11
+    - RUN ln -sf /usr/bin/unversioned-python /usr/bin/python
+
+    # Install Ansible collections from pre-downloaded files
+    - COPY _build/tmp/requirements-minimal.yml /tmp/requirements-minimal.yml
+    - RUN ansible-galaxy collection install --no-cache -p /usr/share/ansible/collections -r /tmp/requirements-minimal.yml
+
+    # Ansible configuration
+    - ENV ANSIBLE_FORCE_COLOR=1
+    - ENV ANSIBLE_COLLECTIONS_PATH=./collections:/usr/share/ansible/collections
+    - ENV ANSIBLE_ROLES_PATH=./roles:/usr/share/ansible/roles
+    - ENV ANSIBLE_HOST_KEY_CHECKING=false
+    - ENV ANSIBLE_RETRY_FILES_ENABLED=false
+
+    # Python configuration
+    - ENV PYTHONPATH=/usr/local/lib/python3.11/site-packages
+    - ENV PYTHONUNBUFFERED=1
+
+    # Logging configuration
+    - ENV LOG_LEVEL=INFO
+    - ENV LOG_FORMAT=json
+
+    # Security settings
+    - ENV REQUESTS_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+    - ENV CURL_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+
+    # Verify installations
+    - RUN python --version
+    - RUN ansible --version
+
+    # Clean up temporary files and caches
+    - RUN rm -rf /tmp/* /var/cache/dnf /var/cache/yum
+    - RUN microdnf clean all
+    - RUN python -m pip cache purge
+
+    # # Set working directory
+    # - WORKDIR /workspace
+
+    # # Create non-root user for security but DON'T switch to it yet
+    # - RUN useradd -m -s /bin/bash ansible
+    # - RUN chown -R ansible:ansible /workspace /logs
+
+    # DO NOT switch to non-root user here - let ansible-builder handle final cleanup as root
+    # The USER directive will be handled by ansible-builder's final steps

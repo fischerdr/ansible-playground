@@ -15,13 +15,14 @@ collections/ansible_collections/*
 # Ansible runner, navigator and artifacts
 .ansible/*
 artifacts/*
-ansible-aio-ee-airgapped/wheels/*
-ansible-aio-ee-airgapped/wheels-collections/*
-ansible-aio-ee-airgapped/collections/*
-ansible-aio-ee-airgapped/temp-collections/*
-ansible-aio-ee-airgapped/tools/*
-ansible-aio-ee-airgapped/context/*
+Build-EE/**/wheels/*
+Build-EE/**/wheels-collections/*
+Build-EE/**/collections/*
+Build-EE/**/temp-collections/*
+Build-EE/**/tools/*
+Build-EE/**/context/*
 ansible-aio-ee/context/
+Build-EE/**/context/
 
 # Python
 # https://raw.githubusercontent.com/github/gitignore/main/Python.gitignore
@@ -118,7 +119,6 @@ cython_debug/
 
 
 .tox/*
-/context
 .ansible/.lock
 .DS_Store
 .vscode/settings.json

@@ -1,0 +1,447 @@
+---
+# roles/upgrade_cluster/tasks/etcd_backup.yml
+# Etcd backup workflow (AAP EE execution context)
+# Expected vars:
+#   cluster_name, working_dir, install_dir, dest_base_mount,
+#   dest_backup_dir, transit_dest_backup_dir, source_backup_dir,
+#   kubeconfig_path, ssh_key_path, cluster_domain, backup_retention_days
+
+###############################################################################
+# VARIABLE VALIDATION
+###############################################################################
+- name: Validate required variables for etcd backup operation
+  ansible.builtin.assert:
+    that:
+      - item.var is defined
+      - item.var != ""
+    fail_msg: "Required variable '{{ item.name }}' is not defined or empty. {{ item.description }}"
+  loop:
+    - { var: "{{ cluster_name | default('') }}", name: "cluster_name", description: "Target cluster identifier for backup operations" }
+    - { var: "{{ kubeconfig_path | default('') }}", name: "kubeconfig_path", description: "Path to kubeconfig file for Kubernetes API access" }
+    - { var: "{{ ssh_key_path | default('') }}", name: "ssh_key_path", description: "Path to SSH private key for control-plane access" }
+    - { var: "{{ dest_backup_dir | default('') }}", name: "dest_backup_dir", description: "Destination directory for backup storage" }
+    - { var: "{{ source_backup_dir | default('') }}", name: "source_backup_dir", description: "Source directory on control-plane for backup artifacts" }
+  loop_control:
+    label: "{{ item.name }}"
+  tags: [validation, always]
+
+- name: Validate file paths exist and are accessible
+  ansible.builtin.assert:
+    that:
+      - kubeconfig_path is file
+      - ssh_key_path is file
+      - dest_backup_dir is writable
+    fail_msg: "One or more required paths are invalid or inaccessible"
+    success_msg: "All required paths validated successfully"
+  tags: [validation, always]
+
+- name: Set backup operation state tracking
+  ansible.builtin.set_fact:
+    backup_operation_state:
+      operation_id: "{{ cluster_name }}-{{ ansible_date_time.epoch }}"
+      start_time: "{{ ansible_date_time.iso8601 }}"
+      current_step: "validation_complete"
+      steps_completed: []
+      errors_encountered: []
+  tags: [validation, state_tracking]
+
+###############################################################################
+# DISCOVER CONTROL-PLANE NODE
+###############################################################################
+- name: Discover control-plane nodes via Kubernetes API
+  kubernetes.core.k8s_info:
+    kind: Node
+    kubeconfig: "{{ kubeconfig_path }}"
+    label_selectors:
+      - "node-role.kubernetes.io/control-plane"
+      - "node-role.kubernetes.io/master"
+  register: cp_nodes
+  changed_when: false
+  run_once: true
+  tags: [etcd, discovery]
+
+- name: Fail if no control-plane nodes were found
+  ansible.builtin.fail:
+    msg: "No control-plane or master nodes found via Kubernetes API."
+  when: cp_nodes.resources | length == 0
+  run_once: true
+  tags: [etcd, discovery]
+
+- name: Set control-plane facts and inventory name
+  ansible.builtin.set_fact:
+    # actual k8s node.metadata.name
+    cp_node_name: "{{ cp_nodes.resources[0].metadata.name }}"
+    # inventory name we'll use with add_host and delegate_to (unique to avoid collisions)
+    cp_host: "cp-{{ cp_nodes.resources[0].metadata.name }}-{{ inventory_hostname }}"
+    # prefer ExternalIP, fall back to InternalIP
+    cp_ip: >-
+      {{
+        (cp_nodes.resources[0].status.addresses
+          | selectattr('type', 'equalto', 'ExternalIP')
+          | map(attribute='address')
+          | first)
+        | default(
+            (cp_nodes.resources[0].status.addresses
+              | selectattr('type','equalto','InternalIP')
+              | map(attribute='address')
+              | first),
+            true
+          )
+      }}
+  run_once: true
+  tags: [etcd, discovery]
+
+- name: Sanitize control-plane IP address
+  ansible.builtin.set_fact:
+    cp_ip_sanitized: "{{ cp_ip | regex_replace('^[^0-9.]*', '') | regex_replace('[^0-9.]*$', '') }}"
+  tags: [security, discovery]
+
+- name: Validate IP address format
+  ansible.builtin.assert:
+    that:
+      - cp_ip_sanitized is match('^[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}$')
+    fail_msg: "Invalid IP address format detected: {{ cp_ip_sanitized }}"
+    success_msg: "IP address format validation passed"
+  tags: [validation, security]
+
+- name: Add discovered control-plane host to in-memory inventory (connect as core)
+  ansible.builtin.add_host:
+    name: "{{ cp_host }}"                         # must match delegate_to exactly
+    ansible_host: "{{ cp_ip_sanitized }}"         # sanitized IP used for SSH
+    ansible_user: core
+    ansible_ssh_private_key_file: "{{ ssh_key_path }}"
+    # Enhanced SSH security options
+    ansible_ssh_common_args: >-
+      -o IdentitiesOnly=yes
+      -o StrictHostKeyChecking=yes
+      -o Compression=yes
+      -o UserKnownHostsFile=/dev/null
+      -o LogLevel=ERROR
+    # Additional security: disable SSH agent forwarding and X11 forwarding
+    ansible_ssh_extra_args: "-o ForwardAgent=no -o ForwardX11=no"
+  run_once: true
+  tags: [etcd, discovery, security]
+
+- name: Ensure NFS base and cluster backup dirs exist on EE
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ (item == dest_base_mount) | ternary('0755', '0750') }}"
+    recurse: true
+  loop:
+    - "{{ dest_base_mount }}"
+    - "{{ dest_backup_dir }}"
+    - "{{ transit_dest_backup_dir }}"
+  tags: [etcd, storage]
+
+- name: Ensure source backup dir exists on control-plane (delegated)
+  ansible.builtin.file:
+    path: "{{ source_backup_dir }}"
+    state: directory
+    owner: core
+    group: core
+    mode: "0755"
+  delegate_to: "{{ cp_host }}"
+  become: true
+  run_once: true
+  tags: [etcd, discovery]
+
+- name: Find stale backup artifacts on control-plane (delegated)
+  ansible.builtin.find:
+    paths: "{{ source_backup_dir }}"
+    patterns:
+      - "static_kuberesources_*"
+      - "snapshot_*"
+    file_type: file
+    recurse: false
+  delegate_to: "{{ cp_host }}"
+  become: true
+  register: cp_stale_files
+  changed_when: false
+  run_once: true
+  tags: [etcd, backup]
+
+- name: Remove stale backup artifacts on control-plane (delegated)
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ cp_stale_files.files | default([]) }}"
+  delegate_to: "{{ cp_host }}"
+  become: true
+  when: cp_stale_files.files | length > 0
+  run_once: true
+  tags: [etcd, backup]
+
+###############################################################################
+# RUN BACKUP ON CONTROL-PLANE
+###############################################################################
+- name: Execute etcd backup with comprehensive error handling
+  run_once: true
+  tags: [etcd, backup]
+  block:
+    - name: Update operation state - starting backup
+      ansible.builtin.set_fact:
+        backup_operation_state: "{{ backup_operation_state | combine({'current_step': 'etcd_backup_started'}) }}"
+
+    - name: Run cluster-backup.sh on control-plane (delegated)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        /usr/local/bin/cluster-backup.sh "{{ source_backup_dir }}"
+      delegate_to: "{{ cp_host }}"
+      become: true
+      args:
+        executable: /bin/bash
+      register: etcd_backup_output
+      no_log: false
+      failed_when:
+        - etcd_backup_output is failed
+        - "'snapshot db and kube resources are successfully saved' not in (etcd_backup_output.stdout | default('')) and 'skipped' not in (etcd_backup_output.stdout | default(''))"
+      changed_when: "'snapshot db and kube resources are successfully saved' in (etcd_backup_output.stdout | default(''))"
+      run_once: true
+
+    - name: Update operation state - backup completed
+      ansible.builtin.set_fact:
+        backup_operation_state: "{{ backup_operation_state | combine({'current_step': 'etcd_backup_completed', 'steps_completed': (backup_operation_state.steps_completed | default([])) + ['etcd_backup']}) }}"
+  rescue:
+    - name: Capture backup failure details
+      ansible.builtin.set_fact:
+        backup_operation_state: "{{ backup_operation_state | combine({'current_step': 'etcd_backup_failed', 'errors_encountered': (backup_operation_state.errors_encountered | default([])) + [{'step': 'etcd_backup', 'error': 'Backup script execution failed', 'timestamp': ansible_date_time.iso8601, 'host': cp_host}]}) }}"
+
+    - name: Log backup failure details
+      ansible.builtin.debug:
+        msg: |
+          Etcd backup failed on {{ cp_host }}:
+          - Return code: {{ etcd_backup_output.rc | default('N/A') }}
+          - Stdout: {{ etcd_backup_output.stdout | default('N/A') }}
+          - Stderr: {{ etcd_backup_output.stderr | default('N/A') }}
+          - Troubleshooting: Check cluster-backup.sh script and etcd service status
+    - name: Fail backup operation
+      ansible.builtin.fail:
+        msg: "Etcd backup operation failed on {{ cp_host }}. Check logs for details."
+
+  always:
+    - name: Create backup attempt log artifact
+      ansible.builtin.copy:
+        content: |
+          {{ ansible_date_time.iso8601 }} - {{ backup_operation_state.operation_id }} - Backup attempt on {{ cp_host }} - Status: {{ 'SUCCESS' if backup_operation_state.current_step == 'etcd_backup_completed' else 'FAILED' }}
+          {% if backup_operation_state.current_step == 'etcd_backup_failed' %}
+          Error Details:
+          - Return code: {{ etcd_backup_output.rc | default('N/A') }}
+          - Stdout: {{ etcd_backup_output.stdout | default('N/A') }}
+          - Stderr: {{ etcd_backup_output.stderr | default('N/A') }}
+          {% endif %}
+        dest: "{{ dest_backup_dir }}/backup-attempt-{{ backup_operation_state.operation_id }}.log"
+        mode: '0640'
+      become: true
+
+
+###############################################################################
+# Compress snapshot_*.db on control-plane to save space
+###############################################################################
+- name: Check for uncompressed snapshot files before compression
+  ansible.builtin.find:
+    paths: "{{ source_backup_dir }}"
+    patterns: "snapshot_*.db"
+    excludes: "*.gz"
+    file_type: file
+    recurse: false
+  delegate_to: "{{ cp_host }}"
+  become: true
+  register: uncompressed_snapshots
+  changed_when: false
+  run_once: true
+  tags: [etcd, backup]
+
+- name: Gzip uncompressed snapshot files on control-plane (delegated)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    find "{{ source_backup_dir }}" -maxdepth 1 -type f -name "snapshot_*.db" -exec gzip -9f {} \;
+  delegate_to: "{{ cp_host }}"
+  become: true
+  become_user: root
+  args:
+    executable: /bin/bash
+  register: gzip_result
+  changed_when:
+    - gzip_result.rc == 0
+    - uncompressed_snapshots.matched | default(0) > 0
+  failed_when: gzip_result.rc != 0
+  when: uncompressed_snapshots.matched | default(0) > 0
+  run_once: true
+  tags: [etcd, backup]
+
+###############################################################################
+# FETCH BACKUP ARTIFACTS TO CONTROLLER
+###############################################################################
+- name: Find backup artifact files on control-plane (delegated)
+  ansible.builtin.find:
+    paths: "{{ source_backup_dir }}"
+    patterns:
+      - "snapshot_*"
+      - "static_kuberesources_*"
+    file_type: file
+    recurse: false
+  delegate_to: "{{ cp_host }}"
+  register: cp_found_backups
+  changed_when: false
+  run_once: true
+  tags: [etcd, transfer]
+
+- name: Fail if no backup artifacts found on control-plane
+  ansible.builtin.fail:
+    msg: "No snapshot/static_kuberesources files found in {{ source_backup_dir }} on {{ cp_host }}; backup may have failed."
+  when: cp_found_backups.files | length == 0
+  run_once: true
+  tags: [etcd, transfer]
+
+
+- name: Fetch backup artifacts from control-plane to controller (EE)
+  ansible.builtin.fetch:
+    src: "{{ item.path }}"
+    dest: "{{ transit_dest_backup_dir }}/"
+    flat: true
+  loop: "{{ cp_found_backups.files | default([]) }}"
+  delegate_to: "{{ cp_host }}"
+  become: true
+  run_once: true
+  tags: [etcd, transfer]
+
+###############################################################################
+# COPY TO NFS AND ARCHIVE
+###############################################################################
+
+- name: Find database snapshot files in transit dir
+  ansible.builtin.find:
+    paths: "{{ transit_dest_backup_dir }}"
+    patterns: "snapshot_*.db*"
+    file_type: file
+    recurse: false
+  register: transit_db_files
+  changed_when: false
+  tags: [etcd, archive]
+
+- name: Fail if no DB snapshot found in transit
+  ansible.builtin.fail:
+    msg: "No snapshot_*.db file found in transit dir {{ transit_dest_backup_dir }}; fetch may have failed."
+  when: transit_db_files.files | length == 0
+  tags: [etcd, archive]
+
+- name: Check if archive already exists to maintain idempotency
+  ansible.builtin.stat:
+    path: "{{ dest_backup_dir }}/{{ cluster_name }}-{{ ansible_date_time.iso8601_basic_short }}-snapshot.tar.gz"
+  register: archive_exists
+  changed_when: false
+  tags: [etcd, archive]
+
+- name: Create compressed archive of DB snapshot(s) and static resources
+  community.general.archive:
+    path:
+      - "{{ transit_db_files.files | map(attribute='path') | list }}"
+      - "{{ transit_dest_backup_dir }}/static_kuberesources_*"
+    dest: "{{ dest_backup_dir }}/{{ cluster_name }}-{{ ansible_date_time.iso8601_basic_short }}-snapshot.tar.gz"
+    format: gz
+    remove: true
+    mode: "0640"
+  become: true
+  changed_when: not archive_exists.stat.exists
+  tags: [etcd, archive]
+
+- name: Ensure archive ownership and permissions
+  ansible.builtin.file:
+    path: "{{ dest_backup_dir }}/{{ cluster_name }}-{{ ansible_date_time.iso8601_basic_short }}-snapshot.tar.gz"
+    state: file
+    mode: "0640"
+  become: true
+  tags: [etcd, archive]
+
+
+###############################################################################
+# CLEANUP AND REPORT
+###############################################################################
+- name: Find old snapshot/static files and archives for cleanup
+  ansible.builtin.find:
+    paths: "{{ dest_backup_dir }}"
+    patterns:
+      - "snapshot_*"
+      - "static_kuberesources_*"
+      - "*.tar.gz"
+    age: "{{ backup_retention_days | default(30) | int }}d"
+    recurse: false
+  register: old_files
+  changed_when: false
+  tags: [etcd, cleanup]
+
+- name: Remove old backup files found
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ old_files.files | default([]) }}"
+  when: old_files.matched | default(0) > 0
+  register: removed_old_files
+  become: true
+  tags: [etcd, cleanup]
+
+
+- name: Update final operation state
+  ansible.builtin.set_fact:
+    backup_operation_state: "{{ backup_operation_state | combine({'current_step': 'backup_completed', 'completion_time': ansible_date_time.iso8601, 'steps_completed': (backup_operation_state.steps_completed | default([])) + ['final_cleanup'], 'final_status': 'SUCCESS'}) }}"
+  tags: [etcd, final, state_tracking]
+
+- name: Report comprehensive final status
+  ansible.builtin.debug:
+    msg: |
+      ============================================
+      ETCD BACKUP OPERATION COMPLETED SUCCESSFULLY
+      ============================================
+      Operation ID: {{ backup_operation_state.operation_id }}
+      Cluster: {{ cluster_name }}
+      Start Time: {{ backup_operation_state.start_time }}
+      Completion Time: {{ backup_operation_state.completion_time }}
+      Control Plane Host: {{ cp_host }}
+
+      Backup Location: {{ dest_backup_dir }}/{{ cluster_name }}-{{ ansible_date_time.iso8601_basic_short }}-snapshot.tar.gz
+      Files Cleaned: {{ removed_old_files.results | selectattr('changed') | list | length | default(0) }}
+
+      Steps Completed:
+      {% for step in backup_operation_state.steps_completed %}
+      - {{ step }}
+      {% endfor %}
+
+      Operation Status: {{ backup_operation_state.final_status }}
+      ============================================
+  tags: [etcd, final]
+
+- name: Create backup operation summary artifact
+  ansible.builtin.copy:
+    content: |
+      ============================================
+      ETCD BACKUP OPERATION SUMMARY
+      ============================================
+      Operation ID: {{ backup_operation_state.operation_id }}
+      Cluster: {{ cluster_name }}
+      Start Time: {{ backup_operation_state.start_time }}
+      Completion Time: {{ backup_operation_state.completion_time }}
+      Control Plane Host: {{ cp_host }}
+      Final Status: {{ backup_operation_state.final_status }}
+
+      Steps Completed:
+      {% for step in backup_operation_state.steps_completed %}
+      - {{ step }}
+      {% endfor %}
+
+      {% if backup_operation_state.errors_encountered | default([]) | length > 0 %}
+      Errors Encountered:
+      {% for error in backup_operation_state.errors_encountered %}
+      - Step: {{ error.step }} | Error: {{ error.error }} | Time: {{ error.timestamp }} | Host: {{ error.host }}
+      {% endfor %}
+      {% endif %}
+
+      Backup Location: {{ dest_backup_dir }}/{{ cluster_name }}-{{ ansible_date_time.iso8601_basic_short }}-snapshot.tar.gz
+      Files Cleaned: {{ removed_old_files.results | selectattr('changed') | list | length | default(0) }}
+      ============================================
+    dest: "{{ dest_backup_dir }}/backup-operation-summary-{{ backup_operation_state.operation_id }}.txt"
+    mode: '0640'
+  become: true
+  tags: [etcd, final, logging]

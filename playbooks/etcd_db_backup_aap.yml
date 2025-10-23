@@ -1,0 +1,77 @@
+---
+# Purpose: Etcd database backup workflow for AAP Execution Environment
+# Dependencies: setup_env role, kubernetes.core collection
+# Variables: cluster_name, kubeconfig_path, ssh_key_path, backup_retention_days
+- name: "Etcd Database Backup - AAP Execution Environment"
+  hosts: localhost
+  gather_facts: true
+  become: false
+  vars:
+    source_backup_dir: "/home/core/assets/daily_backup"
+    backup_retention_days: "{{ backup_retention_days | default(30) }}"
+
+  pre_tasks:
+    - name: "Validate cluster_name is provided"
+      ansible.builtin.assert:
+        that:
+          - cluster_name is defined
+          - cluster_name != ""
+        fail_msg: "Required variable 'cluster_name' must be provided as it's not set by setup_env role"
+        success_msg: "Cluster name validation passed"
+      tags: [validation, always]
+
+    - name: "Setup Kubernetes environment for cluster"
+      ansible.builtin.include_role:
+        name: setup_env
+      tags: [setup, always]
+
+    - name: "Validate setup_env role output variables"
+      ansible.builtin.assert:
+        that:
+          - item.var is defined
+          - item.var != ""
+        fail_msg: "Setup environment failed to set '{{ item.name }}'. {{ item.description }}"
+      loop:
+        - { var: "{{ kubeconfig_path | default('') }}", name: "kubeconfig_path", description: "Path to kubeconfig file" }
+        - { var: "{{ ssh_key_path | default('') }}", name: "ssh_key_path", description: "Path to SSH private key" }
+      loop_control:
+        label: "{{ item.name }}"
+      tags: [validation, always]
+
+    - name: "Set application binary paths"
+      ansible.builtin.set_fact:
+        OC_BIN: "/usr/local/bin/oc"
+        KUBECTL_BIN: "/usr/local/bin/kubectl"
+        WORK_DIR: "/apps/persistence/clusters/{{ cluster_name }}"
+        OCP_INSTALLDIR: "/apps/persistence/clustersinstall/{{ cluster_name }}"
+      tags: [setup, always]
+
+    - name: "Configure backup directory structure"
+      ansible.builtin.set_fact:
+        dest_base_mount: "/apps/persistence/etcdbackups"
+        dest_backup_dir: "/apps/persistence/etcdbackups/{{ cluster_name }}"
+        transit_dest_backup_dir: "/apps/persistence/etcdbackups/{{ cluster_name }}/transit"
+      tags: [setup, always]
+
+    - name: "Display environment configuration"
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          ETCD BACKUP ENVIRONMENT CONFIGURATION
+          ============================================
+          Cluster: {{ cluster_name }}
+          Kubeconfig: {{ kubeconfig_path }}
+          SSH Key: {{ ssh_key_path }}
+          Source Backup Dir: {{ source_backup_dir }}
+          Destination Base: {{ dest_base_mount }}
+          Backup Directory: {{ dest_backup_dir }}
+          Transit Directory: {{ transit_dest_backup_dir }}
+          Retention Days: {{ backup_retention_days }}
+          ============================================
+      tags: [setup, always]
+
+  tasks:
+    - name: "Execute etcd backup workflow"
+      ansible.builtin.include_tasks:
+        file: "roles/upgrade_clusters/tasks/etcd_backup_aap.yml"
+      tags: [etcd, backup]

@@ -6,13 +6,14 @@
   ansible.builtin.set_fact:
     cluster_user: null
     platform: null
-    cluster_env: null
+    cluster_envfull: null
     region_zone: null
     region: null
     zone: null
     cluster_id: null
     cluster_has_zone: null
     cluster_name_parts: null
+  no_log: true
   tags:
     - cluster_setup
     - variables
@@ -23,6 +24,7 @@
     - name: "Set cluster name parsing variables"
       ansible.builtin.set_fact:
         cluster_name_parts: "{{ cluster_name.split('-') }}"
+      no_log: true
       tags:
         - cluster_setup
         - variables
@@ -31,6 +33,7 @@
       ansible.builtin.set_fact:
         cluster_user: "{{ cluster_name_parts[0] }}"
         platform: "{{ cluster_name_parts[1] }}"
+      no_log: true
       tags:
         - cluster_setup
         - variables
@@ -38,13 +41,15 @@
     - name: "Determine if cluster has zone information"
       ansible.builtin.set_fact:
         cluster_has_zone: "{{ cluster_name is match(cluster_name_with_zone_pattern) }}"
+      no_log: true
       tags:
         - cluster_setup
         - variables
 
     - name: "Parse environment from cluster name"
       ansible.builtin.set_fact:
-        cluster_env: "{{ cluster_env_mapping[cluster_name_parts[2]] | default(cluster_name_parts[2]) }}"
+        cluster_envfull: "{{ cluster_env_mapping[cluster_name_parts[2]] | default(cluster_name_parts[2]) }}"
+      no_log: true
       tags:
         - cluster_setup
         - variables
@@ -56,6 +61,7 @@
         zone: "{{ 'zone-' + (cluster_name_parts[3] | regex_search('[abc]$') | default('')) }}"
         cluster_id: "{{ cluster_name_parts[4] }}"
       when: cluster_has_zone | bool
+      no_log: true
       tags:
         - cluster_setup
         - variables
@@ -66,6 +72,7 @@
         zone: "all-zones"
         cluster_id: "{{ cluster_name_parts[4] }}"
       when: not (cluster_has_zone | bool)
+      no_log: true
       tags:
         - cluster_setup
         - variables
@@ -76,7 +83,7 @@
         msg:
           - "Cluster User: {{ cluster_user }}"
           - "Platform: {{ platform }}"
-          - "Environment: {{ cluster_env }}"
+          - "Environment: {{ cluster_envfull }}"
           - "Region: {{ region }}"
           - "Zone: {{ zone }}"
           - "Cluster ID: {{ cluster_id }}"
@@ -90,3 +97,7 @@
     - name: "Handle cluster variable setup failure"
       ansible.builtin.fail:
         msg: "Failed to setup cluster variables: {{ ansible_failed_result.msg | default('Unknown error') }}"
+      tags:
+        - cluster_setup
+        - variables
+        - error

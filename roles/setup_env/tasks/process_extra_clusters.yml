@@ -1,0 +1,55 @@
+---
+# Process extra clusters
+# Purpose: Iterate through extra_clusters list and retrieve credentials for each cluster
+
+- name: "Initialize extra_clusters fact"
+  ansible.builtin.set_fact:
+    extra_clusters_fact: []
+  tags:
+    - extra_clusters
+    - initialization
+
+- name: "Validate extra_clusters variable format"
+  ansible.builtin.assert:
+    that:
+      - extra_clusters is defined
+      - extra_clusters is iterable
+      - extra_clusters is not string
+    fail_msg: "extra_clusters must be a list of cluster names"
+    success_msg: "extra_clusters variable format is valid"
+  tags:
+    - extra_clusters
+    - validation
+
+- name: "Process each cluster in extra_clusters list"
+  ansible.builtin.include_tasks:
+    file: process_single_cluster.yml
+  loop: "{{ extra_clusters }}"
+  loop_control:
+    loop_var: extra_cluster_name
+    label: "Processing cluster: {{ extra_cluster_name }}"
+  when: extra_clusters | length > 0
+  tags:
+    - extra_clusters
+    - credentials
+
+- name: "Display extra_clusters processing summary"
+  ansible.builtin.debug:
+    msg: |
+      Extra clusters processing completed:
+        Total clusters requested: {{ extra_clusters | length }}
+        Successfully processed: {{ extra_clusters_fact | selectattr('status', 'equalto', 'success') | list | length }}
+        Failed: {{ extra_clusters_fact | selectattr('status', 'equalto', 'failed') | list | length }}
+  when: extra_clusters | length > 0
+  tags:
+    - extra_clusters
+    - completion
+
+- name: "Set extra_clusters fact for use by other playbooks"
+  ansible.builtin.set_fact:
+    extra_clusters: "{{ extra_clusters_fact }}"
+    cacheable: true
+  when: extra_clusters | length > 0
+  tags:
+    - extra_clusters
+    - completion

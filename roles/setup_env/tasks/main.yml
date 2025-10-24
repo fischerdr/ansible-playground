@@ -38,13 +38,6 @@
     - cluster_setup
     - variables
 
-- name: "Retrieve inventory data and configure Vault"
-  ansible.builtin.include_tasks:
-    file: configure_vault.yml
-  tags:
-    - vault
-    - inventory
-
 - name: "Retrieve credentials from Vault"
   ansible.builtin.include_tasks:
     file: retrieve_credentials.yml
@@ -66,6 +59,13 @@
     - testing
     - validation
 
+- name: "Process extra clusters if provided"
+  ansible.builtin.include_tasks:
+    file: process_extra_clusters.yml
+  when: extra_clusters is defined and extra_clusters | length > 0
+  tags:
+    - extra_clusters
+
 - name: "Display setup completion status"
   ansible.builtin.debug:
     msg: |
@@ -75,5 +75,18 @@
 
       To use this configuration, you can run:
       export KUBECONFIG={{ kubeconfig_path }}
+      {% if extra_clusters is defined and extra_clusters | length > 0 %}
+
+      Extra clusters processed: {{ extra_clusters | length }}
+      {% for cluster in extra_clusters %}
+      - {{ cluster.cluster_name }}: {{ cluster.status | upper }}
+        {% if cluster.status == 'success' %}
+        Kubeconfig: {{ cluster.kubeconfig_path }}
+        SSH Key: {{ cluster.ssh_key_path }}
+        {% else %}
+        Error: {{ cluster.error }}
+        {% endif %}
+      {% endfor %}
+      {% endif %}
   tags:
     - completion

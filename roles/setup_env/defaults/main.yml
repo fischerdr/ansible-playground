@@ -37,3 +37,7 @@ cluster_env_mapping:
 # File permissions
 kubeconfig_file_mode: '0600'
 ssh_key_file_mode: '0600'
+
+# Extra clusters configuration
+extra_clusters: []
+test_extra_clusters: false

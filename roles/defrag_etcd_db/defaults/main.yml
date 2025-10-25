@@ -1,0 +1,43 @@
+---
+# Default variables for defrag_etcd_db role
+# All automation executed through Ansible Automation Platform (AAP) using Execution Environments (EEs)
+
+# Cluster identification
+cluster_name: ""
+
+# Command execution timeout (seconds)
+cmd_timeout: 240
+
+# OpenShift CLI binary path (must be available in EE)
+oc_binary: "/usr/bin/oc"
+
+# Kubeconfig path (typically injected via AAP credential)
+kubeconfig: ""
+
+# Working directory for cluster operations (deprecated - not used in AAP-compliant version)
+working_dir: ""
+
+# Database size difference threshold percentage
+# Defrag will only run if difference exceeds this value
+db_size_diff_baseline: 20
+
+# Force defragmentation regardless of threshold
+force: false
+
+# Skip compaction step
+skip_compact: false
+
+# Pause duration after event cleanup (seconds)
+pause_event_seconds: 10
+
+# Member list (comma-separated pod names, empty for auto-discovery)
+member_list: ""
+
+# Wait time between member defragmentation (seconds)
+wait_between_members: 60
+
+# Maximum retry multiplier for defrag operations
+max_retry_multiplier: 2
+
+# Enable debug logging in custom module
+debug_mode: false

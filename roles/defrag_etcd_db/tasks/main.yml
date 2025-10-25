@@ -1,0 +1,312 @@
+---
+# Purpose: Defragment etcd database in OpenShift clusters
+# Dependencies: defrag_etcd custom module, kubernetes.core collection
+# Variables: See defaults/main.yml for required and optional variables
+
+- name: "Validate required variables are defined"
+  ansible.builtin.assert:
+    that:
+      - cluster_name is defined
+      - cluster_name | length > 0
+      - oc_binary is defined
+      - oc_binary | length > 0
+    fail_msg: "Required variables not defined. cluster_name and oc_binary are mandatory."
+    success_msg: "Variable validation successful"
+  tags: [validation, always]
+
+- name: "Discover etcd pods via kubernetes API"
+  when: member_list is not defined or member_list | length == 0
+  tags: [discovery]
+  block:
+    - name: "Retrieve etcd pod list from openshift-etcd namespace"
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: openshift-etcd
+        label_selectors:
+          - app=etcd
+      register: etcd_pods_info
+
+    - name: "Extract pod names from query results"
+      ansible.builtin.set_fact:
+        etcd_pod_names: "{{ etcd_pods_info.resources | map(attribute='metadata.name') | list }}"
+
+    - name: "Validate etcd pods were discovered"
+      ansible.builtin.assert:
+        that:
+          - etcd_pod_names | length > 0
+        fail_msg: "No etcd pods found in openshift-etcd namespace"
+        success_msg: "Discovered {{ etcd_pod_names | length }} etcd pod(s)"
+
+    - name: "Log discovered etcd pods"
+      ansible.builtin.debug:
+        msg: "Discovered etcd pods: {{ etcd_pod_names }}"
+        verbosity: 1
+
+- name: "Build pod list from explicit member_list parameter"
+  ansible.builtin.set_fact:
+    etcd_pod_names: "{{ member_list.split(',') | map('trim') | list }}"
+  when:
+    - member_list is defined
+    - member_list | length > 0
+  tags: [discovery]
+
+- name: "Log explicit member list"
+  ansible.builtin.debug:
+    msg: "Using explicit member list: {{ etcd_pod_names }}"
+    verbosity: 1
+  when:
+    - member_list is defined
+    - member_list | length > 0
+  tags: [discovery]
+
+- name: "Validate pod list is available"
+  ansible.builtin.assert:
+    that:
+      - etcd_pod_names is defined
+      - etcd_pod_names | length > 0
+    fail_msg: "No etcd pods available - neither discovered nor provided via member_list"
+    success_msg: "Using {{ etcd_pod_names | length }} etcd pod(s) for defragmentation"
+  tags: [validation, discovery]
+
+- name: "Identify etcd cluster leader and members"
+  tags: [discovery, leader_detection]
+  block:
+    - name: "Query etcd cluster for leader ID"
+      ansible.builtin.command:
+        cmd: >
+          {{ oc_binary }}
+          {% if kubeconfig | default('') | length > 0 %}--kubeconfig {{ kubeconfig }}{% endif %}
+          exec -n openshift-etcd {{ etcd_pod_names[0] }} -c etcd --
+          etcdctl endpoint status --write-out=json
+      register: endpoint_status_raw
+      changed_when: false
+      failed_when: endpoint_status_raw.rc != 0
+
+    - name: "Parse endpoint status to identify leader"
+      ansible.builtin.set_fact:
+        endpoint_status_data: "{{ endpoint_status_raw.stdout | from_json }}"
+
+    - name: "Extract leader ID from endpoint status"
+      ansible.builtin.set_fact:
+        leader_id: "{{ (endpoint_status_data | selectattr('Status.leader', 'equalto', endpoint_status_data[0].Status.leader) | first).Status.leader }}"
+
+    - name: "Query etcd member list to map leader ID to pod name"
+      ansible.builtin.command:
+        cmd: >
+          {{ oc_binary }}
+          {% if kubeconfig | default('') | length > 0 %}--kubeconfig {{ kubeconfig }}{% endif %}
+          exec -n openshift-etcd {{ etcd_pod_names[0] }} -c etcd --
+          etcdctl member list --write-out=json
+      register: member_list_raw
+      changed_when: false
+      failed_when: member_list_raw.rc != 0
+      retries: 10
+      delay: 5
+      until: member_list_raw.rc == 0
+
+    - name: "Parse member list data"
+      ansible.builtin.set_fact:
+        member_list_data: "{{ member_list_raw.stdout | from_json }}"
+
+    - name: "Extract leader member name"
+      ansible.builtin.set_fact:
+        leader_name: "{{ (member_list_data.members | selectattr('ID', 'equalto', leader_id | int) | first).name }}"
+
+    - name: "Identify leader pod from discovered pods"
+      ansible.builtin.set_fact:
+        leader_pod: "{{ item }}"
+      when: leader_name in item
+      loop: "{{ etcd_pod_names | unique }}"
+
+    - name: "Log identified leader pod"
+      ansible.builtin.debug:
+        msg: "Etcd cluster leader: {{ leader_pod }}"
+
+    - name: "Identify non-leader member for compaction operations"
+      ansible.builtin.set_fact:
+        etcd_compact_member: "{{ item }}"
+      when:
+        - leader_name not in item
+        - etcd_compact_member is not defined
+      loop: "{{ etcd_pod_names | unique }}"
+
+    - name: "Log non-leader member for compaction"
+      ansible.builtin.debug:
+        msg: "Using non-leader member for compaction: {{ etcd_compact_member }}"
+
+    - name: "Validate leader and compact member identified"
+      ansible.builtin.assert:
+        that:
+          - leader_pod is defined
+          - etcd_compact_member is defined
+        fail_msg: "Failed to identify leader pod or non-leader member for compaction"
+        success_msg: "Leader and non-leader member successfully identified"
+
+- name: "Pre-defrag assessment and preparation"
+  when: member_list is not defined or member_list | length == 0
+  tags: [preparation]
+  block:
+    - name: "Query etcd endpoint status for size analysis"
+      ansible.builtin.command:
+        cmd: >
+          {{ oc_binary }}
+          {% if kubeconfig | default('') | length > 0 %}--kubeconfig {{ kubeconfig }}{% endif %}
+          exec -n openshift-etcd {{ leader_pod }} -c etcd --
+          etcdctl endpoint status --cluster --write-out=json
+      register: etcd_status_json
+      changed_when: false
+      failed_when: etcd_status_json.rc != 0
+      tags: [assessment]
+
+    - name: "Parse etcd database size metrics"
+      ansible.builtin.set_fact:
+        etcd_metrics: "{{ etcd_status_json.stdout | from_json }}"
+      tags: [assessment]
+
+    - name: "Calculate database size utilization percentage"
+      ansible.builtin.set_fact:
+        db_utilization_pct: >-
+          {{
+            (
+              (etcd_metrics | map(attribute='Status.dbSize') | map('int') | max) -
+              (etcd_metrics | map(attribute='Status.dbSizeInUse') | map('int') | max)
+            ) /
+            (etcd_metrics | map(attribute='Status.dbSizeInUse') | map('int') | max) * 100
+            | round(2)
+          }}
+      tags: [assessment]
+
+    - name: "Display database utilization analysis"
+      ansible.builtin.debug:
+        msg: "ETCD database size difference: {{ db_utilization_pct }}%"
+      tags: [assessment]
+
+    - name: "Determine if defragmentation is required"
+      ansible.builtin.debug:
+        msg: "Defragmentation not required: utilization {{ db_utilization_pct }}% below threshold {{ db_size_diff_baseline }}%"
+      when:
+        - db_utilization_pct | float < db_size_diff_baseline | float
+        - not force | default(false) | bool
+      tags: [assessment]
+
+    - name: "Skip defragmentation when threshold not met"
+      ansible.builtin.meta: end_play
+      when:
+        - db_utilization_pct | float < db_size_diff_baseline | float
+        - not force | default(false) | bool
+      tags: [assessment]
+
+    - name: "Clean kubernetes event data from etcd via non-leader member"
+      ansible.builtin.command:
+        cmd: >
+          {{ oc_binary }}
+          {% if kubeconfig | default('') | length > 0 %}--kubeconfig {{ kubeconfig }}{% endif %}
+          exec -n openshift-etcd {{ etcd_compact_member }} -c etcd --
+          etcdctl del --prefix /kubernetes.io/events --command-timeout={{ cmd_timeout }}s
+      register: event_cleanup
+      changed_when: event_cleanup.rc == 0
+      failed_when: event_cleanup.rc != 0
+      tags: [preparation]
+
+    - name: "Wait for cluster stabilization after event cleanup"
+      ansible.builtin.pause:
+        seconds: "{{ pause_event_seconds }}"
+      tags: [preparation]
+
+    - name: "Retrieve current etcd revision for compaction from non-leader"
+      ansible.builtin.command:
+        cmd: >
+          {{ oc_binary }}
+          {% if kubeconfig | default('') | length > 0 %}--kubeconfig {{ kubeconfig }}{% endif %}
+          exec -n openshift-etcd {{ etcd_compact_member }} -c etcd --
+          etcdctl endpoint status --write-out=json
+      register: revision_status
+      changed_when: false
+      failed_when: revision_status.rc != 0
+      retries: 10
+      delay: 5
+      until: revision_status.stdout != ''
+      when: not skip_compact | default(false) | bool
+      tags: [preparation]
+
+    - name: "Extract revision number from status output"
+      ansible.builtin.set_fact:
+        compact_revision: "{{ (revision_status.stdout | from_json)[0].Status.revision }}"
+      when: not skip_compact | default(false) | bool
+      tags: [preparation]
+
+    - name: "Compact etcd database via non-leader to revision {{ compact_revision | default('N/A') }}"
+      ansible.builtin.command:
+        cmd: >
+          {{ oc_binary }}
+          {% if kubeconfig | default('') | length > 0 %}--kubeconfig {{ kubeconfig }}{% endif %}
+          exec -n openshift-etcd {{ etcd_compact_member }} -c etcd --
+          etcdctl compact {{ compact_revision }}
+      register: compact_result
+      changed_when: compact_result.rc == 0
+      failed_when: compact_result.rc != 0
+      when: not skip_compact | default(false) | bool
+      tags: [preparation]
+
+  rescue:
+    - name: "Log pre-defrag preparation failure"
+      ansible.builtin.debug:
+        msg: "Pre-defragmentation preparation failed. Review logs for details."
+
+    - name: "Fail role execution on preparation error"
+      ansible.builtin.fail:
+        msg: "Cannot proceed with defragmentation due to preparation failure"
+
+
+- name: "Execute pre-defragmentation health check"
+  ansible.builtin.include_tasks: etcd_status.yml
+  vars:
+    pod_name: "{{ leader_pod | default(etcd_pod_names[0]) }}"
+  tags: [health_check, pre_defrag]
+
+- name: "Execute etcd defragmentation operation"
+  tags: [defragmentation, critical]
+  block:
+    - name: "Invoke defrag_etcd custom module"
+      defrag_etcd:
+        paas_cluster_name: "{{ cluster_name }}"
+        etcd_cmd_timeout: "{{ cmd_timeout | default(240) }}"
+        member_list: "{{ member_list | default('') }}"
+        oc_binary: "{{ oc_binary }}"
+        kubeconfig: "{{ kubeconfig | default(omit) }}"
+        wait_between_members: "{{ wait_between_members }}"
+        max_retry_multiplier: "{{ max_retry_multiplier }}"
+        debug: "{{ debug_mode }}"
+      register: defrag_result
+
+    - name: "Display defragmentation results"
+      ansible.builtin.debug:
+        var: defrag_result
+        verbosity: 1
+
+  rescue:
+    - name: "Log defragmentation failure details"
+      ansible.builtin.debug:
+        msg: "Defragmentation failed: {{ defrag_result.msg | default('Unknown error') }}"
+
+    - name: "Fail role execution on defrag error"
+      ansible.builtin.fail:
+        msg: "ETCD defragmentation operation failed. Manual intervention required."
+
+  always:
+    - name: "Record defragmentation attempt in operation log"
+      ansible.builtin.set_fact:
+        defrag_operation_status: "{{ 'FAILED' if defrag_result.failed | default(false) else 'SUCCESS' }}"
+
+
+- name: "Execute post-defragmentation health check"
+  ansible.builtin.include_tasks: etcd_status.yml
+  vars:
+    pod_name: "{{ leader_pod | default(etcd_pod_names[0]) }}"
+  tags: [health_check, post_defrag]
+
+- name: "Defragmentation operation completed successfully"
+  ansible.builtin.debug:
+    msg: "ETCD defragmentation completed for cluster {{ cluster_name }}"
+  tags: [completion]

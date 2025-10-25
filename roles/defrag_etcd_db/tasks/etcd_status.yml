@@ -1,0 +1,45 @@
+---
+# Purpose: Verify etcd cluster health and endpoint status
+# Variables: pod_name (required), cmd_timeout (optional), oc_binary (required), kubeconfig (optional)
+
+- name: "Validate etcd health via endpoint health check"
+  ansible.builtin.command:
+    cmd: >
+      {{ oc_binary | default('/usr/bin/oc') }}
+      {% if kubeconfig | default('') | length > 0 %}--kubeconfig {{ kubeconfig }}{% endif %}
+      exec -n openshift-etcd {{ pod_name }} -c etcd --
+      etcdctl endpoint health --write-out=table --command-timeout={{ cmd_timeout | default(30) }}s
+  register: etcd_health_status
+  until: etcd_health_status.rc == 0
+  retries: 20
+  delay: 3
+  changed_when: false
+  failed_when: etcd_health_status.rc != 0 and etcd_health_status.attempts >= 20
+  tags: [health_check]
+
+- name: "Display etcd health check results"
+  ansible.builtin.debug:
+    msg: "{{ etcd_health_status.stdout_lines }}"
+    verbosity: 1
+  tags: [health_check]
+
+- name: "Query etcd endpoint status"
+  ansible.builtin.command:
+    cmd: >
+      {{ oc_binary | default('/usr/bin/oc') }}
+      {% if kubeconfig | default('') | length > 0 %}--kubeconfig {{ kubeconfig }}{% endif %}
+      exec -n openshift-etcd {{ pod_name }} -c etcd --
+      etcdctl endpoint status --write-out=table --command-timeout={{ cmd_timeout | default(30) }}s
+  register: endpoint_status
+  until: endpoint_status.rc == 0
+  retries: 20
+  delay: 3
+  changed_when: false
+  failed_when: endpoint_status.rc != 0 and endpoint_status.attempts >= 20
+  tags: [health_check]
+
+- name: "Display etcd endpoint status"
+  ansible.builtin.debug:
+    msg: "{{ endpoint_status.stdout_lines }}"
+    verbosity: 1
+  tags: [health_check]

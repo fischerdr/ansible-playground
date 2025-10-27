@@ -1,0 +1,30 @@
+---
+galaxy_info:
+  role_name: must_gather_log
+  author: Enterprise Automation Team
+  description: Collect OpenShift must-gather diagnostics and upload to Red Hat support cases
+  company: Internal
+  license: Proprietary
+  min_ansible_version: "2.15"
+
+  platforms:
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+    - name: Fedora
+      versions:
+        - "38"
+        - "39"
+
+  galaxy_tags:
+    - openshift
+    - kubernetes
+    - diagnostics
+    - support
+    - mustgather
+    - redhat
+    - troubleshooting
+    - logging
+
+dependencies: []

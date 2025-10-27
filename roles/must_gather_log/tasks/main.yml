@@ -1,0 +1,314 @@
+---
+# Purpose: Collect OpenShift must-gather diagnostics and upload to Red Hat support case
+# Dependencies: oc CLI binary, RH_API_TOKEN environment variable
+# Variables: See defaults/main.yml for required and optional variables
+
+- name: "Validate required variables are defined"
+  ansible.builtin.assert:
+    that:
+      - rh_case is defined
+      - rh_case | string | length > 0
+      - working_dir is defined
+      - mustgather_output_dir is defined
+    fail_msg: |
+      Required variables missing or invalid:
+      - rh_case: Red Hat support case number (provided: {{ rh_case | default('UNDEFINED') }})
+      - working_dir: Path to oc binary directory (provided: {{ working_dir | default('UNDEFINED') }})
+      - mustgather_output_dir: Output directory path (provided: {{ mustgather_output_dir | default('UNDEFINED') }})
+    success_msg: "Required variables validated successfully"
+  tags: [validation, always]
+
+- name: "Verify oc CLI binary exists and is executable"
+  ansible.builtin.stat:
+    path: "{{ working_dir }}/oc"
+  register: oc_binary_stat
+  failed_when: not oc_binary_stat.stat.exists or not oc_binary_stat.stat.executable
+  tags: [validation, always]
+
+- name: "Validate RH_API_TOKEN is present in environment"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    if [ -z "${RH_API_TOKEN:-}" ]; then
+      echo "ERROR: RH_API_TOKEN not set in environment" >&2
+      exit 1
+    fi
+    echo "RH_API_TOKEN is present"
+  args:
+    executable: /bin/bash
+  delegate_to: localhost
+  register: token_check
+  changed_when: false
+  failed_when: token_check.rc != 0
+  no_log: true
+  tags: [validation, always]
+
+- name: "Identify must-gather node in OpenShift cluster"
+  tags: [node_selection]
+  block:
+    - name: "Query nodes with must-gather label"
+      ansible.builtin.shell:
+        cmd: "set -euo pipefail && {{ working_dir }}/oc get nodes -l must_gather=true,tier=infra --ignore-not-found --no-headers | awk '{print $1}'"
+        executable: /bin/bash
+      register: infra_must_gather_node
+      changed_when: false
+      failed_when: infra_must_gather_node.stderr_lines | length > 0 or infra_must_gather_node.stdout_lines | length > 1
+      tags: [node_selection]
+
+    - name: "Query available infra nodes when no must-gather node exists"
+      ansible.builtin.shell:
+        cmd: "set -euo pipefail && {{ working_dir }}/oc get nodes -l tier=infra --no-headers | tail -1 | awk '{print $1}'"
+        executable: /bin/bash
+      register: new_infra_must_gather_node
+      changed_when: false
+      when: infra_must_gather_node.stdout_lines | length == 0
+      tags: [node_selection]
+
+    - name: "Label selected infra node for must-gather collection"
+      ansible.builtin.shell:
+        cmd: "{{ working_dir }}/oc label node {{ new_infra_must_gather_node.stdout }} must_gather=true"
+        executable: /bin/bash
+      register: label_result
+      changed_when: label_result.rc == 0
+      when: infra_must_gather_node.stdout_lines | length == 0
+      tags: [node_selection, configuration]
+
+  rescue:
+    - name: "Log node selection failure"
+      ansible.builtin.debug:
+        msg: |
+          Failed to identify or label must-gather node:
+          - Ensure tier=infra labeled nodes exist in the cluster
+          - Verify oc CLI has proper authentication and permissions
+          - Check cluster connectivity from execution environment
+
+    - name: "Fail after node selection error"
+      ansible.builtin.fail:
+        msg: "Unable to identify must-gather node. Review debug output above."
+
+
+- name: "Prepare must-gather output directory"
+  tags: [preparation]
+  block:
+    - name: "Remove existing must-gather directory if present"
+      ansible.builtin.file:
+        path: "{{ mustgather_output_dir }}"
+        state: absent
+      tags: [preparation]
+
+    - name: "Create must-gather output directory"
+      ansible.builtin.file:
+        path: "{{ mustgather_output_dir }}"
+        state: directory
+        mode: '0755'
+      tags: [preparation]
+
+  rescue:
+    - name: "Log directory preparation failure"
+      ansible.builtin.debug:
+        msg: |
+          Failed to prepare must-gather output directory:
+          - Target path: {{ mustgather_output_dir }}
+          - Verify filesystem permissions and available disk space
+
+    - name: "Fail after directory preparation error"
+      ansible.builtin.fail:
+        msg: "Unable to prepare must-gather output directory"
+
+
+- name: "Execute OpenShift must-gather collection"
+  tags: [collection]
+  block:
+    - name: "Run oc adm must-gather command"
+      ansible.builtin.command: >
+        {{ working_dir }}/oc adm must-gather
+        --image={{ must_gather_image }}
+        --node-selector='must_gather'
+      args:
+        chdir: "{{ mustgather_log_dir }}/"
+      register: must_gather_exec
+      changed_when: must_gather_exec.rc == 0
+      when: must_gather_version is defined and must_gather_version | string | length > 0
+      tags: [collection]
+
+    - name: "Validate must-gather output was created"
+      ansible.builtin.find:
+        paths: "{{ mustgather_output_dir }}"
+        patterns: "*"
+        file_type: any
+      register: must_gather_output
+      failed_when: must_gather_output.matched == 0
+      when: must_gather_version is defined and must_gather_version | string | length > 0
+      tags: [validation]
+
+  rescue:
+    - name: "Log must-gather execution failure"
+      ansible.builtin.debug:
+        msg: |
+          Must-gather collection failed:
+          - Image: {{ must_gather_image }}
+          - Output directory: {{ mustgather_output_dir }}
+          - Error: {{ must_gather_exec.stderr | default('Unknown error') }}
+          - Verify image accessibility and cluster permissions
+
+    - name: "Fail after must-gather execution error"
+      ansible.builtin.fail:
+        msg: "Must-gather collection failed. Review debug output above."
+
+- name: "Archive must-gather logs for upload"
+  tags: [archiving]
+  block:
+    - name: "Verify log directory exists before archiving"
+      ansible.builtin.stat:
+        path: "{{ mustgather_output_dir }}/log"
+      register: log_dir_stat
+      failed_when: not log_dir_stat.stat.exists or not log_dir_stat.stat.isdir
+      tags: [archiving, validation]
+
+    - name: "Create compressed archive of must-gather logs"
+      ansible.builtin.command: tar czf must-gather.tar.gz log/
+      args:
+        chdir: "{{ mustgather_output_dir }}/"
+      register: archive_result
+      changed_when: archive_result.rc == 0
+      tags: [archiving]
+
+    - name: "Validate archive was created successfully"
+      ansible.builtin.stat:
+        path: "{{ mustgather_output_dir }}/must-gather.tar.gz"
+      register: archive_stat
+      failed_when: not archive_stat.stat.exists or archive_stat.stat.size == 0
+      tags: [archiving, validation]
+
+    - name: "Display archive size for verification"
+      ansible.builtin.debug:
+        msg: "Must-gather archive created: {{ (archive_stat.stat.size / 1024 / 1024) | round(2) }} MB"
+      tags: [archiving]
+
+  rescue:
+    - name: "Log archiving failure details"
+      ansible.builtin.debug:
+        msg: |
+          Must-gather archiving failed:
+          - Log directory: {{ mustgather_output_dir }}/log
+          - Expected archive: {{ mustgather_output_dir }}/must-gather.tar.gz
+          - Verify sufficient disk space and directory contents
+
+    - name: "Fail after archiving error"
+      ansible.builtin.fail:
+        msg: "Must-gather archive creation failed"
+
+# ======================================================
+# Upload must-gather using Red Hat HTTP API (Token Auth)
+# with optional proxy support via environment variables
+# ======================================================
+
+- name: "Transfer and upload must-gather archive to Red Hat support"
+  tags: [upload]
+  block:
+    - name: "Verify must-gather archive exists on managed host"
+      ansible.builtin.stat:
+        path: "{{ mustgather_output_dir }}/must-gather.tar.gz"
+      register: mg_archive
+      failed_when: not mg_archive.stat.exists or mg_archive.stat.size == 0
+      tags: [upload, validation]
+
+    - name: "Fetch must-gather archive to execution environment"
+      ansible.builtin.fetch:
+        src: "{{ mustgather_output_dir }}/must-gather.tar.gz"
+        dest: "/tmp/{{ inventory_hostname }}_must-gather.tar.gz"
+        flat: true
+      register: fetched
+      no_log: true
+      tags: [upload, transfer]
+
+    - name: "Set execution environment archive path"
+      ansible.builtin.set_fact:
+        controller_mustgather_path: "/tmp/{{ inventory_hostname }}_must-gather.tar.gz"
+      no_log: true
+      tags: [upload]
+
+    - name: "Set upload description"
+      ansible.builtin.set_fact:
+        computed_upload_description: "{{ rh_upload_description | default('must-gather for ' ~ inventory_hostname) }}"
+      tags: [upload]
+
+    - name: "Upload must-gather archive to Red Hat API with token authentication and proxy support"
+      ansible.builtin.script:
+        cmd: upload_to_redhat.sh
+      environment:
+        MG_ARCHIVE_FILE: "{{ controller_mustgather_path }}"
+        MG_CASE_ID: "{{ rh_case }}"
+        MG_UPLOAD_DESC: "{{ computed_upload_description }}"
+      delegate_to: localhost
+      register: rh_http_upload
+      failed_when: rh_http_upload.rc != 0
+      changed_when: rh_http_upload.rc == 0
+      no_log: true
+      tags: [upload, api]
+
+    - name: "Parse Red Hat API upload response"
+      ansible.builtin.set_fact:
+        rh_attachment_response: "{{ rh_http_upload.stdout | default('{}') | from_json }}"
+      delegate_to: localhost
+      when: rh_http_upload is defined and rh_http_upload.stdout | length > 0
+      no_log: true
+      tags: [upload, response]
+
+    - name: "Log successful upload to Red Hat support case"
+      ansible.builtin.debug:
+        msg: "Must-gather archive uploaded successfully to Red Hat case {{ rh_case }}"
+      delegate_to: localhost
+      tags: [upload, logging]
+
+  rescue:
+    - name: "Log upload failure with troubleshooting guidance"
+      ansible.builtin.debug:
+        msg: |
+          Must-gather upload to Red Hat case {{ rh_case }} failed.
+          Troubleshooting steps:
+          - Verify RH_API_TOKEN is valid and not expired
+          - Confirm Red Hat case {{ rh_case }} exists and is accessible
+          - Check network connectivity to api.access.redhat.com
+          - If using proxy, verify RH_API_PROXY configuration
+          - Review error code: {{ rh_http_upload.rc | default('unknown') }}
+          Archive preserved at: {{ controller_mustgather_path }}
+
+    - name: "Preserve archive path for manual upload"
+      ansible.builtin.set_fact:
+        upload_failed: true
+        preserved_archive_path: "{{ controller_mustgather_path }}"
+
+    - name: "Fail playbook after upload error"
+      ansible.builtin.fail:
+        msg: "Must-gather upload failed. Archive preserved for manual intervention."
+
+  always:
+    - name: "Clean up fetched archive from execution environment"
+      ansible.builtin.file:
+        path: "{{ controller_mustgather_path }}"
+        state: absent
+      delegate_to: localhost
+      when: not (upload_failed | default(false))
+      tags: [cleanup, always]
+
+    - name: "Remove must-gather directory from managed host"
+      ansible.builtin.file:
+        path: "{{ mustgather_var_log_dir }}"
+        state: absent
+      when: not (skip_mustgather_deletion | default(false) | bool)
+      tags: [cleanup, always]
+
+    - name: "Record must-gather operation completion"
+      ansible.builtin.lineinfile:
+        path: "/var/log/ansible-must-gather.log"
+        line: |
+          {{ ansible_date_time.iso8601 }} - Must-gather operation on {{ inventory_hostname }}:
+          Status: {{ 'FAILED' if upload_failed | default(false) else 'SUCCESS' }},
+          Case: {{ rh_case }},
+          Archive: {{ 'PRESERVED' if upload_failed | default(false) else 'UPLOADED' }}
+        create: true
+        mode: '0644'
+      delegate_to: localhost
+      register: log_result
+      failed_when: false
+      tags: [logging, always]

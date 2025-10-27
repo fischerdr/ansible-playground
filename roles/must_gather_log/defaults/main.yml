@@ -1,0 +1,31 @@
+---
+# Must-gather collection and upload configuration
+
+# OpenShift CLI binary path (must be available in EE)
+working_dir: "/usr/local/bin"
+
+# Output directory for must-gather artifacts
+mustgather_output_dir: "/tmp/must-gather-{{ ansible_date_time.epoch }}"
+
+# Must-gather log directory (used for oc adm must-gather chdir)
+mustgather_log_dir: "{{ mustgather_output_dir }}"
+
+# Cleanup target directory
+mustgather_var_log_dir: "{{ mustgather_output_dir }}"
+
+# Must-gather container image
+must_gather_image: "quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:latest"
+
+# Red Hat case configuration (REQUIRED - must be provided via extra_vars or inventory)
+rh_case: ""
+rh_upload_description: "must-gather for {{ inventory_hostname }}"
+
+# Control flags
+skip_mustgather_deletion: false
+must_gather_version: ""  # If defined and non-empty, enables must-gather execution
+
+# Proxy configuration (injected via AAP credentials as environment variables)
+# RH_API_PROXY: proxy host:port or full URL
+# RH_API_PROXY_USER: proxy username
+# RH_API_PROXY_PASS: proxy password
+# RH_API_TOKEN: Red Hat API token (REQUIRED - injected by AAP credential)

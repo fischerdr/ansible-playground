@@ -1,0 +1,124 @@
+---
+# Test playbook to verify Vault KV v2 access and data structure
+# Usage:
+#   source .venv/bin/activate
+#   ansible-playbook playbooks/test_vault_kv2_access.yml
+
+- name: "Test Vault KV v2 Access for vault.crt"
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    # Override these via -e or set in inventory
+    vault_addr: "{{ lookup('env', 'VAULT_ADDR') }}"
+    vault_token: "{{ lookup('env', 'VAULT_TOKEN') }}"
+    vault_namespace: "{{ lookup('env', 'VAULT_NAMESPACE') | default(omit) }}"
+    cluster_user: "{{ lookup('env', 'CLUSTER_USER') | default('cld') }}"
+
+  tasks:
+    - name: "Display test parameters"
+      ansible.builtin.debug:
+        msg:
+          - "Vault Address: {{ vault_addr }}"
+          - "Vault Namespace: {{ vault_namespace | default('(none)') }}"
+          - "Cluster User: {{ cluster_user }}"
+          - "KV Path: static_secrets/env/{{ cluster_user }}/portworx"
+      tags: [always]
+
+    - name: "Test: Read vault.crt from KVv2 secret"
+      community.hashi_vault.vault_kv2_get:
+        url: "{{ vault_addr | trim }}"
+        engine_mount_point: "static_secrets"
+        path: "env/{{ cluster_user }}/portworx"
+        token: "{{ vault_token }}"
+        namespace: "{{ vault_namespace | default(omit) }}"
+        validate_certs: true
+      register: _test_vault_kv
+      failed_when: false
+      no_log: false
+      tags: [test]
+
+    - name: "Display complete response structure"
+      ansible.builtin.debug:
+        var: _test_vault_kv
+      tags: [test, debug]
+
+    - name: "Display response metadata"
+      ansible.builtin.debug:
+        msg:
+          - "Success: {{ _test_vault_kv is success }}"
+          - "Failed: {{ _test_vault_kv is failed }}"
+          - "Has 'data' key: {{ 'data' in _test_vault_kv }}"
+          - "Has 'data.data' key: {{ (_test_vault_kv.data is defined) and ('data' in _test_vault_kv.data) }}"
+      when: _test_vault_kv is defined
+      tags: [test]
+
+    - name: "Display available keys in secret (if successful)"
+      ansible.builtin.debug:
+        msg: "Available keys in secret: {{ _test_vault_kv.data.data.keys() | list }}"
+      when:
+        - _test_vault_kv is success
+        - _test_vault_kv.data is defined
+        - _test_vault_kv.data.data is defined
+      tags: [test]
+
+    - name: "Verify vault.crt key exists"
+      ansible.builtin.assert:
+        that:
+          - _test_vault_kv is defined
+          - _test_vault_kv is success
+          - _test_vault_kv.data is defined
+          - _test_vault_kv.data.data is defined
+          - "'vault.crt' in _test_vault_kv.data.data"
+        fail_msg: "FAILED: vault.crt was not found in Vault secret"
+        success_msg: "SUCCESS: vault.crt key found in Vault secret"
+      tags: [test, verify]
+
+    - name: "Display vault.crt content preview (first 200 chars)"
+      ansible.builtin.debug:
+        msg: "vault.crt preview: {{ _test_vault_kv.data.data['vault.crt'][:200] }}..."
+      when:
+        - _test_vault_kv is success
+        - _test_vault_kv.data.data is defined
+        - "'vault.crt' in _test_vault_kv.data.data"
+      tags: [test, content]
+
+    - name: "Validate vault.crt is a valid certificate"
+      ansible.builtin.assert:
+        that:
+          - _test_vault_kv.data.data['vault.crt'] is match('.*BEGIN CERTIFICATE.*')
+          - _test_vault_kv.data.data['vault.crt'] is match('.*END CERTIFICATE.*')
+        fail_msg: "FAILED: vault.crt does not appear to be a valid PEM certificate"
+        success_msg: "SUCCESS: vault.crt appears to be a valid PEM certificate"
+      when:
+        - _test_vault_kv is success
+        - _test_vault_kv.data.data is defined
+        - "'vault.crt' in _test_vault_kv.data.data"
+      tags: [test, verify]
+
+    - name: "Test: Extract and trim vault.crt (production code simulation)"
+      ansible.builtin.set_fact:
+        test_vault_crt: "{{ _test_vault_kv.data.data['vault.crt'] | trim }}"
+      when:
+        - _test_vault_kv is success
+        - _test_vault_kv.data.data is defined
+        - "'vault.crt' in _test_vault_kv.data.data"
+      tags: [test, verify]
+
+    - name: "Display final extracted certificate length"
+      ansible.builtin.debug:
+        msg: "Extracted vault.crt length: {{ test_vault_crt | length }} characters"
+      when: test_vault_crt is defined
+      tags: [test]
+
+    - name: "Final test result summary"
+      ansible.builtin.debug:
+        msg:
+          - "========================================="
+          - "VAULT KV v2 ACCESS TEST RESULTS"
+          - "========================================="
+          - "Status: {{ 'PASSED' if (_test_vault_kv is success and test_vault_crt is defined) else 'FAILED' }}"
+          - "Certificate retrieved: {{ 'YES' if test_vault_crt is defined else 'NO' }}"
+          - "Certificate length: {{ test_vault_crt | length if test_vault_crt is defined else 'N/A' }}"
+          - "========================================="
+      tags: [always]

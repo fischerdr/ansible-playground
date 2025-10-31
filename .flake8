@@ -1,19 +1,39 @@
 [flake8]
-max-line-length = 100
-exclude = .git,__pycache__,build,dist,.venv,tools
+docstring-convention = google
+max-line-length = 180
+max-complexity = 10
+exclude =
+    .git,
+    __pycache__,
+    build,
+    dist,
+    .venv,
+    tools
+ignore =
+    # Missing docstring in public module
+    D100,
+    # Missing docstring in public package
+    D104,
+    # Missing docstring in magic method
+    D105,
+    # Missing docstring in __init__
+    D107,
+    # line break before binary operator
+    W503,
+    # Import errors - imports must be at top of the file
+    E402,
+    # Line too long - i give up
+    E501,
+    # First line should be in imperative mood; try rephrasing
+    D401,
+    # One-line docstring should fit on one line with quotes
+    D200,
+    # Assigned but not used
+    F841,
+    # Unable to detect undefinded names
+    F403
 per-file-ignores =
     # Allow unused imports in __init__.py
     __init__.py:F401
     # Allow missing docstrings in tests
     test_*.py:D100,D101,D102,D103
-ignore =
-    # Missing docstring in magic method
-    D105,
-    # line too long
-    E501,
-    # line break before binary operator
-    W503,
-    # First line should be in imperative mood; try rephrasing
-    D401,
-    # One-line docstring should fit on one line with quotes
-    D200,

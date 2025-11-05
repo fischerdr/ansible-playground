@@ -89,6 +89,10 @@ command_retries: 1
 command_delay: 3
 timeout_seconds: 300
 
+# Red Hat upload retry configuration
+rh_upload_max_retries: 3  # Maximum retry attempts per archive part
+rh_upload_fail_on_partial: true  # Fail playbook if any part fails (false = allow partial success)
+
 # ==============================================================================
 # Archive Size Limits
 # ==============================================================================
@@ -143,8 +147,13 @@ split_threshold_bytes: 966367641  # 900MB in bytes
 #
 # Archive handling:
 #   - Archives larger than 900MB are automatically split into parts
-#   - Each part is uploaded separately with part numbering
-#   - All parts must be uploaded for complete must-gather data
+#   - All parts are uploaded via upload_to_redhat_condense.sh script
+#   - Script handles per-part retry logic with exponential backoff
+#   - Each part upload is retried up to rh_upload_max_retries times
+#   - Script reports granular success/failure status per part
+#   - If rh_upload_fail_on_partial=true, playbook fails if any part fails
+#   - If rh_upload_fail_on_partial=false, allows partial success
+#   - Detailed JSON output provides per-part status for troubleshooting
 #
 # Security:
 #   - Never hardcode credentials in playbook vars or group_vars

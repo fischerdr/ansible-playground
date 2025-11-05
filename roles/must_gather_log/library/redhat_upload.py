@@ -41,6 +41,13 @@ description:
   - Supports exponential backoff for retryable errors
   - Provides granular error tracking and comprehensive status reporting
   - Intended for use in Ansible Execution Environments (EEs)
+  - Uses Red Hat API endpoint: C(https://api.access.redhat.com/support/v1/cases/<case_number>/attachments/)
+  - HTTP uploads have a 1GB size limit per file (SFTP has no limit but is not supported by this module)
+  - Supports both Bearer token authentication and Basic authentication (username/password)
+notes:
+  - The Red Hat API requires multipart/form-data with fields C(file) and C(description)
+  - Example curl command: C(curl -u <username> -F "file=@<path>" -F "description=<desc>" -X POST https://api.access.redhat.com/support/v1/cases/<case>/attachments/)
+  - For files larger than 1GB, use SFTP upload (not supported by this module) or split archives into multiple parts
 options:
   case_id:
     description:
@@ -269,7 +276,9 @@ class RedHatUploadController:
         self.results: List[Dict] = []
 
         # Build upload URL
-        self.upload_url = f"{API_BASE}/cases/{self.case_id}/attachments"
+        # Red Hat API endpoint: https://api.access.redhat.com/support/v1/cases/<case_number>/attachments/
+        # Note: Trailing slash is optional but included for consistency with Red Hat documentation
+        self.upload_url = f"{API_BASE}/cases/{self.case_id}/attachments/"
 
         # Setup HTTP opener with proxy and authentication
         self._setup_opener()
@@ -306,7 +315,15 @@ class RedHatUploadController:
             install_opener(opener)
 
     def _build_request(self, file_path: str, description: str) -> Tuple[Request, bytes]:
-        """Build multipart/form-data request for file upload."""
+        """Build multipart/form-data request for file upload.
+
+        Red Hat API requires multipart/form-data with:
+        - field "file": the file content
+        - field "description": upload description text
+
+        Example curl equivalent:
+        curl -u <username> -F "file=@<path>" -F "description=<desc>" -X POST <url>
+        """
         # Read file content
         with open(file_path, "rb") as f:
             file_content = f.read()

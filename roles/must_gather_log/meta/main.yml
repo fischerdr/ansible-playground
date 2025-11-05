@@ -2,7 +2,11 @@
 galaxy_info:
   role_name: must_gather_log
   author: Enterprise Automation Team
-  description: Collect OpenShift must-gather diagnostics and upload to Red Hat support cases
+  description: |
+    Collect OpenShift must-gather diagnostics and upload to Red Hat support cases via HTTP API.
+    Features include automated collection, multi-part archive handling, and native Python Ansible
+    module for reliable uploads with retry logic. Designed for Ansible Automation Platform
+    execution environments.
   company: Internal
   license: Proprietary
   min_ansible_version: "2.15"
@@ -16,6 +20,8 @@ galaxy_info:
       versions:
         - "38"
         - "39"
+        - "40"
+        - "41"
 
   galaxy_tags:
     - openshift
@@ -26,5 +32,9 @@ galaxy_info:
     - redhat
     - troubleshooting
     - logging
+    - automation
+    - aap
 
-dependencies: []
+dependencies:
+  - name: kubernetes.core
+    version: ">=2.4.0"

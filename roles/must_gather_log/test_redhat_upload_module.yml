@@ -1,8 +1,21 @@
 ---
 # Purpose: Test redhat_upload module functionality
 # Variables: See defaults/main.yml for required and optional variables
-# Note: This playbook requires the redhat_upload module to be available
-#       Ensure the module is in the library path or use the role that contains it
+#
+# IMPORTANT: Module Discovery
+# This playbook requires the redhat_upload module to be available in Ansible's
+# module search path. The module is located at:
+#   roles/must_gather_log/library/redhat_upload.py
+#
+# To run this playbook, you must set the library path:
+#   export ANSIBLE_LIBRARY=roles/must_gather_log/library
+#   ansible-playbook roles/must_gather_log/test_redhat_upload_module.yml ...
+#
+# OR configure it in ansible.cfg:
+#   [defaults]
+#   library = roles/must_gather_log/library
+#
+# OR use the role's tasks instead of calling the module directly
 # ==============================================================================
 # Pre-Execution Validation
 # ==============================================================================
@@ -47,6 +60,7 @@
 
   tasks:
     - name: "Test single file upload"
+      when: test_single_file | default(true)
       block:
         - name: "Create single test file"
           ansible.builtin.copy:
@@ -80,9 +94,9 @@
               - "Failure Count: {{ single_upload_result.failure_count }}"
           when: single_upload_result is defined
 
-      when: test_single_file | default(true)
 
     - name: "Test multi-part upload"
+      when: test_multi_part | default(true)
       block:
         - name: "Upload multiple archive parts to Red Hat support case"
           redhat_upload:
@@ -125,9 +139,8 @@
           loop_control:
             label: "Part {{ item.part }}"
 
-      when: test_multi_part | default(true)
-
     - name: "Test authentication methods"
+      when: test_auth_methods | default(true)
       block:
         - name: "Test token authentication"
           redhat_upload:
@@ -150,15 +163,16 @@
           no_log: true
           when: rh_api_user is defined and rh_api_pass is defined
 
-      when: test_auth_methods | default(false)
 
     - name: "Test parameter validation"
+      when: test_validation | default(true)
       block:
-        - name: "Test missing case_id (should fail)"
+        - name: "Test empty case_id (should fail)"
           redhat_upload:
+            case_id: ""
             archive_pattern: "{{ test_temp_dir }}/test-archive.tar.gz.part000"
             upload_description: "Test validation"
-            api_token: "{{ rh_api_token }}"
+            api_token: "{{ rh_api_token | default('test-token') }}"
           register: validation_test
           failed_when: false
           no_log: true
@@ -168,7 +182,20 @@
             msg: "Validation test failed as expected: {{ validation_test.msg | default('N/A') }}"
           when: validation_test is failed
 
-      when: test_validation | default(false)
+        - name: "Test missing authentication (should fail)"
+          redhat_upload:
+            case_id: "{{ test_case_id }}"
+            archive_pattern: "{{ test_temp_dir }}/test-archive.tar.gz.part000"
+            upload_description: "Test validation"
+          register: validation_test_auth
+          failed_when: false
+          no_log: true
+
+        - name: "Display authentication validation error"
+          ansible.builtin.debug:
+            msg: "Authentication validation test failed as expected: {{ validation_test_auth.msg | default('N/A') }}"
+          when: validation_test_auth is failed
+
 
   post_tasks:
     - name: "Cleanup test files"
@@ -176,4 +203,3 @@
         path: "{{ test_temp_dir }}"
         state: absent
       when: test_cleanup | default(true)
-

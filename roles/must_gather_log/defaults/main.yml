@@ -55,13 +55,30 @@ mustgather_label_value: "true"
 skip_mustgather_deletion: false
 
 # ==============================================================================
+# Red Hat API Authentication (from HashiCorp Vault)
+# ==============================================================================
+
+# Red Hat API authentication (sourced from HashiCorp Vault via lookup)
+# These are passed as environment variables to the upload script
+# Prefer token authentication when available
+#
+# Example lookup patterns:
+#   rh_api_token: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:api_token') }}"
+#   rh_api_user: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:username') }}"
+rh_api_token: ""
+rh_api_user: ""
+rh_api_pass: ""
+
+# ==============================================================================
 # Networking and Proxy Configuration
 # ==============================================================================
 
-# Proxy settings (optional - injected via AAP credentials as environment variables)
-proxy_http: null
-proxy_https: null
-proxy_no: null
+# Proxy settings (optional - sourced from HashiCorp Vault or inventory)
+# Example lookup pattern:
+#   proxy_http: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/proxy:http_proxy') }}"
+proxy_http: ""
+proxy_https: ""
+proxy_no: ""
 
 # ==============================================================================
 # Timeouts and Retry Configuration
@@ -86,15 +103,43 @@ split_threshold_bytes: 966367641  # 900MB in bytes
 # Operational Notes
 # ==============================================================================
 
-# Authentication (REQUIRED - provided via AAP credential injection):
-#   - RH_API_TOKEN: Red Hat API bearer token (preferred)
-#   OR
-#   - RH_API_USER: Red Hat portal username
-#   - RH_API_PASS: Red Hat portal password
+# Authentication (REQUIRED - sourced from HashiCorp Vault):
+#   These variables should be populated using community.hashi_vault lookups
+#   in your inventory or playbook vars. Examples:
+#
+#   # In group_vars/all/main.yml or playbook vars:
+#   rh_api_token: "{{ lookup('community.hashi_vault.hashi_vault',
+#                     'secret=secret/data/redhat:api_token') }}"
+#
+#   # OR for username/password authentication:
+#   rh_api_user: "{{ lookup('community.hashi_vault.hashi_vault',
+#                    'secret=secret/data/redhat:username') }}"
+#   rh_api_pass: "{{ lookup('community.hashi_vault.hashi_vault',
+#                    'secret=secret/data/redhat:password') }}"
+#
+#   The role passes these to the upload script as environment variables:
+#   - rh_api_token → RH_API_TOKEN
+#   - rh_api_user → RH_API_USER
+#   - rh_api_pass → RH_API_PASS
+#
+# Proxy Configuration (optional - from HashiCorp Vault or inventory):
+#   proxy_http: "{{ lookup('community.hashi_vault.hashi_vault',
+#               'secret=secret/data/proxy:http_proxy') }}"
+#   proxy_https: "{{ lookup('community.hashi_vault.hashi_vault',
+#                'secret=secret/data/proxy:https_proxy') }}"
+#
+# HashiCorp Vault Authentication:
+#   The community.hashi_vault collection supports multiple auth methods:
+#   - Token (VAULT_TOKEN environment variable)
+#   - AppRole (role_id/secret_id)
+#   - Kubernetes (service account)
+#   - AWS IAM
+#   - See: https://docs.ansible.com/ansible/latest/collections/community/hashi_vault/
 #
 # OC_BIN variable:
 #   - Must be defined in calling playbook
 #   - Should point to oc binary path in execution environment
+#   - Example: OC_BIN: "/usr/local/bin/oc"
 #
 # Archive handling:
 #   - Archives larger than 900MB are automatically split into parts
@@ -102,5 +147,7 @@ split_threshold_bytes: 966367641  # 900MB in bytes
 #   - All parts must be uploaded for complete must-gather data
 #
 # Security:
-#   - Never set RH credentials in playbook vars or group_vars
-#   - Always use AAP credential injection or Vault for sensitive data
+#   - Never hardcode credentials in playbook vars or group_vars
+#   - Always use HashiCorp Vault lookups for sensitive data
+#   - Configure Vault authentication via environment variables or AAP credentials
+#   - Use appropriate Vault policies to limit secret access

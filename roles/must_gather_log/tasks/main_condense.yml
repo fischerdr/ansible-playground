@@ -36,21 +36,20 @@
       register: oc_binary_stat
       failed_when: not oc_binary_stat.stat.exists or not oc_binary_stat.stat.executable
 
-    - name: "Validate Red Hat API authentication is present"
-      ansible.builtin.shell:
-        cmd: |
-          set -euo pipefail
-          if [ -z "${RH_API_TOKEN:-}" ] && [ -z "${RH_API_USER:-}" ]; then
-            echo "ERROR: No Red Hat API authentication found. Set RH_API_TOKEN or RH_API_USER/RH_API_PASS" >&2
-            exit 1
-          fi
-          echo "Authentication configured"
-        executable: /bin/bash
-      delegate_to: localhost
-      register: auth_check
-      changed_when: false
-      failed_when: auth_check.rc != 0
-      no_log: true
+    - name: "Validate Red Hat API authentication credentials from HashiCorp Vault"
+      ansible.builtin.assert:
+        that:
+          - (rh_api_token | length > 0) or (rh_api_user | length > 0 and rh_api_pass | length > 0)
+        fail_msg: |
+          Red Hat API authentication not configured.
+          Required variables (populated from HashiCorp Vault lookup):
+          - rh_api_token (preferred)
+          OR
+          - rh_api_user AND rh_api_pass
+
+          Example in group_vars or playbook:
+          rh_api_token: "{{ '{{' }} lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:api_token') {{ '}}' }}"
+        success_msg: "Red Hat API authentication validated"
 
   rescue:
     - name: "Log validation failure"
@@ -59,7 +58,10 @@
           Pre-execution validation failed. Verify:
           - All required variables are defined in defaults/main.yml or extra_vars
           - OC_BIN points to valid oc binary in execution environment
-          - RH_API_TOKEN or RH_API_USER/RH_API_PASS injected via AAP credential
+          - Red Hat API credentials populated from HashiCorp Vault:
+            * rh_api_token: "{{ '{{' }} lookup('community.hashi_vault.hashi_vault', ...) {{ '}}' }}"
+            * OR rh_api_user/rh_api_pass from Vault lookups
+          - VAULT_TOKEN or other Vault auth configured in environment
 
     - name: "Fail after validation error"
       ansible.builtin.fail:
@@ -442,6 +444,9 @@
         MG_ARCHIVE_FILE: "{{ controller_temp_dir.path }}/{{ item.path | basename }}"
         MG_CASE_ID: "{{ rh_case }}"
         MG_UPLOAD_DESC: "{{ computed_upload_description }} - Part {{ loop_index }}/{{ archive_files.matched }}"
+        RH_API_TOKEN: "{{ rh_api_token | default(omit) }}"
+        RH_API_USER: "{{ rh_api_user | default(omit) }}"
+        RH_API_PASS: "{{ rh_api_pass | default(omit) }}"
         HTTP_PROXY: "{{ proxy_http | default(omit) }}"
         HTTPS_PROXY: "{{ proxy_https | default(omit) }}"
         NO_PROXY: "{{ proxy_no | default(omit) }}"

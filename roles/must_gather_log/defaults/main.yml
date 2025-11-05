@@ -1,31 +1,153 @@
 ---
 # Must-gather collection and upload configuration
 
-# OpenShift CLI binary path (must be available in EE)
-working_dir: "/usr/local/bin"
+# ==============================================================================
+# OpenShift Version and Image Configuration
+# ==============================================================================
 
-# Output directory for must-gather artifacts
-mustgather_output_dir: "/tmp/must-gather-{{ ansible_date_time.epoch }}"
+# Must-gather version (e.g. "4.12", "4.14") - set via Vault/EE when needed
+must_gather_version: "4.14"
 
-# Must-gather log directory (used for oc adm must-gather chdir)
-mustgather_log_dir: "{{ mustgather_output_dir }}"
+# Dynamic mirror endpoint selection based on cloud provider
+amex_mirror_endpoint: "{%- if aws.region is defined and aws.region != None -%}awsrepo.aexp.com{%- elif gcp.region is defined and gcp.region != None -%}gcprepo.aexp.com{%- elif azure.region is defined and azure.region != None -%}azurerepo.aexp.com{%- else -%}artifactory.aexp.com{%- endif -%}"
 
-# Cleanup target directory
-mustgather_var_log_dir: "{{ mustgather_output_dir }}"
+# ==============================================================================
+# Directory Configuration (Managed Host)
+# ==============================================================================
 
-# Must-gather container image
-must_gather_image: "quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:latest"
+# Top-level output directory for must-gather artifacts
+mustgather_output_dir: "{{ WORK_DIR | default('/tmp') }}/must-gather-{{ ansible_date_time.epoch }}"
 
-# Red Hat case configuration (REQUIRED - must be provided via extra_vars or inventory)
+# Subdirectory where must-gather actually writes collected data
+# This is the directory that gets archived
+mustgather_collection_dir: "{{ mustgather_output_dir }}/{{ cluster_name | default('cluster') }}-{{ ansible_date_time.epoch }}"
+
+# Archive preservation directory for historical reference
+mustgather_archive_dir: "{{ WORK_DIR | default('/tmp') }}/must-gather-archives"
+
+# Archive retention policy
+mustgather_archive_retention_days: 30  # Keep archives for 30 days (0 = keep forever)
+mustgather_archive_retention_count: 10  # Keep last N archives (0 = unlimited)
+
+# ==============================================================================
+# Red Hat Case Configuration
+# ==============================================================================
+
+# Red Hat case ID (REQUIRED - must be provided via extra_vars or inventory)
 rh_case: ""
+
+# Upload description (customize as needed)
 rh_upload_description: "must-gather for {{ inventory_hostname }}"
 
-# Control flags
-skip_mustgather_deletion: false
-must_gather_version: ""  # If defined and non-empty, enables must-gather execution
+# ==============================================================================
+# Node Selection Configuration
+# ==============================================================================
 
-# Proxy configuration (injected via AAP credentials as environment variables)
-# RH_API_PROXY: proxy host:port or full URL
-# RH_API_PROXY_USER: proxy username
-# RH_API_PROXY_PASS: proxy password
-# RH_API_TOKEN: Red Hat API token (REQUIRED - injected by AAP credential)
+# Label selector for must-gather node identification
+mustgather_label_selector: "must_gather"
+mustgather_label_value: "true"
+
+# ==============================================================================
+# Cleanup and Operational Controls
+# ==============================================================================
+
+# Set to true to preserve must-gather directories after execution
+skip_mustgather_deletion: false
+
+# ==============================================================================
+# Red Hat API Authentication (from HashiCorp Vault)
+# ==============================================================================
+
+# Red Hat API authentication (sourced from HashiCorp Vault via lookup)
+# These are passed as environment variables to the upload script
+# Prefer token authentication when available
+#
+# Example lookup patterns:
+#   rh_api_token: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:api_token') }}"
+#   rh_api_user: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:username') }}"
+rh_api_token: ""
+rh_api_user: ""
+rh_api_pass: ""
+
+# ==============================================================================
+# Networking and Proxy Configuration
+# ==============================================================================
+
+# Proxy settings (optional - sourced from HashiCorp Vault or inventory)
+# Example lookup pattern:
+#   proxy_http: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/proxy:http_proxy') }}"
+proxy_http: ""
+proxy_https: ""
+proxy_no: ""
+
+# ==============================================================================
+# Timeouts and Retry Configuration
+# ==============================================================================
+
+# Conservative defaults - tune from EE or role vars as appropriate
+command_retries: 1
+command_delay: 3
+timeout_seconds: 300
+
+# ==============================================================================
+# Archive Size Limits
+# ==============================================================================
+
+# Maximum single archive size (1GB = Red Hat API limit)
+max_archive_size_bytes: 1073741824  # 1GB in bytes
+
+# Split threshold (90% of max to account for compression overhead)
+split_threshold_bytes: 966367641  # 900MB in bytes
+
+# ==============================================================================
+# Operational Notes
+# ==============================================================================
+
+# Authentication (REQUIRED - sourced from HashiCorp Vault):
+#   These variables should be populated using community.hashi_vault lookups
+#   in your inventory or playbook vars. Examples:
+#
+#   # In group_vars/all/main.yml or playbook vars:
+#   rh_api_token: "{{ lookup('community.hashi_vault.hashi_vault',
+#                     'secret=secret/data/redhat:api_token') }}"
+#
+#   # OR for username/password authentication:
+#   rh_api_user: "{{ lookup('community.hashi_vault.hashi_vault',
+#                    'secret=secret/data/redhat:username') }}"
+#   rh_api_pass: "{{ lookup('community.hashi_vault.hashi_vault',
+#                    'secret=secret/data/redhat:password') }}"
+#
+#   The role passes these to the upload script as environment variables:
+#   - rh_api_token → RH_API_TOKEN
+#   - rh_api_user → RH_API_USER
+#   - rh_api_pass → RH_API_PASS
+#
+# Proxy Configuration (optional - from HashiCorp Vault or inventory):
+#   proxy_http: "{{ lookup('community.hashi_vault.hashi_vault',
+#               'secret=secret/data/proxy:http_proxy') }}"
+#   proxy_https: "{{ lookup('community.hashi_vault.hashi_vault',
+#                'secret=secret/data/proxy:https_proxy') }}"
+#
+# HashiCorp Vault Authentication:
+#   The community.hashi_vault collection supports multiple auth methods:
+#   - Token (VAULT_TOKEN environment variable)
+#   - AppRole (role_id/secret_id)
+#   - Kubernetes (service account)
+#   - AWS IAM
+#   - See: https://docs.ansible.com/ansible/latest/collections/community/hashi_vault/
+#
+# OC_BIN variable:
+#   - Must be defined in calling playbook
+#   - Should point to oc binary path in execution environment
+#   - Example: OC_BIN: "/usr/local/bin/oc"
+#
+# Archive handling:
+#   - Archives larger than 900MB are automatically split into parts
+#   - Each part is uploaded separately with part numbering
+#   - All parts must be uploaded for complete must-gather data
+#
+# Security:
+#   - Never hardcode credentials in playbook vars or group_vars
+#   - Always use HashiCorp Vault lookups for sensitive data
+#   - Configure Vault authentication via environment variables or AAP credentials
+#   - Use appropriate Vault policies to limit secret access

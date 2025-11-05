@@ -1,0 +1,127 @@
+---
+# Example group_vars/all/main.yml for must_gather_log role
+#
+# This file demonstrates how to configure the role using HashiCorp Vault lookups
+# for sensitive credentials.
+#
+# Place this file in your inventory structure:
+#   inventory/group_vars/all/main.yml
+#
+# Ensure VAULT_ADDR and VAULT_TOKEN (or other auth method) are configured
+
+# ==============================================================================
+# Red Hat API Authentication from HashiCorp Vault
+# ==============================================================================
+
+# Option 1: Token Authentication (Recommended)
+# Retrieves Red Hat API token from HashiCorp Vault
+rh_api_token: "{{ lookup('community.hashi_vault.hashi_vault',
+                  'secret=secret/data/redhat:api_token') }}"
+
+# Option 2: Username/Password Authentication (Alternative)
+# Uncomment these and comment out rh_api_token above if using username/password
+# rh_api_user: "{{ lookup('community.hashi_vault.hashi_vault',
+#                  'secret=secret/data/redhat:username') }}"
+# rh_api_pass: "{{ lookup('community.hashi_vault.hashi_vault',
+#                  'secret=secret/data/redhat:password') }}"
+
+# ==============================================================================
+# Proxy Configuration (Optional)
+# ==============================================================================
+
+# Retrieve proxy settings from Vault if your environment requires them
+# The default('') | default('', true) pattern provides graceful fallback
+proxy_http: "{{ lookup('community.hashi_vault.hashi_vault',
+             'secret=secret/data/proxy:http_proxy',
+             default='') | default('', true) }}"
+
+proxy_https: "{{ lookup('community.hashi_vault.hashi_vault',
+              'secret=secret/data/proxy:https_proxy',
+              default='') | default('', true) }}"
+
+proxy_no: "{{ lookup('community.hashi_vault.hashi_vault',
+           'secret=secret/data/proxy:no_proxy',
+           default='') | default('', true) }}"
+
+# ==============================================================================
+# Vault Configuration (Optional Override)
+# ==============================================================================
+
+# If you need to override default Vault settings, uncomment and configure:
+# vault_url: "https://vault.company.com:8200"
+# vault_auth_method: "approle"  # or "token", "kubernetes", "aws", etc.
+
+# For AppRole authentication:
+# vault_role_id: "{{ lookup('env', 'VAULT_ROLE_ID') }}"
+# vault_secret_id: "{{ lookup('env', 'VAULT_SECRET_ID') }}"
+
+# ==============================================================================
+# Alternative: Environment-Specific Vault Paths
+# ==============================================================================
+
+# For organizations with separate Vault paths per environment:
+# vault_environment_path: "production"  # or "staging", "development"
+#
+# rh_api_token: "{{ lookup('community.hashi_vault.hashi_vault',
+#                   'secret=secret/data/' + vault_environment_path + '/redhat:api_token') }}"
+
+# ==============================================================================
+# Alternative: Vault Namespace Support (Vault Enterprise)
+# ==============================================================================
+
+# For Vault Enterprise with namespaces:
+# vault_namespace: "engineering/automation"
+#
+# rh_api_token: "{{ lookup('community.hashi_vault.hashi_vault',
+#                   'secret=secret/data/redhat:api_token
+#                    namespace=' + vault_namespace) }}"
+
+# ==============================================================================
+# Advanced: Lookup with Full Options
+# ==============================================================================
+
+# Example with all options specified:
+# rh_api_token: "{{ lookup('community.hashi_vault.hashi_vault',
+#                   'secret=secret/data/redhat:api_token',
+#                   url='https://vault.company.com:8200',
+#                   auth_method='approle',
+#                   role_id=vault_role_id,
+#                   secret_id=vault_secret_id,
+#                   validate_certs=true,
+#                   ca_cert='/etc/vault/ca.crt') }}"
+
+# ==============================================================================
+# Usage Notes
+# ==============================================================================
+
+# Vault Authentication:
+#   Ensure one of the following is configured:
+#   1. VAULT_TOKEN environment variable
+#   2. VAULT_ROLE_ID and VAULT_SECRET_ID for AppRole
+#   3. Kubernetes service account (for AAP in K8s)
+#   4. AWS IAM credentials (for AAP on AWS)
+#
+# Testing Vault Connectivity:
+#   # Manual test
+#   vault kv get secret/redhat
+#
+#   # Ansible test
+#   ansible localhost -m debug \
+#     -a "msg={{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:api_token') }}"
+#
+# Secrets Structure in Vault:
+#   secret/data/redhat/
+#     ├─ api_token: "your-token"
+#     ├─ username: "user@example.com" (alternative)
+#     └─ password: "password123" (alternative)
+#
+#   secret/data/proxy/
+#     ├─ http_proxy: "http://proxy.com:3128"
+#     ├─ https_proxy: "http://proxy.com:3128"
+#     └─ no_proxy: "localhost,.company.com"
+#
+# Security:
+#   - Never commit credentials to version control
+#   - Use appropriate Vault policies to limit access
+#   - Rotate credentials regularly
+#   - Monitor Vault audit logs for access

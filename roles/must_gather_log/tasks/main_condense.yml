@@ -1,0 +1,557 @@
+---
+# Purpose: Collect OpenShift must-gather diagnostics and upload to Red Hat support case
+# Dependencies:
+#   - kubernetes.core collection for native Kubernetes API interaction
+#   - community.general collection for advanced archive operations
+#   - OC_BIN variable defined in calling playbook
+#   - RH_API_TOKEN or RH_API_USER/RH_API_PASS environment variables
+# Variables: See defaults/main.yml for required and optional variables
+
+# ==============================================================================
+# Pre-Execution Validation
+# ==============================================================================
+
+- name: "Validate required variables and environment"
+  tags: [validation, always]
+  block:
+    - name: "Validate required variables are defined"
+      ansible.builtin.assert:
+        that:
+          - rh_case is defined
+          - rh_case | string | length > 0
+          - OC_BIN is defined
+          - mustgather_output_dir is defined
+          - mustgather_collection_dir is defined
+        fail_msg: |
+          Required variables missing or invalid:
+          - rh_case: Red Hat support case number (provided: {{ rh_case | default('UNDEFINED') }})
+          - OC_BIN: Path to oc binary (provided: {{ OC_BIN | default('UNDEFINED') }})
+          - mustgather_output_dir: Top-level output directory (provided: {{ mustgather_output_dir | default('UNDEFINED') }})
+          - mustgather_collection_dir: Must-gather collection subdirectory (provided: {{ mustgather_collection_dir | default('UNDEFINED') }})
+        success_msg: "Required variables validated successfully"
+
+    - name: "Verify oc CLI binary exists and is executable"
+      ansible.builtin.stat:
+        path: "{{ OC_BIN }}"
+      register: oc_binary_stat
+      failed_when: not oc_binary_stat.stat.exists or not oc_binary_stat.stat.executable
+
+    - name: "Validate Red Hat API authentication is present"
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          if [ -z "${RH_API_TOKEN:-}" ] && [ -z "${RH_API_USER:-}" ]; then
+            echo "ERROR: No Red Hat API authentication found. Set RH_API_TOKEN or RH_API_USER/RH_API_PASS" >&2
+            exit 1
+          fi
+          echo "Authentication configured"
+        executable: /bin/bash
+      delegate_to: localhost
+      register: auth_check
+      changed_when: false
+      failed_when: auth_check.rc != 0
+      no_log: true
+
+  rescue:
+    - name: "Log validation failure"
+      ansible.builtin.debug:
+        msg: |
+          Pre-execution validation failed. Verify:
+          - All required variables are defined in defaults/main.yml or extra_vars
+          - OC_BIN points to valid oc binary in execution environment
+          - RH_API_TOKEN or RH_API_USER/RH_API_PASS injected via AAP credential
+
+    - name: "Fail after validation error"
+      ansible.builtin.fail:
+        msg: "Pre-execution validation failed. Review debug output above."
+
+# ==============================================================================
+# Node Selection and Labeling (Kubernetes Native)
+# ==============================================================================
+
+- name: "Identify and label must-gather node"
+  tags: [node_selection]
+  block:
+    - name: "Query nodes with must-gather label"
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+        label_selectors:
+          - "{{ mustgather_label_selector }}={{ mustgather_label_value }}"
+          - "tier=infra"
+      register: mustgather_nodes
+      changed_when: false
+
+    - name: "Validate single must-gather node or none"
+      ansible.builtin.assert:
+        that:
+          - "(mustgather_nodes.resources | length) <= 1"
+        fail_msg: |
+          More than one node is labeled {{ mustgather_label_selector }}={{ mustgather_label_value }},tier=infra.
+          Aborting to avoid ambiguous selection. Review node labels and ensure only one node is designated.
+
+    - name: "Query available infra nodes when no must-gather node exists"
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+        label_selectors:
+          - "tier=infra"
+      register: infra_nodes
+      changed_when: false
+      when: mustgather_nodes.resources | length == 0
+
+    - name: "Select candidate node for must-gather labeling"
+      ansible.builtin.set_fact:
+        candidate_node: >-
+          {{ (mustgather_nodes.resources | map(attribute='metadata.name') | list | first)
+             if (mustgather_nodes.resources | length) == 1
+             else ((infra_nodes.resources | map(attribute='metadata.name') | sort | last)
+             if (infra_nodes is defined and infra_nodes.resources | length > 0) else '') }}
+      changed_when: false
+
+    - name: "Fail if no suitable node found"
+      ansible.builtin.fail:
+        msg: |
+          No suitable node found for must-gather collection.
+          Ensure at least one node is labeled tier=infra in the cluster.
+      when: candidate_node | length == 0
+
+    - name: "Label candidate infra node for must-gather (idempotent merge patch)"
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Node
+        name: "{{ candidate_node }}"
+        definition:
+          metadata:
+            labels:
+              "{{ mustgather_label_selector }}": "{{ mustgather_label_value }}"
+        merge_type: merge
+        state: present
+      when:
+        - candidate_node | length > 0
+        - mustgather_nodes.resources | length == 0
+      register: label_result
+
+    - name: "Report must-gather node selection"
+      ansible.builtin.debug:
+        msg: |
+          Must-gather node identified: {{ candidate_node }}
+          Status: {{ 'Already labeled' if (mustgather_nodes.resources | length == 1) else ('Newly labeled' if (label_result is defined and label_result.changed) else 'Label unchanged') }}
+
+  rescue:
+    - name: "Log node selection failure"
+      ansible.builtin.debug:
+        msg: |
+          Failed to identify or label must-gather node:
+          - Ensure tier=infra labeled nodes exist in the cluster
+          - Verify kubernetes.core collection is installed in execution environment
+          - Check cluster authentication and API connectivity
+
+    - name: "Fail after node selection error"
+      ansible.builtin.fail:
+        msg: "Unable to identify must-gather node. Review debug output above."
+
+# ==============================================================================
+# Directory Preparation (Clean State with Archive Preservation)
+# ==============================================================================
+
+- name: "Prepare must-gather directories and preserve existing archives"
+  tags: [preparation]
+  block:
+    - name: "Create archive preservation directory if it does not exist"
+      ansible.builtin.file:
+        path: "{{ mustgather_archive_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: "Check for existing must-gather archives to preserve"
+      ansible.builtin.find:
+        paths: "{{ WORK_DIR | default('/tmp') }}"
+        patterns: "must-gather-*/must-gather.tar.gz*"
+        file_type: file
+      register: existing_archives
+
+    - name: "Preserve existing archives before cleanup"
+      ansible.builtin.copy:
+        src: "{{ item.path }}"
+        dest: "{{ mustgather_archive_dir }}/{{ cluster_name | default('cluster') }}-case{{ rh_case }}-{{ item.path | basename }}-{{ ansible_date_time.iso8601 | replace(':', '-') }}"
+        remote_src: true
+        mode: '0644'
+      loop: "{{ existing_archives.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      when: existing_archives.matched > 0
+      register: archive_preservation
+
+    - name: "Display preserved archive count"
+      ansible.builtin.debug:
+        msg: "Preserved {{ existing_archives.matched }} existing archive(s) to {{ mustgather_archive_dir }}"
+      when: existing_archives.matched > 0
+
+    - name: "Apply retention policy - remove archives older than retention period"
+      ansible.builtin.find:
+        paths: "{{ mustgather_archive_dir }}"
+        age: "{{ mustgather_archive_retention_days }}d"
+        file_type: file
+      register: old_archives
+      when: mustgather_archive_retention_days | int > 0
+
+    - name: "Delete archives older than {{ mustgather_archive_retention_days }} days"
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_archives.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      when:
+        - mustgather_archive_retention_days | int > 0
+        - old_archives.matched > 0
+
+    - name: "Apply retention policy - keep only last N archives"
+      ansible.builtin.find:
+        paths: "{{ mustgather_archive_dir }}"
+        file_type: file
+      register: all_archived_files
+      when: mustgather_archive_retention_count | int > 0
+
+    - name: "Delete excess archives beyond retention count"
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ (all_archived_files.files | sort(attribute='mtime') | reverse)[mustgather_archive_retention_count:] }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      when:
+        - mustgather_archive_retention_count | int > 0
+        - all_archived_files.matched > mustgather_archive_retention_count | int
+
+    - name: "Remove existing must-gather working directories for clean state"
+      ansible.builtin.find:
+        paths: "{{ WORK_DIR | default('/tmp') }}"
+        patterns: "must-gather-*"
+        file_type: directory
+      register: existing_work_dirs
+
+    - name: "Clean up old working directories"
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ existing_work_dirs.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      when: existing_work_dirs.matched > 0
+
+    - name: "Create must-gather output directory"
+      ansible.builtin.file:
+        path: "{{ mustgather_output_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: "Create must-gather collection subdirectory"
+      ansible.builtin.file:
+        path: "{{ mustgather_collection_dir }}"
+        state: directory
+        mode: '0755'
+
+  rescue:
+    - name: "Log directory preparation failure"
+      ansible.builtin.debug:
+        msg: |
+          Failed to prepare must-gather directories:
+          - Output directory: {{ mustgather_output_dir }}
+          - Collection directory: {{ mustgather_collection_dir }}
+          - Archive directory: {{ mustgather_archive_dir }}
+          - Verify filesystem permissions and available disk space on managed host
+
+    - name: "Fail after directory preparation error"
+      ansible.builtin.fail:
+        msg: "Unable to prepare must-gather directories"
+
+# ==============================================================================
+# Must-Gather Collection Execution
+# ==============================================================================
+
+- name: "Execute OpenShift must-gather collection"
+  tags: [collection]
+  block:
+    - name: "Run oc adm must-gather command"
+      ansible.builtin.command:
+        cmd: >-
+          {{ OC_BIN }} adm must-gather
+          {% if must_gather_version is defined and must_gather_version | string | length > 0 %}
+          --image={{ amex_mirror_endpoint }}/ocp-quay-proxy/openshift/origin-must-gather:{{ must_gather_version }}
+          {% endif %}
+          --node-selector={{ mustgather_label_selector }}
+          --dest-dir={{ mustgather_collection_dir }}
+      args:
+        chdir: "{{ mustgather_output_dir }}"
+      register: must_gather_exec
+      changed_when: must_gather_exec.rc == 0
+      failed_when: must_gather_exec.rc != 0
+
+    - name: "Validate must-gather collection output was created"
+      ansible.builtin.find:
+        paths: "{{ mustgather_collection_dir }}"
+        patterns: "*"
+        file_type: any
+        recurse: true
+      register: must_gather_output
+      failed_when: must_gather_output.matched == 0
+
+    - name: "Display must-gather collection statistics"
+      ansible.builtin.debug:
+        msg: |
+          Must-gather collection completed successfully
+          Files collected: {{ must_gather_output.matched }}
+          Collection directory: {{ mustgather_collection_dir }}
+
+  rescue:
+    - name: "Log must-gather execution failure"
+      ansible.builtin.debug:
+        msg: |
+          Must-gather collection failed:
+          - OC binary: {{ OC_BIN }}
+          - Collection directory: {{ mustgather_collection_dir }}
+          - Image: {{ amex_mirror_endpoint }}/ocp-quay-proxy/openshift/origin-must-gather:{{ must_gather_version | default('default') }}
+          - Error: {{ must_gather_exec.stderr | default('Unknown error') }}
+          Troubleshooting:
+          - Verify cluster authentication is valid
+          - Ensure must-gather image is accessible from cluster
+          - Check node selector matches labeled node
+
+    - name: "Fail after must-gather execution error"
+      ansible.builtin.fail:
+        msg: "Must-gather collection failed. Review debug output above."
+
+# ==============================================================================
+# Archive Creation with Size Validation and Splitting
+# ==============================================================================
+
+- name: "Create and validate must-gather archive"
+  tags: [archiving]
+  block:
+    - name: "Calculate collection directory size"
+      ansible.builtin.shell:
+        cmd: "set -euo pipefail && du -sb {{ mustgather_collection_dir }} | awk '{print $1}'"
+        executable: /bin/bash
+      register: collection_size
+      changed_when: false
+
+    - name: "Set collection size fact"
+      ansible.builtin.set_fact:
+        collection_size_bytes: "{{ collection_size.stdout | int }}"
+        max_archive_size_bytes: "{{ 1024 * 1024 * 1024 }}"  # 1GB limit
+
+    - name: "Display collection size"
+      ansible.builtin.debug:
+        msg: |
+          Must-gather collection size: {{ (collection_size_bytes | int / 1024 / 1024) | round(2) }} MB
+          Maximum archive size: {{ (max_archive_size_bytes | int / 1024 / 1024) | round(2) }} MB
+          Splitting required: {{ 'Yes' if (collection_size_bytes | int > (max_archive_size_bytes | int * 0.9)) else 'No' }}
+
+    - name: "Create single compressed archive when size permits"
+      ansible.builtin.command:
+        cmd: "tar czf must-gather.tar.gz -C {{ mustgather_output_dir }} {{ mustgather_collection_dir | basename }}"
+      args:
+        chdir: "{{ mustgather_output_dir }}"
+      register: archive_result
+      changed_when: archive_result.rc == 0
+      when: collection_size_bytes | int <= (max_archive_size_bytes | int * 0.9)
+
+    - name: "Create split archives when size exceeds limit"
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          cd {{ mustgather_output_dir }}
+          tar czf - {{ mustgather_collection_dir | basename }} | split -b 900M -d -a 3 - must-gather.tar.gz.part
+        executable: /bin/bash
+      register: split_archive_result
+      changed_when: split_archive_result.rc == 0
+      when: collection_size_bytes | int > (max_archive_size_bytes | int * 0.9)
+
+    - name: "List archive files created"
+      ansible.builtin.find:
+        paths: "{{ mustgather_output_dir }}"
+        patterns: "must-gather.tar.gz*"
+        file_type: file
+      register: archive_files
+
+    - name: "Validate archive files were created"
+      ansible.builtin.assert:
+        that:
+          - archive_files.matched > 0
+          - archive_files.files | map(attribute='size') | list | min > 0
+        fail_msg: "Archive creation failed or produced empty files"
+
+    - name: "Display archive information"
+      ansible.builtin.debug:
+        msg: |
+          Archive creation completed:
+          Number of archive parts: {{ archive_files.matched }}
+          {% for file in archive_files.files %}
+          - {{ file.path | basename }}: {{ (file.size / 1024 / 1024) | round(2) }} MB
+          {% endfor %}
+
+  rescue:
+    - name: "Log archiving failure details"
+      ansible.builtin.debug:
+        msg: |
+          Must-gather archiving failed:
+          - Collection directory: {{ mustgather_collection_dir }}
+          - Output directory: {{ mustgather_output_dir }}
+          - Collection size: {{ (collection_size_bytes | default(0) | int / 1024 / 1024) | round(2) }} MB
+          - Verify sufficient disk space and directory contents
+
+    - name: "Fail after archiving error"
+      ansible.builtin.fail:
+        msg: "Must-gather archive creation failed"
+
+# ==============================================================================
+# Upload Archive(s) to Red Hat Support
+# ==============================================================================
+
+- name: "Transfer and upload must-gather archives to Red Hat support"
+  tags: [upload]
+  block:
+    - name: "Create temporary directory on controller for archive transfer"
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: "mustgather_"
+      delegate_to: localhost
+      register: controller_temp_dir
+      changed_when: false
+
+    - name: "Fetch archive files to controller execution environment"
+      ansible.builtin.fetch:
+        src: "{{ item.path }}"
+        dest: "{{ controller_temp_dir.path }}/{{ item.path | basename }}"
+        flat: true
+      loop: "{{ archive_files.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      no_log: true
+
+    - name: "Set upload description"
+      ansible.builtin.set_fact:
+        computed_upload_description: "{{ rh_upload_description | default('must-gather for ' ~ inventory_hostname ~ ' (' ~ cluster_name | default('unknown') ~ ')') }}"
+
+    - name: "Upload archive parts to Red Hat support case"
+      ansible.builtin.script:
+        cmd: upload_to_redhat.sh
+      environment:
+        MG_ARCHIVE_FILE: "{{ controller_temp_dir.path }}/{{ item.path | basename }}"
+        MG_CASE_ID: "{{ rh_case }}"
+        MG_UPLOAD_DESC: "{{ computed_upload_description }} - Part {{ loop_index }}/{{ archive_files.matched }}"
+        HTTP_PROXY: "{{ proxy_http | default(omit) }}"
+        HTTPS_PROXY: "{{ proxy_https | default(omit) }}"
+        NO_PROXY: "{{ proxy_no | default(omit) }}"
+      delegate_to: localhost
+      loop: "{{ archive_files.files }}"
+      loop_control:
+        loop_var: item
+        index_var: loop_index
+        label: "{{ item.path | basename }}"
+      register: rh_upload_results
+      failed_when: rh_upload_results.rc != 0
+      changed_when: rh_upload_results.rc == 0
+      no_log: true
+
+    - name: "Log successful upload to Red Hat support case"
+      ansible.builtin.debug:
+        msg: |
+          Must-gather archives uploaded successfully to Red Hat case {{ rh_case }}
+          Total parts uploaded: {{ archive_files.matched }}
+          Upload description: {{ computed_upload_description }}
+
+  rescue:
+    - name: "Log upload failure with troubleshooting guidance"
+      ansible.builtin.debug:
+        msg: |
+          Must-gather upload to Red Hat case {{ rh_case }} failed.
+          Troubleshooting steps:
+          - Verify RH_API_TOKEN is valid and not expired
+          - Confirm Red Hat case {{ rh_case }} exists and is accessible
+          - Check network connectivity to api.access.redhat.com
+          - If using proxy, verify proxy configuration
+          - Review upload script output above
+          Archives preserved at: {{ controller_temp_dir.path }}
+
+    - name: "Set upload failure flag"
+      ansible.builtin.set_fact:
+        upload_failed: true
+        preserved_archive_path: "{{ controller_temp_dir.path }}"
+
+    - name: "Fail playbook after upload error"
+      ansible.builtin.fail:
+        msg: |
+          Must-gather upload failed. Archives preserved for manual upload:
+          {{ preserved_archive_path }}
+
+  always:
+    - name: "Clean up controller temporary directory on success"
+      ansible.builtin.file:
+        path: "{{ controller_temp_dir.path }}"
+        state: absent
+      delegate_to: localhost
+      when:
+        - controller_temp_dir is defined
+        - not (upload_failed | default(false))
+
+# ==============================================================================
+# Cleanup and Operational Logging
+# ==============================================================================
+
+- name: "Cleanup and record operation status"
+  tags: [cleanup, always]
+  block:
+    - name: "Remove must-gather directories from managed host"
+      ansible.builtin.file:
+        path: "{{ mustgather_output_dir }}"
+        state: absent
+      when: not (skip_mustgather_deletion | default(false) | bool)
+
+    - name: "Record must-gather operation to persistent log"
+      ansible.builtin.lineinfile:
+        path: "/var/log/ansible-must-gather.log"
+        line: |
+          {{ ansible_date_time.iso8601 }} | Host: {{ inventory_hostname }} | Cluster: {{ cluster_name | default('unknown') }} | Status: {{ 'FAILED' if upload_failed | default(false) else 'SUCCESS' }} | Case: {{ rh_case }} | Parts: {{ archive_files.matched | default(0) }} | Archive: {{ 'PRESERVED' if upload_failed | default(false) else 'UPLOADED' }}
+        create: true
+        mode: '0644'
+      delegate_to: localhost
+      register: log_result
+      failed_when: false
+
+    - name: "Count preserved archives for summary"
+      ansible.builtin.find:
+        paths: "{{ mustgather_archive_dir }}"
+        patterns: "{{ cluster_name | default('cluster') }}-case{{ rh_case }}-must-gather.tar.gz*"
+        file_type: file
+      register: preserved_archives_count
+      failed_when: false
+
+    - name: "Display operation summary"
+      ansible.builtin.debug:
+        msg: |
+          ===================================================================
+          Must-Gather Operation Summary
+          ===================================================================
+          Host: {{ inventory_hostname }}
+          Cluster: {{ cluster_name | default('unknown') }}
+          Red Hat Case: {{ rh_case }}
+          Status: {{ 'FAILED' if upload_failed | default(false) else 'SUCCESS' }}
+          Archive Parts: {{ archive_files.matched | default(0) }}
+          Collection Size: {{ (collection_size_bytes | default(0) | int / 1024 / 1024) | round(2) }} MB
+          Node Used: {{ candidate_node | default('unknown') }}
+          Cleanup Performed: {{ 'No (skip_mustgather_deletion=true)' if (skip_mustgather_deletion | default(false) | bool) else 'Yes' }}
+          Preserved Archives: {{ preserved_archives_count.matched | default(0) }} in {{ mustgather_archive_dir }}
+          Retention Policy: {{ mustgather_archive_retention_days }}d / {{ mustgather_archive_retention_count }} count
+          {% if upload_failed | default(false) %}
+          Failed Upload Archives: {{ preserved_archive_path }}
+          {% endif %}
+          ===================================================================
+
+  rescue:
+    - name: "Log cleanup failure (non-fatal)"
+      ansible.builtin.debug:
+        msg: "Cleanup or logging failed but will not fail the playbook. Manual cleanup may be required."
+      failed_when: false

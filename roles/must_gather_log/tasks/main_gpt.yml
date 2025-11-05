@@ -1,0 +1,302 @@
+---
+- name: Get nodes labeled must_gather=true,tier=infra
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Node
+    label_selectors:
+      - "must_gather=true"
+      - "tier=infra"
+  register: mustgather_nodes
+  changed_when: false
+  no_log: true
+  tags: [k8s, mustgather]
+
+- name: Validate single must-gather node (or none)
+  ansible.builtin.assert:
+    that:
+      - "(mustgather_nodes.resources | length) <= 1"
+    fail_msg: >-
+      More than one node is labeled must_gather=true,tier=infra.
+      Aborting to avoid ambiguous selection.
+  no_log: true
+  tags: [k8s, mustgather]
+
+- name: List infra nodes when no must-gather node exists
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Node
+    label_selectors:
+      - "tier=infra"
+  register: infra_nodes
+  when: mustgather_nodes.resources | length == 0
+  changed_when: false
+  no_log: true
+  tags: [k8s, mustgather]
+
+- name: Select candidate node for must-gather labeling
+  ansible.builtin.set_fact:
+    candidate_node: >-
+      {{ (mustgather_nodes.resources | map(attribute='metadata.name') | list | first)
+         if (mustgather_nodes.resources | length) == 1
+         else ((infra_nodes.resources | map(attribute='metadata.name') | sort | last) if (infra_nodes is defined and infra_nodes.resources | length > 0) else '') }}
+  changed_when: false
+  no_log: true
+  tags: [k8s, mustgather]
+
+- name: Label candidate infra node for must-gather (idempotent merge patch)
+  kubernetes.core.k8s:
+    api_version: v1
+    kind: Node
+    name: "{{ candidate_node }}"
+    definition:
+      metadata:
+        labels:
+          must_gather: "true"
+    merge_type: merge
+    state: present
+  when:
+    - candidate_node | length > 0
+    - not (mustgather_nodes.resources | map(attribute='metadata.name') | list | contains(candidate_node))
+  register: label_result
+  no_log: true
+  tags: [k8s, mustgather]
+
+- name: Must-gather node selection outcome
+  ansible.builtin.debug:
+    msg: >-
+      {{
+        'must-gather node already present: ' ~ (mustgather_nodes.resources[0].metadata.name)
+        if (mustgather_nodes.resources | length == 1)
+        else (('labeled candidate: ' ~ candidate_node) if (label_result is defined and label_result.changed) else ('candidate (no-op): ' ~ candidate_node))
+      }}
+  changed_when: false
+  no_log: true
+  tags: [k8s, mustgather]
+
+- name: Ensure clean must-gather output directory
+  ansible.builtin.file:
+    path: "{{ mustgather_output_dir }}"
+    state: directory
+    mode: '0755'
+    recurse: true
+  no_log: true
+
+- name: Task | Create must-gather logs (parametrized single task)
+  ansible.builtin.command:
+    cmd: >-
+      {{ OC_BIN }} adm must-gather
+      {{ image_arg }}
+      --node-selector must_gather
+      --dest-dir {{ mustgather_output_dir }}
+  args:
+    chdir: "{{ mustgather_log_dir }}"
+    creates: "{{ mustgather_output_dir }}/log"
+  register: mg_run
+  failed_when: mg_run.rc != 0
+  changed_when: mg_run.rc == 0 and (mg_run.stdout | default('') | length > 0)
+  no_log: true
+  vars:
+    image_arg: >-
+      {% if must_gather_version is defined %}
+        --image={{ (amex_mirror_endpoint | default('quay.io/openshift-release-dev')) }}/ocp-quay-proxy/openshift/origin-must-gather:{{ must_gather_version | default('4.12') }}
+      {% else %}
+      ""
+      {% endif %}
+  tags: [k8s, mustgather]
+
+- name: Block | Execute must-gather workflow
+  block:
+    - name: Validate must-gather source exists
+      ansible.builtin.stat:
+        path: "{{ mustgather_output_dir }}/log"
+      register: mustgather_src
+      changed_when: false
+      no_log: true
+
+    - name: Fail when source directory is absent
+      ansible.builtin.fail:
+        msg: "must-gather source directory '{{ mustgather_output_dir }}/log' was not found or is not accessible."
+      when: not mustgather_src.stat.exists
+      no_log: true
+
+    - name: Ensure output directory exists
+      ansible.builtin.file:
+        path: "{{ mustgather_output_dir }}"
+        state: directory
+        mode: "0755"
+      no_log: true
+
+    - name: Compose temp and final paths
+      ansible.builtin.set_fact:
+        temp_archive: "{{ mustgather_output_dir }}/must-gather.tmp.tar.gz"
+        final_archive: "{{ mustgather_output_dir }}/must-gather.tar.gz"
+      changed_when: false
+      no_log: true
+
+    - name: Create temporary archive of must-gather logs (deterministic)
+      community.general.archive:
+        path: "{{ mustgather_output_dir }}/log"
+        dest: "{{ temp_archive }}"
+        format: gz
+        mode: '0644'
+      register: archive_tmp
+      no_log: true
+
+    - name: Stat temporary archive (sha256)
+      ansible.builtin.stat:
+        path: "{{ temp_archive }}"
+        checksum_algorithm: sha256
+      register: stat_tmp
+      changed_when: false
+      no_log: true
+
+    - name: Stat final archive (if present)
+      ansible.builtin.stat:
+        path: "{{ final_archive }}"
+        checksum_algorithm: sha256
+      register: stat_final
+      changed_when: false
+      no_log: true
+
+    - name: Decide whether archive differs
+      ansible.builtin.set_fact:
+        archive_changed: >-
+          {{ (not stat_final.stat.exists) or
+             (stat_final.stat.checksum is not defined) or
+             (stat_tmp.stat.checksum != stat_final.stat.checksum) }}
+      changed_when: false
+      no_log: true
+
+    - name: Replace final archive when content differs
+      ansible.builtin.copy:
+        src: "{{ temp_archive }}"
+        dest: "{{ final_archive }}"
+        remote_src: true
+        mode: "0644"
+      when: archive_changed | bool
+      register: copy_result
+      no_log: true
+
+    - name: Cleanup temporary archive
+      ansible.builtin.file:
+        path: "{{ temp_archive }}"
+        state: absent
+      no_log: true
+
+    - name: Verify must-gather archive exists on managed host
+      ansible.builtin.stat:
+        path: "{{ final_archive }}"
+      register: mg_archive
+      failed_when: not mg_archive.stat.exists
+      changed_when: false
+      no_log: true
+      tags: mustgather
+
+    - name: Fetch must-gather archive to AAP Execution Node
+      ansible.builtin.fetch:
+        src: "{{ final_archive }}"
+        dest: "{{ controller_mustgather_path }}"
+        flat: true
+      register: fetched
+      no_log: true
+      tags: mustgather
+
+  rescue:
+    - name: Cleanup temp archive on failure (best-effort)
+      ansible.builtin.file:
+        path: "{{ temp_archive }}"
+        state: absent
+      failed_when: false
+      no_log: true
+
+    - name: Fail with diagnostic
+      ansible.builtin.fail:
+        msg: >-
+          must-gather archive flow failed.
+          source='{{ mustgather_output_dir }}/log'
+          temp='{{ temp_archive }}' final='{{ final_archive }}'.
+          Check permissions, available disk space, and EE execution environment.
+      no_log: true
+
+- name: Report archive outcome
+  ansible.builtin.debug:
+    msg: >-
+      "{{ 'must-gather archive created/updated: ' ~ final_archive if (archive_changed | default(false)) else 'must-gather archive unchanged: ' ~ final_archive }}"
+  changed_when: false
+  no_log: true
+
+- name: Block | Upload must-gather artifact to Red Hat (controller)
+  block:
+
+    - name: Task | Assert controller archive exists
+      ansible.builtin.stat:
+        path: "{{ controller_mustgather_path }}"
+      delegate_to: localhost
+      register: controller_archive_stat
+      changed_when: false
+      failed_when: not controller_archive_stat.stat.exists
+      no_log: true
+
+    - name: Task | Assert authentication for Red Hat API present (token or user/pass)
+      ansible.builtin.assert:
+        that:
+          - "(lookup('env','RH_API_TOKEN') is defined and lookup('env','RH_API_TOKEN') | length > 0) or (lookup('env','RH_API_USER') is defined and lookup('env','RH_API_PASS') is defined)"
+        fail_msg: "Missing RH API authentication. Provide RH_API_TOKEN or RH_API_USER and RH_API_PASS via controller environment or AAP credential injection."
+      delegate_to: localhost
+      run_once: true
+      no_log: true
+
+    - name: Task | Execute upload script on controller
+      ansible.builtin.script: upload_to_redhat.sh
+      delegate_to: localhost
+      environment:
+        MG_ARCHIVE_FILE: "{{ controller_mustgather_path }}"
+        MG_CASE_ID: "{{ rh_case }}"
+        MG_UPLOAD_DESC: "{{ computed_upload_description | default('must-gather upload from AAP') }}"
+        # Prefer token if present; otherwise controller env should provide RH_API_USER & RH_API_PASS
+        RH_API_TOKEN: "{{ lookup('env', 'RH_API_TOKEN') | default(omit) }}"
+        RH_API_USER: "{{ lookup('env', 'RH_API_USER') | default(omit) }}"
+        RH_API_PASS: "{{ lookup('env', 'RH_API_PASS') | default(omit) }}"
+        HTTP_PROXY: "{{ proxy_http | default(omit) }}"
+        HTTPS_PROXY: "{{ proxy_https | default(omit) }}"
+        NO_PROXY: "{{ proxy_no | default(omit) }}"
+      register: rh_http_upload
+      failed_when: rh_http_upload.rc != 0
+      changed_when: rh_http_upload.rc == 0
+      no_log: true
+      tags: [upload, api]
+
+    - name: Task | Parse upload script JSON result
+      ansible.builtin.set_fact:
+        rh_upload_result: "{{ rh_http_upload.stdout | from_json }}"
+      delegate_to: localhost
+      changed_when: false
+      no_log: true
+
+    - name: Task | Fail if upload reported failure
+      ansible.builtin.fail:
+        msg: "Red Hat upload failed: {{ rh_upload_result.response | default('no response') }}"
+      when: rh_upload_result.status is not defined or rh_upload_result.status != 'ok'
+      delegate_to: localhost
+      no_log: true
+
+  rescue:
+    - name: Task | Report upload block failure
+      ansible.builtin.fail:
+        msg: "Upload block failed. Check controller environment and upload_to_redhat.sh output."
+      no_log: true
+
+  always:
+    - name: Task | Upload block summary
+      ansible.builtin.debug:
+        msg: >-
+          "{{ 'Upload succeeded' if (rh_upload_result is defined and rh_upload_result.status == 'ok') else 'Upload not completed' }}"
+      changed_when: false
+      no_log: true
+
+- name: Clean up local must-gather archive
+  ansible.builtin.file:
+    path: "{{ controller_mustgather_path }}"
+    state: absent
+  delegate_to: localhost
+  tags: mustgather

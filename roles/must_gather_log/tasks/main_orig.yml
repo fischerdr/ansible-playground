@@ -1,0 +1,51 @@
+- name: Get must-gather node
+  shell: "{{ working_dir }}/oc get nodes -l must_gather=true,tier=infra --ignore-not-found --no-headers | awk '{print $1}'"
+  register: infra_must_gather_node
+  failed_when: infra_must_gather_node.stderr_lines | length > 0 or infra_must_gather_node.stdout_lines | length > 1
+
+- name: Get an infra node
+  shell: "{{ working_dir }}/oc get nodes -l tier=infra --no-headers | tail -1 | awk '{print $1}'"
+  register: new_infra_must_gather_node
+  when:  infra_must_gather_node.stdout_lines | length == 0
+
+- name: Label infra node for must-gather
+  shell: "{{ working_dir }}/oc label node {{ new_infra_must_gather_node.stdout }} must_gather=true"
+  when:  infra_must_gather_node.stdout_lines | length == 0
+
+- name: Delete temporary directory if already exists
+  file: path={{ mustgather_output_dir }} state=absent
+
+- name: Create temporary mustgather_log directory
+  file: path={{ mustgather_log_dir }} state=directory recurse=yes
+
+- name: Create must-gather log
+  command: "{{ working_dir }}/oc adm must-gather --node-selector 'must_gather'"
+  args:
+    chdir: "{{ mustgather_log_dir }}/"
+  when: must_gather_version is not defined
+
+- name: Create must-gather log
+  command: "{{ working_dir }}/oc adm must-gather --image={{ amex_mirror_endpoint }}/ocp-quay-proxy/openshift/origin-must-gather:{{ must_gather_version | default(\"4.12\") }} --node-selector 'must_gather'"
+  args:
+    chdir: "{{ mustgather_log_dir }}/"
+  when: must_gather_version is defined
+
+- command: "tar cvaf must-gather.tar.gz log/"
+  args:
+    chdir: "{{ mustgather_output_dir }}/"
+    warn: no
+
+- name: Upload must-gather log to Redhat case
+  shell:
+    cmd: |
+      timeout 3600 redhat-support-tool addattachment -c {{ rh_case }} -d "must-gather-log for {{ cluster_name }} cluster" {{ mustgather_output_dir }}/must-gather.tar.gz << EOF
+      EOF
+  register: upload_result
+  when: rh_case is defined and rh_case != ""
+
+- fail: msg="must-gather upload failed"
+  when: "'skipped' not in upload_result and 'failed' in upload_result.stdout"
+
+- name: Delete temporary mustgather directory
+  file: path={{ mustgather_var_log_dir }} state=absent
+  when: not skip_mustgather_deletion | default(False) | bool and rh_case is defined and rh_case != ""

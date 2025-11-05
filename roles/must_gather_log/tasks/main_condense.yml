@@ -1,12 +1,6 @@
 ---
 # Purpose: Collect OpenShift must-gather diagnostics and upload to Red Hat support case
-# Dependencies:
-#   - kubernetes.core collection for native Kubernetes API interaction
-#   - community.general collection for advanced archive operations
-#   - OC_BIN variable defined in calling playbook
-#   - RH_API_TOKEN or RH_API_USER/RH_API_PASS environment variables
 # Variables: See defaults/main.yml for required and optional variables
-
 # ==============================================================================
 # Pre-Execution Validation
 # ==============================================================================
@@ -437,63 +431,170 @@
       ansible.builtin.set_fact:
         computed_upload_description: "{{ rh_upload_description | default('must-gather for ' ~ inventory_hostname ~ ' (' ~ cluster_name | default('unknown') ~ ')') }}"
 
-    - name: "Upload archive parts to Red Hat support case"
-      ansible.builtin.script:
-        cmd: upload_to_redhat.sh
-      environment:
-        MG_ARCHIVE_FILE: "{{ controller_temp_dir.path }}/{{ item.path | basename }}"
-        MG_CASE_ID: "{{ rh_case }}"
-        MG_UPLOAD_DESC: "{{ computed_upload_description }} - Part {{ loop_index }}/{{ archive_files.matched }}"
-        RH_API_TOKEN: "{{ rh_api_token | default(omit) }}"
-        RH_API_USER: "{{ rh_api_user | default(omit) }}"
-        RH_API_PASS: "{{ rh_api_pass | default(omit) }}"
-        HTTP_PROXY: "{{ proxy_http | default(omit) }}"
-        HTTPS_PROXY: "{{ proxy_https | default(omit) }}"
-        NO_PROXY: "{{ proxy_no | default(omit) }}"
+    - name: "Upload all archive parts to Red Hat support case with retry handling"
+      redhat_upload:
+        case_id: "{{ rh_case }}"
+        archive_pattern: "{{ controller_temp_dir.path }}/*.tar.gz*"
+        upload_description: "{{ computed_upload_description }}"
+        api_token: "{{ rh_api_token | default(omit) }}"
+        api_user: "{{ rh_api_user | default(omit) }}"
+        api_pass: "{{ rh_api_pass | default(omit) }}"
+        proxy_http: "{{ proxy_http | default(omit) }}"
+        proxy_https: "{{ proxy_https | default(omit) }}"
+        proxy_no: "{{ proxy_no | default(omit) }}"
+        max_retry_attempts: "{{ rh_upload_max_retries | default(3) }}"
+        fail_on_partial: "{{ rh_upload_fail_on_partial | default(true) }}"
       delegate_to: localhost
-      loop: "{{ archive_files.files }}"
-      loop_control:
-        loop_var: item
-        index_var: loop_index
-        label: "{{ item.path | basename }}"
       register: rh_upload_results
-      failed_when: rh_upload_results.rc != 0
-      changed_when: rh_upload_results.rc == 0
       no_log: true
 
-    - name: "Log successful upload to Red Hat support case"
+    - name: "Set upload status from module results"
+      ansible.builtin.set_fact:
+        upload_status:
+          status: "{{ rh_upload_results.status }}"
+          case_id: "{{ rh_upload_results.case_id }}"
+          total_parts: "{{ rh_upload_results.total_parts }}"
+          success_count: "{{ rh_upload_results.success_count }}"
+          failure_count: "{{ rh_upload_results.failure_count }}"
+          results: "{{ rh_upload_results.results }}"
+      when: rh_upload_results is defined
+
+    - name: "Display detailed upload status per part"
       ansible.builtin.debug:
         msg: |
-          Must-gather archives uploaded successfully to Red Hat case {{ rh_case }}
-          Total parts uploaded: {{ archive_files.matched }}
+          Upload Operation Summary:
+          Status: {{ upload_status.status | upper }}
+          Case ID: {{ upload_status.case_id }}
+          Total Parts: {{ upload_status.total_parts }}
+          Successful Uploads: {{ upload_status.success_count }}
+          Failed Uploads: {{ upload_status.failure_count }}
+
+          Per-Part Upload Details:
+          {% for result in upload_status.results %}
+          Part {{ result.part }}: {{ result.file }}
+            Status: {{ result.status | upper }}
+            Attempts: {{ result.attempts }}
+          {% if result.status == 'failed' %}
+            Failure Reason: {{ result.reason }}
+            HTTP Code: {{ result.http_code | default('N/A') }}
+          {% elif result.status == 'success' %}
+            HTTP Code: {{ result.http_code }}
+          {% endif %}
+          {% endfor %}
+      when: upload_status is defined
+
+    - name: "Log successful upload completion"
+      ansible.builtin.debug:
+        msg: |
+          All must-gather archive parts uploaded successfully to Red Hat case {{ rh_case }}
+          Total parts: {{ upload_status.total_parts }}
           Upload description: {{ computed_upload_description }}
+      when:
+        - upload_status is defined
+        - upload_status.status == 'success'
+
+    - name: "Log partial upload completion with warning"
+      ansible.builtin.debug:
+        msg: |
+          Partial upload completion for Red Hat case {{ rh_case }}
+          Successful: {{ upload_status.success_count }}/{{ upload_status.total_parts }} parts
+          Failed: {{ upload_status.failure_count }}/{{ upload_status.total_parts }} parts
+          Archives preserved at: {{ controller_temp_dir.path }}
+          Review detailed status above for failure reasons.
+      when:
+        - upload_status is defined
+        - upload_status.status == 'partial'
 
   rescue:
+    - name: "Parse upload results from failed execution if available"
+      ansible.builtin.set_fact:
+        upload_status: "{{ rh_upload_results.stdout | from_json }}"
+      when:
+        - rh_upload_results is defined
+        - rh_upload_results.stdout is defined
+        - rh_upload_results.stdout | length > 0
+      failed_when: false
+
+    - name: "Display detailed failure information if JSON available"
+      ansible.builtin.debug:
+        msg: |
+          Upload Operation Failed:
+          Status: {{ upload_status.status | default('UNKNOWN') | upper }}
+          Case ID: {{ upload_status.case_id | default(rh_case) }}
+          Total Parts: {{ upload_status.total_parts | default('unknown') }}
+          Successful: {{ upload_status.success_count | default(0) }}
+          Failed: {{ upload_status.failure_count | default('unknown') }}
+
+          Per-Part Failure Details:
+          {% if upload_status is defined and upload_status.results is defined %}
+          {% for result in upload_status.results %}
+          {% if result.status == 'failed' %}
+          Part {{ result.part }}: {{ result.file }}
+            Reason: {{ result.reason }}
+            HTTP Code: {{ result.http_code | default('N/A') }}
+            Attempts: {{ result.attempts }}
+            {% if result.response is defined %}
+            Response: {{ result.response[:200] }}...
+            {% endif %}
+          {% endif %}
+          {% endfor %}
+          {% else %}
+          Unable to parse detailed results. Check script output above.
+          {% endif %}
+      when: upload_status is defined
+
     - name: "Log upload failure with troubleshooting guidance"
       ansible.builtin.debug:
         msg: |
           Must-gather upload to Red Hat case {{ rh_case }} failed.
-          Troubleshooting steps:
-          - Verify RH_API_TOKEN is valid and not expired
-          - Confirm Red Hat case {{ rh_case }} exists and is accessible
-          - Check network connectivity to api.access.redhat.com
-          - If using proxy, verify proxy configuration
-          - Review upload script output above
+
+          Troubleshooting Steps:
+          1. Verify RH_API_TOKEN is valid and not expired
+          2. Confirm Red Hat case {{ rh_case }} exists and is accessible
+          3. Check network connectivity to api.access.redhat.com
+          4. If using proxy, verify proxy configuration:
+             HTTP_PROXY: {{ proxy_http | default('not set') }}
+             HTTPS_PROXY: {{ proxy_https | default('not set') }}
+             NO_PROXY: {{ proxy_no | default('not set') }}
+          5. Review detailed failure information above
+          6. Check upload script logs for additional context
+
           Archives preserved at: {{ controller_temp_dir.path }}
 
-    - name: "Set upload failure flag"
+          Manual Upload Instructions:
+          1. Access the preserved archives at the path above
+          2. Visit https://access.redhat.com/support/cases/{{ rh_case }}
+          3. Manually attach the archive files to the case
+
+    - name: "Set upload failure flag and preserve path"
       ansible.builtin.set_fact:
         upload_failed: true
         preserved_archive_path: "{{ controller_temp_dir.path }}"
+        upload_failure_details: "{{ upload_status | default({}) }}"
 
-    - name: "Fail playbook after upload error"
+    - name: "Fail playbook after upload error with detailed context"
       ansible.builtin.fail:
         msg: |
-          Must-gather upload failed. Archives preserved for manual upload:
+          Must-gather upload failed for Red Hat case {{ rh_case }}.
+
+          Failure Summary:
+          {% if upload_status is defined %}
+          - Total Parts: {{ upload_status.total_parts }}
+          - Successful: {{ upload_status.success_count | default(0) }}
+          - Failed: {{ upload_status.failure_count }}
+          - Status: {{ upload_status.status | upper }}
+          {% else %}
+          - Upload script execution failed
+          - Exit Code: {{ rh_upload_results.rc | default('unknown') }}
+          {% endif %}
+
+          Archives preserved for manual upload at:
           {{ preserved_archive_path }}
 
+          Review troubleshooting guidance above for resolution steps.
+
   always:
-    - name: "Clean up controller temporary directory on success"
+    - name: "Clean up controller temporary directory on complete success"
       ansible.builtin.file:
         path: "{{ controller_temp_dir.path }}"
         state: absent
@@ -501,6 +602,20 @@
       when:
         - controller_temp_dir is defined
         - not (upload_failed | default(false))
+        - upload_status is defined
+        - upload_status.status == 'success'
+
+    - name: "Preserve temporary directory on failure or partial success"
+      ansible.builtin.debug:
+        msg: |
+          Temporary archive directory preserved for manual recovery:
+          {{ controller_temp_dir.path }}
+
+          This directory contains the fetched archive parts and will NOT be
+          automatically cleaned up. Manual cleanup required after resolution.
+      when:
+        - controller_temp_dir is defined
+        - upload_failed | default(false) or (upload_status is defined and upload_status.status != 'success')
 
 # ==============================================================================
 # Cleanup and Operational Logging

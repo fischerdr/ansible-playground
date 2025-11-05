@@ -1,0 +1,179 @@
+---
+# Purpose: Test redhat_upload module functionality
+# Variables: See defaults/main.yml for required and optional variables
+# Note: This playbook requires the redhat_upload module to be available
+#       Ensure the module is in the library path or use the role that contains it
+# ==============================================================================
+# Pre-Execution Validation
+# ==============================================================================
+
+- name: "Test redhat_upload module"
+  hosts: localhost
+  gather_facts: false
+  vars:
+    test_case_id: "{{ rh_case | default('TEST_CASE_ID') }}"
+    test_temp_dir: "/tmp/redhat_upload_test"
+    test_archive_pattern: "{{ test_temp_dir }}/*.tar.gz*"
+
+  pre_tasks:
+    - name: "Validate required variables"
+      ansible.builtin.assert:
+        that:
+          - rh_case is defined
+          - rh_case | string | length > 0
+          - rh_api_token is defined or (rh_api_user is defined and rh_api_pass is defined)
+        fail_msg: |
+          Required variables missing:
+          - rh_case: Red Hat support case number
+          - rh_api_token OR (rh_api_user AND rh_api_pass): Authentication credentials
+        success_msg: "Required variables validated successfully"
+
+    - name: "Create test directory"
+      ansible.builtin.file:
+        path: "{{ test_temp_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: "Create test archive files for upload testing"
+      ansible.builtin.copy:
+        content: "test content for archive part {{ item }}"
+        dest: "{{ test_temp_dir }}/test-archive.tar.gz.part{{ '%03d' | format(item) }}"
+        mode: "0644"
+      loop:
+        - 0
+        - 1
+        - 2
+      when: test_create_files | default(true)
+
+  tasks:
+    - name: "Test single file upload"
+      block:
+        - name: "Create single test file"
+          ansible.builtin.copy:
+            content: "test content for single file upload"
+            dest: "{{ test_temp_dir }}/single-archive.tar.gz"
+            mode: "0644"
+
+        - name: "Upload single file to Red Hat support case"
+          redhat_upload:
+            case_id: "{{ test_case_id }}"
+            archive_pattern: "{{ test_temp_dir }}/single-archive.tar.gz"
+            upload_description: "Test single file upload - {{ ansible_date_time.iso8601 }}"
+            api_token: "{{ rh_api_token | default(omit) }}"
+            api_user: "{{ rh_api_user | default(omit) }}"
+            api_pass: "{{ rh_api_pass | default(omit) }}"
+            proxy_http: "{{ proxy_http | default(omit) }}"
+            proxy_https: "{{ proxy_https | default(omit) }}"
+            proxy_no: "{{ proxy_no | default(omit) }}"
+            max_retry_attempts: "{{ rh_upload_max_retries | default(3) }}"
+            fail_on_partial: "{{ rh_upload_fail_on_partial | default(true) }}"
+          register: single_upload_result
+          no_log: true
+
+        - name: "Display single file upload results"
+          ansible.builtin.debug:
+            msg:
+              - "Single File Upload Test Results:"
+              - "Status: {{ single_upload_result.status }}"
+              - "Total Parts: {{ single_upload_result.total_parts }}"
+              - "Success Count: {{ single_upload_result.success_count }}"
+              - "Failure Count: {{ single_upload_result.failure_count }}"
+          when: single_upload_result is defined
+
+      when: test_single_file | default(true)
+
+    - name: "Test multi-part upload"
+      block:
+        - name: "Upload multiple archive parts to Red Hat support case"
+          redhat_upload:
+            case_id: "{{ test_case_id }}"
+            archive_pattern: "{{ test_archive_pattern }}"
+            upload_description: "Test multi-part upload - {{ ansible_date_time.iso8601 }}"
+            api_token: "{{ rh_api_token | default(omit) }}"
+            api_user: "{{ rh_api_user | default(omit) }}"
+            api_pass: "{{ rh_api_pass | default(omit) }}"
+            proxy_http: "{{ proxy_http | default(omit) }}"
+            proxy_https: "{{ proxy_https | default(omit) }}"
+            proxy_no: "{{ proxy_no | default(omit) }}"
+            max_retry_attempts: "{{ rh_upload_max_retries | default(3) }}"
+            fail_on_partial: "{{ rh_upload_fail_on_partial | default(true) }}"
+          register: multi_upload_result
+          no_log: true
+
+        - name: "Display multi-part upload results"
+          ansible.builtin.debug:
+            msg:
+              - "Multi-Part Upload Test Results:"
+              - "Status: {{ multi_upload_result.status }}"
+              - "Total Parts: {{ multi_upload_result.total_parts }}"
+              - "Success Count: {{ multi_upload_result.success_count }}"
+              - "Failure Count: {{ multi_upload_result.failure_count }}"
+
+        - name: "Display per-part upload details"
+          ansible.builtin.debug:
+            msg: |
+              Part {{ item.part }}: {{ item.file }}
+                Status: {{ item.status | upper }}
+                Attempts: {{ item.attempts }}
+                {% if item.status == 'success' %}
+                HTTP Code: {{ item.http_code }}
+                {% elif item.status == 'failed' %}
+                Reason: {{ item.reason }}
+                HTTP Code: {{ item.http_code | default('N/A') }}
+                {% endif %}
+          loop: "{{ multi_upload_result.results }}"
+          loop_control:
+            label: "Part {{ item.part }}"
+
+      when: test_multi_part | default(true)
+
+    - name: "Test authentication methods"
+      block:
+        - name: "Test token authentication"
+          redhat_upload:
+            case_id: "{{ test_case_id }}"
+            archive_pattern: "{{ test_temp_dir }}/test-archive.tar.gz.part000"
+            upload_description: "Test token auth - {{ ansible_date_time.iso8601 }}"
+            api_token: "{{ rh_api_token }}"
+          register: token_auth_result
+          no_log: true
+          when: rh_api_token is defined
+
+        - name: "Test username/password authentication"
+          redhat_upload:
+            case_id: "{{ test_case_id }}"
+            archive_pattern: "{{ test_temp_dir }}/test-archive.tar.gz.part000"
+            upload_description: "Test user/pass auth - {{ ansible_date_time.iso8601 }}"
+            api_user: "{{ rh_api_user }}"
+            api_pass: "{{ rh_api_pass }}"
+          register: userpass_auth_result
+          no_log: true
+          when: rh_api_user is defined and rh_api_pass is defined
+
+      when: test_auth_methods | default(false)
+
+    - name: "Test parameter validation"
+      block:
+        - name: "Test missing case_id (should fail)"
+          redhat_upload:
+            archive_pattern: "{{ test_temp_dir }}/test-archive.tar.gz.part000"
+            upload_description: "Test validation"
+            api_token: "{{ rh_api_token }}"
+          register: validation_test
+          failed_when: false
+          no_log: true
+
+        - name: "Display validation error"
+          ansible.builtin.debug:
+            msg: "Validation test failed as expected: {{ validation_test.msg | default('N/A') }}"
+          when: validation_test is failed
+
+      when: test_validation | default(false)
+
+  post_tasks:
+    - name: "Cleanup test files"
+      ansible.builtin.file:
+        path: "{{ test_temp_dir }}"
+        state: absent
+      when: test_cleanup | default(true)
+

@@ -644,7 +644,6 @@ class DefragController:
 # Module entrypoint
 # -------------------------
 
-
 def main():
     argument_spec = dict(
         paas_cluster_name=dict(type="str", required=False, default=""),

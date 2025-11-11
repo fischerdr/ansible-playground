@@ -46,12 +46,12 @@ vault_crt: >-
   {{
     lookup(
       'community.hashi_vault.hashi_vault',
-      'secret=static_secrets/data/env/' ~ cluster_user ~ '/portworx:vault.crt',
+      'secret=static_secrets/data/env/' ~ cluster_user ~ '/vault:vault.crt',
       'url=' ~ vault_address,
       'auth_method=token',
       'token=' ~ vault_token,
       'validate_certs=true',
-      'namespace=hydra-paas-ansible'
+      'namespace=ansible'
     ) | default('')
   }}
 ```

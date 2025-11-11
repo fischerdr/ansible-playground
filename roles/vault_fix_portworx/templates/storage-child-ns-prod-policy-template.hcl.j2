@@ -1,0 +1,18 @@
+# Production storage child namespace admin policy
+# For namespace: {{ storage_base_namespace }}
+
+path "{{ storage_base_namespace }}/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+path "sys/policies/acl/{{ storage_base_namespace }}/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+path "auth/{{ vault_vars.K8S_PATH }}/role/portworx" {
+  capabilities = ["create", "read", "update", "delete"]
+}
+
+path "sys/namespaces/{{ storage_base_namespace }}" {
+  capabilities = ["read", "list"]
+}

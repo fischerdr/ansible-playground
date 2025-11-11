@@ -1,0 +1,347 @@
+---
+- name: "Setup vault facts and grab latest token"
+  ansible.builtin.include_tasks: vault_login_aap.yml
+  tags: [vault, login]
+
+- name: Show namespaces
+  ansible.builtin.debug:
+    msg: |
+      List of vars
+        storage_child_namespace: {{ storage_child_namespace }}
+                 child_namespace: {{ child_namespace }}
+         storage_base_namespace: {{ storage_base_namespace }}
+          cluster_base_namespace: {{ cluster_base_namespace }}
+
+- name: "Shared Vault setup BLOCK"
+  when: cluster_tenant != 'ampz'
+  block:
+    - name: "Vault | List child namespaces under parent namespace {{ vault_parentnamespace }}"
+      community.hashi_vault.vault_list:
+        url: "{{ vault_addr | trim }}"
+        path: "sys/namespaces"
+        token: "{{ vault_client_token }}"
+        namespace: "{{ vault_parentnamespace }}"
+        validate_certs: true
+      register: ns_list
+      failed_when: false
+      no_log: false
+      changed_when: false
+      tags: [vault, namespace]
+
+    - name: "Vault | Normalize namespace keys (with 404/error fallback to empty list)"
+      ansible.builtin.set_fact:
+        ns_keys: >-
+          {{ (ns_list.data.data.keys | default([]))
+             | map('regex_replace', '/+$', '')
+             | list }}
+      changed_when: false
+      no_log: false
+      tags: [vault, namespace]
+
+    - name: "Vault | Create storage child namespace {{ storage_base_namespace }} if missing"
+      community.hashi_vault.vault_write:
+        url: "{{ vault_addr | trim }}"
+        path: "sys/namespaces/{{ storage_base_namespace }}"
+        token: "{{ vault_client_token }}"
+        namespace: "{{ vault_parentnamespace }}"
+        validate_certs: true
+        data: {}
+      when: storage_base_namespace not in ns_keys
+      failed_when: >
+        (create_storage_output is failed) and
+        ('Connection refused' not in (create_storage_output.msg | default('')))
+      register: create_storage_output
+      no_log: false
+      tags: [vault, namespace]
+
+    - name: "Vault | Apply storage admin policy for {{ storage_base_namespace }} (prod/non-prod template selection)"
+      community.hashi_vault.vault_write:
+        url: "{{ vault_addr | trim }}"
+        path: "sys/policy/{{ storage_base_namespace }}_admin_policy"
+        token: "{{ vault_client_token }}"
+        namespace: "{{ vault_parentnamespace }}"
+        validate_certs: true
+        data:
+          policy: >-
+            {{ (cluster_env == 'p')
+               | ternary( lookup('template','storage-child-ns-prod-policy-template.hcl.j2'),
+                          lookup('template','storage-child-ns-nonprod-policy-template.hcl.j2') ) | trim }}
+      when: (storage_base_namespace not in ns_keys) or (over_write | default(false))
+      register: apply_storage_policy
+      failed_when: >
+        (apply_storage_policy is failed) and
+        ('Connection refused' not in (apply_storage_policy.msg | default('')))
+      # Explicit changed_when to ensure parity with the original uri semantic:
+      # - treat task as changed if the vault_write module *reports* changed,
+      #   or if an HTTP-style status attribute is present and indicates success.
+      changed_when: >
+        (apply_storage_policy.changed | default(false)) or
+        (apply_storage_policy.status is defined and apply_storage_policy.status in [200, 204])
+      no_log: false
+      tags: [vault, policy]
+
+    - name: "Vault | Apply storage engine policy for {{ cluster_base_namespace }} (prod/non-prod)"
+      community.hashi_vault.vault_write:
+        url: "{{ vault_addr | trim }}"
+        path: "sys/policy/{{ cluster_base_namespace }}_storage_engine_admin_policy"
+        token: "{{ vault_client_token }}"
+        namespace: "{{ vault_parentnamespace }}"
+        validate_certs: true
+        data:
+          policy: >-
+            {{ (cluster_env == 'p')
+               | ternary( lookup('template','child-ns-storage-engine-prod-policy-template.hcl.j2'),
+                          lookup('template','child-ns-storage-engine-nonprod-policy-template.hcl.j2') ) | trim }}
+      when: (cluster_base_namespace not in ns_keys) or (over_write | default(false))
+      register: apply_engine_policy
+      failed_when: >
+        (apply_engine_policy is failed) and
+        ('Connection refused' not in (apply_engine_policy.msg | default('')))
+      changed_when: >
+        (apply_engine_policy.changed | default(false)) or
+        (apply_engine_policy.status is defined and apply_engine_policy.status in [200, 204])
+      no_log: false
+      tags: [vault, policy]
+
+    - name: "Vault | Read existing LDAP group info for {{ ldap_group_name }}"
+      community.hashi_vault.vault_read:
+        url: "{{ vault_addr | trim }}"
+        path: "auth/ldap/groups/{{ ldap_group_name }}"
+        token: "{{ vault_client_token }}"
+        namespace: "{{ vault_parentnamespace }}"
+        validate_certs: true
+      register: policies_list
+      failed_when: false               # allow 404/missing group to be handled below
+      no_log: false
+      tags: [vault, ldap]
+
+    - name: "Set policies list (empty if none)"
+      ansible.builtin.set_fact:
+        existing_policies: >-
+          {{ (policies_list.data.data.policies if (policies_list.data.data is defined and policies_list.data.data.policies is defined)
+              else []) | join(',') }}
+      changed_when: false
+      no_log: false
+      tags: [vault, ldap]
+
+    # Normalize existing policies into a list (safe/quiet)
+    - name: "Vault | Normalize existing policies into list"
+      ansible.builtin.set_fact:
+        existing_policy_list: "{{ existing_policies | default('') | split(',') | reject('equalto', '') | list }}"
+      no_log: false
+      changed_when: false
+      tags: [vault, ldap, prep]
+
+    # Build desired policy list (explicit)
+    - name: "Vault | Build desired policy list"
+      ansible.builtin.set_fact:
+        desired_policy_list:
+          - "{{ vault_admin_policy }}"
+          - "{{ storage_base_namespace }}_admin_policy"
+          - "{{ cluster_base_namespace }}_storage_engine_admin_policy"
+      no_log: false
+      changed_when: false
+      tags: [vault, ldap, prep]
+
+    - name: "Vault | Combine and deduplicate policies"
+      ansible.builtin.set_fact:
+        combined_policies_list: "{{ (desired_policy_list + existing_policy_list) | unique }}"
+      no_log: false
+      changed_when: false
+      tags: [vault, ldap, prep]
+
+    - name: "Vault | Combine and deduplicate policies"
+      ansible.builtin.set_fact:
+        combined_policies_str: "{{ combined_policies_list | join(',') }}"
+      no_log: false
+      changed_when: false
+      tags: [vault, ldap, prep]
+
+    # Prepare user list (filter undefined entries)
+    - name: "Vault | Build LDAP user list"
+      ansible.builtin.set_fact:
+        ldap_user_list: "{{ [vault_username, vault_bkp_username] | select('defined') | list }}"
+      no_log: false
+      changed_when: false
+      tags: [vault, ldap, prep]
+
+    # Patch LDAP users with the combined policies
+    - name: "Vault | Patch LDAP users with required policies in {{ storage_base_namespace }}"
+      community.hashi_vault.vault_write:
+        url: "{{ vault_addr | trim }}"
+        path: "auth/ldap/users/{{ item }}"
+        token: "{{ vault_client_token }}"
+        namespace: "{{ vault_parentnamespace }}"
+        validate_certs: true
+        data:
+          policies: "{{ combined_policies_str }}"
+      loop: "{{ ldap_user_list }}"
+      when: (storage_base_namespace not in ns_keys) or (over_write | default(false))
+      register: ldap_update_users
+      no_log: false
+      tags: [vault, ldap]
+
+    # Prepare group list (use default if variable not provided)
+    - name: "Vault | Build LDAP group list"
+      ansible.builtin.set_fact:
+        ldap_group_list: >-
+          {{ [ldap_group_name] | select('defined') | reject('equalto', '') | list }}
+      no_log: false
+      changed_when: false
+      tags: [vault, ldap, prep]
+
+    # Patch LDAP groups with the combined policies
+    - name: "Vault | Patch LDAP group(s) with required policies in {{ storage_child_namespace }}"
+      community.hashi_vault.vault_write:
+        url: "{{ vault_addr | trim }}"
+        path: "auth/ldap/groups/{{ item }}"
+        token: "{{ vault_client_token }}"
+        namespace: "{{ vault_parentnamespace }}"
+        validate_certs: true
+        data:
+          policies: "{{ combined_policies_str }}"
+      loop: "{{ ldap_group_list }}"
+      when: (px_base_namespace not in ns_keys) or (over_write | default(false))
+      register: ldap_update_groups
+      no_log: false
+      tags: [vault, ldap]
+
+    - name: "Vault | Revoke vault client token (best-effort)"
+      community.hashi_vault.vault_write:
+        url: "{{ vault_addr | trim }}"
+        path: "auth/token/revoke"
+        token: "{{ vault_client_token }}"
+        namespace: "{{ vault_parentnamespace }}"
+        validate_certs: true
+        data:
+          token: "{{ vault_client_token }}"
+      when: (px_child_namespace not in ns_keys) or (over_write | default(false))
+      register: revoke_result
+      no_log: false
+      tags: [vault, auth]
+
+    - name: "Refresh login to vault (re-acquire token)"
+      ansible.builtin.include_tasks: vault_login_aap.yml
+      tags: [vault, login]
+
+    - name: "Vault | Enable/ensure KV v2 mount 'portworx' in {{ storage_child_namespace }}"
+      community.hashi_vault.vault_write:
+        url: "{{ vault_addr | trim }}"
+        path: "sys/mounts/portworx"
+        token: "{{ vault_client_token }}"
+        namespace: "{{ storage_child_namespace }}"
+        validate_certs: true
+        data:
+          type: "kv"
+          options:
+            version: "2"
+      register: enable_storage_engine_storage
+      no_log: false
+      failed_when: >
+        (enable_storage_engine_storage is failed) and
+        (
+          ('path is already in use' not in (enable_storage_engine_storage.msg | default('') | lower)) and
+          ('path is already in use' not in (enable_storage_engine_storage.module_stderr | default('') | lower)) and
+          ('already exists' not in (enable_storage_engine_storage.msg | default('') | lower)) and
+          ('already exists' not in (enable_storage_engine_storage.module_stderr | default('') | lower))
+        )
+      changed_when: enable_storage_engine_storage is changed
+      tags: [vault, mount]
+      when: (storage_base_namespace not in ns_keys) or (over_write | default(false))
+
+    - name: "Vault | Ensure KV v2 mount 'portworx' in {{ child_namespace }}"
+      community.hashi_vault.vault_write:
+        url: "{{ vault_addr | trim }}"
+        path: "sys/mounts/portworx"
+        token: "{{ vault_client_token }}"
+        namespace: "{{ child_namespace }}"
+        validate_certs: true
+        data:
+          type: "kv"
+          options:
+            version: "2"
+      register: enable_storage_engine_child
+      no_log: false
+      failed_when: >
+        (enable_storage_engine_child is failed) and
+        (
+          ('path is already in use' not in (enable_storage_engine_child.msg | default('') | lower)) and
+          ('path is already in use' not in (enable_storage_engine_child.module_stderr | default('') | lower)) and
+          ('already exists' not in (enable_storage_engine_child.msg | default('') | lower)) and
+          ('already exists' not in (enable_storage_engine_child.module_stderr | default('') | lower))
+        )
+      changed_when: enable_storage_engine_child is changed
+      tags: [vault, mount]
+      when: (cluster_tenant != 'ampz') and ((child_namespace not in ns_keys) or (over_write | default(false)))
+
+    - name: "Vault | Read enabled auth paths under {{ storage_child_namespace }}"
+      community.hashi_vault.vault_read:
+        url: "{{ vault_addr | trim }}"
+        path: "sys/auth"
+        token: "{{ vault_client_token }}"
+        namespace: "{{ storage_child_namespace }}"
+        validate_certs: true
+      register: auth_paths_result
+      no_log: false
+      changed_when: false
+      tags: [vault, auth]
+
+    - name: Debug vault read data
+      ansible.builtin.debug:
+        msg: "{{ auth_paths_result }}"
+
+    - name: "Vault | Normalize auth path keys"
+      ansible.builtin.set_fact:
+        auth_paths_list: "{{ auth_paths_result.data.data.keys() | list }}"
+      changed_when: false
+      no_log: false
+      tags: [vault, auth]
+
+    - name: "Vault | Enable Kubernetes auth backend at {{ vault_vars.K8S_PATH }} in {{ storage_child_namespace }}"
+      community.hashi_vault.vault_write:
+        url: "{{ vault_addr | trim }}"
+        path: "sys/auth/{{ vault_vars.K8S_PATH }}"
+        token: "{{ vault_client_token }}"
+        namespace: "{{ storage_child_namespace }}"
+        validate_certs: true
+        data:
+          type: "kubernetes"
+          config:
+            audit_non_hmac_response_keys:
+              - error
+            default_lease_ttl: "768h"
+      register: auth_enable_result
+      no_log: false
+      changed_when: auth_enable_result is changed
+      tags: [vault, auth]
+      when: (vault_vars.K8S_PATH not in (auth_paths_list | default([]))) or (over_write | default(false))
+
+    - name: "Final consolidated failure check"
+      ansible.builtin.fail:
+        msg: >-
+          One or more critical Vault operations failed (create namespace / policies / LDAP updates /
+          mount / auth enable). Review the job log for details.
+      when: >
+        (create_storage_output is failed) or
+        (apply_storage_policy is failed) or
+        (apply_engine_policy is failed) or
+        (ldap_update_users is failed) or
+        (ldap_update_groups is failed) or
+        (enable_storage_engine_storage is failed) or
+        (enable_storage_engine_child is failed) or
+        (auth_enable_result is failed)
+      no_log: false
+      tags: [vault, postcheck]
+
+  rescue:
+    - name: "Vault | Shared setup failed — provide sanitized guidance"
+      ansible.builtin.debug:
+        msg: >-
+          Vault namespace/policy setup encountered an error. Check: Vault connectivity,
+          credentials mapping in AAP, and the content of policy templates used.
+      no_log: false
+
+    - name: "Vault | Abort due to setup failure"
+      ansible.builtin.fail:
+        msg: "Aborting vault_fix_portworx namespace setup due to prior errors."
+      no_log: false

@@ -1,0 +1,57 @@
+---
+# tasks/vault_login.yml
+- name: "Vault | LDAP login (with robust error handling)"
+  block:
+
+    - name: "Vault | Login via LDAP {{ '@'.join([vault_username, vault_addr]) }}"
+      ansible.builtin.uri:
+        url: "{{ (vault_addr | trim) ~ '/v1/auth/ldap/login/' ~ (vault_username | trim) }}"
+        method: POST
+        headers: >-
+          {{
+            ({'X-Vault-Namespace': vault_parentnamespace}
+             if (vault_parentnamespace is defined and vault_parentnamespace | length > 0)
+             else {})
+          }}
+        body: "{{ {'password': vault_password} }}"
+        body_format: json
+        status_code: 200
+        validate_certs: true            # Enforce TLS; provide CA via EE/credential if needed
+        follow_redirects: all
+      register: vault_login_resp
+      no_log: true                      # Prevent secrets/tokens from being logged
+      retries: 3
+      delay: 5
+      until: vault_login_resp.status == 200
+      changed_when: false
+
+    - name: "Vault | Capture transient client token"
+      ansible.builtin.set_fact:
+        vault_client_token: "{{ vault_login_resp.json.auth.client_token }}"
+      no_log: true
+      changed_when: false
+
+  rescue:
+
+    - name: "Vault | Login failed — collect sanitized diagnostics and fail"
+      ansible.builtin.debug:
+        msg: >-
+          Vault LDAP authentication failed for user '{{ vault_username }}' against
+          '{{ vault_addr }}'. HTTP status: {{ vault_login_resp.status | default('N/A') }}.
+          Refer to runbook: verify credentials, network connectivity, and Vault namespace.
+      no_log: false
+
+    - name: "Vault | Fail execution with actionable message"
+      ansible.builtin.fail:
+        msg: >-
+          Vault LDAP authentication failed for '{{ vault_username }}' against
+          '{{ vault_addr }}'. See previous task for sanitized diagnostics. Ensure
+          AAP credential mapping and Vault namespace configuration are correct.
+
+  always:
+
+    - name: "Vault | Clear transient login response from memory (defensive hygiene)"
+      ansible.builtin.set_fact:
+        vault_login_resp: null
+      no_log: false
+      changed_when: false

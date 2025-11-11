@@ -1,0 +1,19 @@
+---
+# DEPRECATED: This file is part of the legacy task workflow
+# USE vault_login_aap.yml instead - it uses proper error handling with block/rescue/always
+# This file is retained for backward compatibility only and will be removed in a future release
+
+- name: "DEPRECATED | Warn about legacy task file usage"
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: vault_login.yaml is deprecated. Please use vault_login_aap.yml instead
+      which has proper error handling with block/rescue/always patterns.
+      This file will be removed in a future release.
+
+- name: "DEPRECATED | Fail with deprecation message"
+  ansible.builtin.fail:
+    msg: >-
+      vault_login.yaml is deprecated and should not be used.
+      Update your playbooks to use vault_login_aap.yml.
+      If you must use this legacy file, set 'allow_deprecated_vault_tasks: true' in your playbook.
+  when: allow_deprecated_vault_tasks is not defined or not allow_deprecated_vault_tasks

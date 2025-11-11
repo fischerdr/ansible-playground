@@ -1,0 +1,70 @@
+---
+# Kubernetes namespace where storage solution is deployed
+storage_namespace: "portworx"
+
+# LDAP group name for Vault access control
+# Override this variable with your organization's LDAP group
+ldap_group_name: ""
+
+# S3 configuration for backup storage
+# Define environment-specific S3 endpoints and buckets
+# Override these mappings based on your infrastructure
+s3_endpoint_map:
+  l: ""  # Lab/Local environment
+  d: ""  # Development environment
+  t: ""  # Test environment
+  p: ""  # Production environment
+
+s3_bucket_map:
+  l: ""  # Lab/Local bucket
+  d: ""  # Development bucket
+  t: ""  # Test bucket
+  p: ""  # Production bucket
+
+# Dynamically resolve S3 endpoint and bucket based on cluster_env
+s3_endpoint: "{{ s3_endpoint_map[cluster_env] }}"
+s3_bucket: "{{ s3_bucket_map[cluster_env] }}"
+
+# Vault secret paths - customize these based on your Vault KV structure
+# These lookups retrieve secrets from Vault using the provided credentials
+vault_secret_namespace: "{{ vault_vars.VAULT_SECRET_NAMESPACE | default('') }}"
+vault_secret_path_prefix: "{{ vault_vars.VAULT_SECRET_PATH | default('static_secrets/data/env') }}"
+
+# Vault Certificate - retrieved from Vault KV
+vault_crt: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=' ~ vault_secret_path_prefix ~ '/' ~ cluster_user ~ '/portworx:vault.crt url=' ~ vault_address ~ ' auth_method=token token=' ~ vault_token ~ ' validate_certs=true namespace=' ~ vault_secret_namespace) | default('') }}"
+
+# S3 Bundle Certificate - retrieved from Vault KV
+s3bundle_crt: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=' ~ vault_secret_path_prefix ~ '/' ~ cluster_user ~ '/portworx:s3bundle.crt url=' ~ vault_address ~ ' auth_method=token token=' ~ vault_token ~ ' validate_certs=true namespace=' ~ vault_secret_namespace) | default('') }}"
+
+# S3 Credentials - retrieved from Vault KV
+s3_access_key: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=' ~ vault_secret_path_prefix ~ '/' ~ cluster_user ~ '/portworx/' ~ cluster_env ~ ':s3_access_key url=' ~ vault_address ~ ' auth_method=token token=' ~ vault_token ~ ' validate_certs=true namespace=' ~ vault_secret_namespace) | default('') }}"
+s3_secret_key: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=' ~ vault_secret_path_prefix ~ '/' ~ cluster_user ~ '/portworx/' ~ cluster_env ~ ':s3_secret_key url=' ~ vault_address ~ ' auth_method=token token=' ~ vault_token ~ ' validate_certs=true namespace=' ~ vault_secret_namespace) | default('') }}"
+
+# License - retrieved from Vault KV
+license: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=' ~ vault_secret_path_prefix ~ '/' ~ cluster_user ~ '/portworx:license url=' ~ vault_address ~ ' auth_method=token token=' ~ vault_token ~ ' validate_certs=true namespace=' ~ vault_secret_namespace) | default('') }}"
+
+# Environment-specific CA certificates
+prod_ca: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=' ~ vault_secret_path_prefix ~ '/' ~ cluster_user ~ '/cluster_ca:ProdCA url=' ~ vault_address ~ ' auth_method=token token=' ~ vault_token ~ ' validate_certs=true namespace=' ~ vault_secret_namespace) }}"
+non_prod_ca: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=' ~ vault_secret_path_prefix ~ '/' ~ cluster_user ~ '/cluster_ca:NonProdCA url=' ~ vault_address ~ ' auth_method=token token=' ~ vault_token ~ ' validate_certs=true namespace=' ~ vault_secret_namespace) }}"
+
+# Vault connection variables
+vault_addr: "{{ vault_vars.ADDRESS }}"
+vault_parentnamespace: "{% if vault_vars.PARENT_NAMESPACE != '' %}{{ vault_vars.PARENT_NAMESPACE }}{% endif %}"
+vault_username: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=' ~ vault_secret_path_prefix ~ '/' ~ cluster_user ~ '/vault/' ~ cluster_env ~ ':vault.user url=' ~ vault_address ~ ' auth_method=token token=' ~ vault_token ~ ' validate_certs=true namespace=' ~ vault_secret_namespace) }}"
+vault_bkp_username: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=' ~ vault_secret_path_prefix ~ '/' ~ cluster_user ~ '/vault/' ~ cluster_env ~ ':vault.bkp.user url=' ~ vault_address ~ ' auth_method=token token=' ~ vault_token ~ ' validate_certs=true namespace=' ~ vault_secret_namespace) }}"
+vault_password: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=' ~ vault_secret_path_prefix ~ '/' ~ cluster_user ~ '/vault/' ~ cluster_env ~ ':vault.password url=' ~ vault_address ~ ' auth_method=token token=' ~ vault_token ~ ' validate_certs=true namespace=' ~ vault_secret_namespace) }}"
+
+# Vault admin policy name - customize based on your Vault policy naming convention
+vault_admin_policy: "{{ vault_vars.PARENT_NAMESPACE | default('root') | replace('/', '_') }}_admin_policy"
+
+# Storage-specific Vault namespace construction
+# Customize the logic based on your organization's namespace hierarchy
+storage_child_namespace: "{{ vault_vars.PARENT_NAMESPACE }}/{{ cluster_user }}-storage-{{ cluster_tenant }}-{{ cluster_env }}-{{ cluster_datacenter }}{% if cluster_region is defined and cluster_region != 'intranet' %}-{{ cluster_region }}{% endif %}"
+child_namespace: "{{ vault_vars.PARENT_NAMESPACE }}/{{ cluster_user }}-{{ cluster_tenant }}-{{ cluster_env }}-{{ cluster_datacenter }}{% if cluster_region is defined and cluster_region != 'intranet' %}-{{ cluster_region }}{% endif %}"
+storage_base_namespace: "{{ storage_child_namespace | basename | trim }}"
+cluster_base_namespace: "{{ child_namespace | basename | trim }}"
+
+# Backward compatibility aliases
+px_namespace: "{{ storage_namespace }}"
+px_child_namespace: "{{ storage_child_namespace }}"
+px_base_namespace: "{{ storage_base_namespace }}"

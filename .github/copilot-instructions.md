@@ -6,6 +6,8 @@
 1. **FQCN Required**: `ansible.builtin.copy` NOT `copy`
 2. **Booleans**: `true`/`false` NOT `True`/`False`/`yes`/`no`
 3. **Multi-line Strings**: Use `|-` (literal, strip trailing newlines) or `>-` (folded, strip trailing newlines)
+   - Complex Jinja2 lookups (>100 chars): Use `>-` with structured formatting
+   - Break lookup parameters across lines for readability
 4. **Security**: `no_log: true` for tokens/passwords/credentials
 5. **Error Handling**: Use `block`/`rescue`/`always` for critical operations
 6. **Idempotency**: Avoid `shell`/`command` - use built-in modules
@@ -235,10 +237,24 @@ Before suggesting code, verify:
 
 ### HashiCorp Vault Integration
 ```yaml
-- name: Retrieve from vault using lookup
+# Complex lookup with multiple parameters - use >- with structured format
+- name: Retrieve certificate from Vault
   ansible.builtin.set_fact:
-    vault_crt: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=static_secrets/data/env/' ~ cluster_user ~ '/vault url=' ~ vault_address ~ ' auth_method=token token=' ~ vault_token ~ ' validate_certs=true namespace=mynamespace') | default('') }}"
+    vault_crt: >-
+      {{
+        lookup(
+          'community.hashi_vault.hashi_vault',
+          'secret=static_secrets/data/env/' ~ cluster_user ~ '/vault:cert
+           url=' ~ vault_address ~ '
+           auth_method=token
+           token=' ~ vault_token ~ '
+           validate_certs=true
+           namespace=mynamespace'
+        ) | default('')
+      }}
+  no_log: true
 
+# Module-based Vault access
 - name: Retrieve secret from Vault
   community.hashi_vault.vault_kv2_get:
     url: "{{ vault_addr }}"

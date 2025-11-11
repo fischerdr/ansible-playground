@@ -39,10 +39,15 @@ When generating Ansible playbooks or tasks:
    - Use `|-` (literal block scalar, strip trailing newlines) for preserving line breaks
    - Use `>-` (folded block scalar, strip trailing newlines) for long text that should wrap
    - Always use block scalars for shell commands, scripts, and multi-line content
+   - **Complex Jinja2 Expressions (>100 characters):**
+     - Use `>-` with structured formatting
+     - Break lookup/filter parameters across lines
+     - Indent for readability: opening `{{`, function/parameters, filters, closing `}}`
    - Examples:
      - Scripts and commands: `content: |-` or `shell: |-`
      - Long descriptions: `msg: >-`
      - YAML/JSON content: `content: |-`
+     - Complex lookups: `value: >-` with multi-line Jinja2
 
 4. **Documentation**
    - Include clear description comment block at the start of every playbook
@@ -365,6 +370,8 @@ When generating code, avoid these common mistakes:
    - Don't use quoted strings for multi-line content
    - Always use `|-` or `>-` block scalars for multi-line strings
    - Never use `\n` escape sequences in YAML strings
+   - Don't write complex Jinja2 expressions (>100 chars) on a single line
+   - Break lookup parameters across lines for readability
 
 9. **Ignoring EE Constraints**
    - Don't suggest solutions that bypass Execution Environment isolation
@@ -532,6 +539,35 @@ When creating files with multi-line content:
       );
 
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+# Complex Jinja2 lookups - use >- with structured format
+- name: Retrieve certificate from Vault
+  ansible.builtin.set_fact:
+    vault_crt: >-
+      {{
+        lookup(
+          'community.hashi_vault.hashi_vault',
+          'secret=static_secrets/data/env/' ~ cluster_user ~ '/vault:cert
+           url=' ~ vault_address ~ '
+           auth_method=token
+           token=' ~ vault_token ~ '
+           validate_certs=true
+           namespace=mynamespace'
+        ) | default('')
+      }}
+  no_log: true
+
+# Complex filters/transformations - use >-
+- name: Build complex configuration
+  ansible.builtin.set_fact:
+    app_config: >-
+      {{
+        (base_config | combine(env_config))
+        | dict2items
+        | selectattr('value', 'defined')
+        | list
+        | items2dict
+      }}
 ```
 
 ## Additional Resources

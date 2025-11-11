@@ -1,0 +1,113 @@
+---
+# tasks/validate_inputs.yml - Input validation for vault_kv2_demo role
+#
+# Purpose:
+#   Validates all required variables before proceeding with Vault operations.
+#   Ensures proper configuration to prevent runtime failures.
+
+- name: Display role execution banner
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      Vault KV2 Demo Role - Starting Execution
+      ========================================
+      Vault Address: {{ vault_kv2_demo_vault_addr }}
+      Vault Namespace: {{ vault_kv2_demo_vault_namespace | default('(root)', true) }}
+      K8s Namespace: {{ vault_kv2_demo_k8s_namespace }}
+      KV2 Mount: {{ vault_kv2_demo_kv2_mount_path }}
+      ========================================
+
+- name: Validate Vault address is provided
+  ansible.builtin.assert:
+    that:
+      - vault_kv2_demo_vault_addr is defined
+      - vault_kv2_demo_vault_addr | length > 0
+      - vault_kv2_demo_vault_addr is match('^https?://')
+    fail_msg: "vault_kv2_demo_vault_addr must be defined and start with http:// or https://"
+    success_msg: "Vault address validation passed"
+    quiet: true
+
+- name: Validate Vault root token is provided
+  ansible.builtin.assert:
+    that:
+      - vault_kv2_demo_root_token is defined
+      - vault_kv2_demo_root_token | length > 0
+    fail_msg: "vault_kv2_demo_root_token must be defined and non-empty"
+    success_msg: "Vault token validation passed"
+    quiet: true
+  no_log: true
+
+- name: Validate Kubernetes namespace is provided
+  ansible.builtin.assert:
+    that:
+      - vault_kv2_demo_k8s_namespace is defined
+      - vault_kv2_demo_k8s_namespace | length > 0
+    fail_msg: "vault_kv2_demo_k8s_namespace must be defined and non-empty"
+    success_msg: "Kubernetes namespace validation passed"
+    quiet: true
+
+- name: Validate service account name is provided
+  ansible.builtin.assert:
+    that:
+      - vault_kv2_demo_service_account_name is defined
+      - vault_kv2_demo_service_account_name | length > 0
+    fail_msg: "vault_kv2_demo_service_account_name must be defined and non-empty"
+    success_msg: "Service account name validation passed"
+    quiet: true
+
+- name: Validate Kubernetes host is provided
+  ansible.builtin.assert:
+    that:
+      - vault_kv2_demo_k8s_host is defined
+      - vault_kv2_demo_k8s_host | length > 0
+      - vault_kv2_demo_k8s_host is match('^https?://')
+    fail_msg: "vault_kv2_demo_k8s_host must be defined and start with http:// or https://"
+    success_msg: "Kubernetes host validation passed"
+    quiet: true
+
+- name: Validate KV2 mount path is provided
+  ansible.builtin.assert:
+    that:
+      - vault_kv2_demo_kv2_mount_path is defined
+      - vault_kv2_demo_kv2_mount_path | length > 0
+    fail_msg: "vault_kv2_demo_kv2_mount_path must be defined and non-empty"
+    success_msg: "KV2 mount path validation passed"
+    quiet: true
+
+- name: Validate Vault role name is provided
+  ansible.builtin.assert:
+    that:
+      - vault_kv2_demo_vault_role_name is defined
+      - vault_kv2_demo_vault_role_name | length > 0
+    fail_msg: "vault_kv2_demo_vault_role_name must be defined and non-empty"
+    success_msg: "Vault role name validation passed"
+    quiet: true
+
+- name: Validate secrets list is provided and not empty
+  ansible.builtin.assert:
+    that:
+      - vault_kv2_demo_secrets is defined
+      - vault_kv2_demo_secrets | length > 0
+      - vault_kv2_demo_secrets is iterable
+    fail_msg: "vault_kv2_demo_secrets must be defined and contain at least one secret"
+    success_msg: "Secrets list validation passed"
+    quiet: true
+
+- name: Validate each secret has required fields
+  ansible.builtin.assert:
+    that:
+      - item.path is defined
+      - item.path | length > 0
+      - item.data is defined
+      - item.data | length > 0
+    fail_msg: "Each secret must have 'path' and 'data' fields defined"
+    success_msg: "Secret structure validation passed"
+    quiet: true
+  loop: "{{ vault_kv2_demo_secrets }}"
+  loop_control:
+    label: "{{ item.path | default('undefined') }}"
+
+- name: Set fact for validated configuration
+  ansible.builtin.set_fact:
+    vault_kv2_demo_validated: true
+  changed_when: false

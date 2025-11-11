@@ -1,0 +1,34 @@
+---
+# meta/main.yml - Role metadata and dependencies
+
+galaxy_info:
+  role_name: vault_kv2_demo
+  author: Enterprise Automation Team
+  description: Demonstrates HashiCorp Vault KV2 integration with Kubernetes authentication
+  company: Enterprise
+  license: MIT
+  min_ansible_version: "2.18"
+
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+
+  galaxy_tags:
+    - vault
+    - hashicorp
+    - kubernetes
+    - secrets
+    - kv2
+    - authentication
+    - demo
+
+dependencies: []
+
+collections:
+  - community.hashi_vault
+  - kubernetes.core

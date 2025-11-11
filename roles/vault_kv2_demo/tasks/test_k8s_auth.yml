@@ -1,0 +1,132 @@
+---
+# tasks/test_k8s_auth.yml - Test Kubernetes authentication
+#
+# Purpose:
+#   Tests Kubernetes authentication by authenticating with Vault using
+#   the service account JWT token and reading a secret.
+
+- name: Test Kubernetes authentication to Vault
+  block:
+    - name: Authenticate with Vault using Kubernetes auth method
+      community.hashi_vault.vault_login:
+        auth_method: kubernetes
+        role_id: "{{ vault_kv2_demo_vault_role_name }}"
+        jwt: "{{ vault_kv2_demo_sa_jwt_token }}"
+        mount_point: "{{ vault_kv2_demo_k8s_auth_path }}"
+        url: "{{ vault_kv2_demo_vault_addr }}"
+        namespace: "{{ vault_kv2_demo_vault_namespace if vault_kv2_demo_vault_namespace | length > 0 else omit }}"
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_cert: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+      register: k8s_auth_response
+      no_log: true
+      retries: "{{ vault_kv2_demo_retries }}"
+      delay: "{{ vault_kv2_demo_retry_delay }}"
+
+    - name: Validate authentication response
+      ansible.builtin.assert:
+        that:
+          - k8s_auth_response is defined
+          - k8s_auth_response.login is defined
+          - k8s_auth_response.login.auth is defined
+          - k8s_auth_response.login.auth.client_token is defined
+        fail_msg: "Kubernetes authentication failed or returned invalid response"
+        success_msg: "Kubernetes authentication successful"
+
+    - name: Extract client token from authentication response
+      ansible.builtin.set_fact:
+        vault_kv2_demo_k8s_client_token: "{{ k8s_auth_response.login.auth.client_token }}"
+      no_log: true
+      changed_when: false
+
+    - name: Display authentication success
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Kubernetes Authentication Successful
+          ========================================
+          Token TTL: {{ k8s_auth_response.login.auth.lease_duration }}s
+          Token Renewable: {{ k8s_auth_response.login.auth.renewable }}
+          Token Policies: {{ k8s_auth_response.login.auth.policies | join(', ') }}
+          ========================================
+
+  rescue:
+    - name: Handle Kubernetes authentication failure
+      ansible.builtin.fail:
+        msg: |
+          Failed to authenticate with Vault using Kubernetes auth method.
+          Role: {{ vault_kv2_demo_vault_role_name }}
+          Auth Path: {{ vault_kv2_demo_k8s_auth_path }}
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+
+          Troubleshooting steps:
+          1. Verify service account token is valid
+          2. Verify role binding matches service account
+          3. Check Vault logs for authentication errors
+          4. Ensure Kubernetes auth backend is properly configured
+
+- name: Test secret access with Kubernetes-authenticated token
+  block:
+    - name: Read first secret using K8s-authenticated token
+      community.hashi_vault.vault_kv2_get:
+        url: "{{ vault_kv2_demo_vault_addr }}"
+        engine_mount_point: "{{ vault_kv2_demo_kv2_mount_path }}"
+        path: "{{ vault_kv2_demo_secrets[0].path }}"
+        token: "{{ vault_kv2_demo_k8s_client_token }}"
+        namespace: "{{ vault_kv2_demo_vault_namespace if vault_kv2_demo_vault_namespace | length > 0 else omit }}"
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_cert: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+      register: k8s_auth_secret_read
+      no_log: "{{ not vault_kv2_demo_display_secrets }}"
+
+    - name: Validate secret read with K8s token
+      ansible.builtin.assert:
+        that:
+          - k8s_auth_secret_read.data is defined
+          - k8s_auth_secret_read.data.data is defined
+        fail_msg: "Failed to read secret using Kubernetes-authenticated token"
+        success_msg: "Successfully read secret using Kubernetes-authenticated token"
+
+    - name: Display secret access test result
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Kubernetes Auth Secret Access Test
+          ========================================
+          Status: SUCCESS
+          Secret Path: {{ vault_kv2_demo_secrets[0].path }}
+          Secret Version: {{ k8s_auth_secret_read.data.metadata.version }}
+          Keys Retrieved: {{ k8s_auth_secret_read.data.data.keys() | list }}
+          ========================================
+
+  rescue:
+    - name: Handle secret read failure with K8s token
+      ansible.builtin.fail:
+        msg: |
+          Failed to read secret using Kubernetes-authenticated token.
+          Path: {{ vault_kv2_demo_secrets[0].path }}
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+
+          This suggests the token is valid but may lack proper policies.
+          Verify the policy grants read access to {{ vault_kv2_demo_kv2_mount_path }}/data/*
+
+  always:
+    - name: Clear sensitive authentication data from memory
+      ansible.builtin.set_fact:
+        k8s_auth_response: null
+      no_log: true
+      changed_when: false
+
+- name: Display complete authentication test summary
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      Kubernetes Authentication Test Complete
+      ========================================
+      ✓ Service account token extracted
+      ✓ Kubernetes authentication successful
+      ✓ Client token obtained from Vault
+      ✓ Secret read using K8s-authenticated token
+      ✓ Policy permissions validated
+
+      The Kubernetes authentication integration is fully functional!
+      ========================================

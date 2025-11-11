@@ -1,0 +1,121 @@
+---
+# tasks/setup_vault_namespace.yml - Vault namespace configuration
+#
+# Purpose:
+#   Creates and configures a Vault namespace for isolation.
+#   This is an Enterprise feature - will be skipped for OSS Vault.
+#
+# Note:
+#   Vault namespaces require Vault Enterprise. If using Vault OSS,
+#   set vault_kv2_demo_vault_namespace to empty string to skip this task.
+#
+#   Namespace management requires direct API calls as community.hashi_vault
+#   does not provide a dedicated module for namespace administration.
+
+- name: Check if Vault supports namespaces (Enterprise feature)
+  block:
+    - name: Query Vault health endpoint
+      community.hashi_vault.vault_login:
+        auth_method: token
+        token: "{{ vault_kv2_demo_root_token }}"
+        token_validate: true
+        url: "{{ vault_kv2_demo_vault_addr }}"
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_cert: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+      register: vault_health
+      no_log: true
+      changed_when: false
+
+    - name: Display Vault health status
+      ansible.builtin.debug:
+        msg: "Vault server is accessible and token is valid"
+
+  rescue:
+    - name: Handle Vault health check failure
+      ansible.builtin.fail:
+        msg: |
+          Failed to connect to Vault server at {{ vault_kv2_demo_vault_addr }}.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+          Verify Vault address and network connectivity.
+
+- name: Create Vault namespace using vault_write
+  block:
+    - name: Ensure Vault namespace {{ vault_kv2_demo_vault_namespace }} exists
+      community.hashi_vault.vault_write:
+        url: "{{ vault_kv2_demo_vault_addr }}"
+        path: "sys/namespaces/{{ vault_kv2_demo_vault_namespace }}"
+        auth_method: token
+        token: "{{ vault_kv2_demo_root_token }}"
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_cert: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+      register: namespace_create_result
+      no_log: true
+      failed_when: false
+
+    - name: Check if namespace already exists
+      community.hashi_vault.vault_read:
+        url: "{{ vault_kv2_demo_vault_addr }}"
+        path: "sys/namespaces/{{ vault_kv2_demo_vault_namespace }}"
+        auth_method: token
+        token: "{{ vault_kv2_demo_root_token }}"
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_cert: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+      register: namespace_check_result
+      when: namespace_create_result.failed | default(false)
+      no_log: true
+      changed_when: false
+      failed_when: false
+
+    - name: Determine namespace status
+      ansible.builtin.set_fact:
+        vault_kv2_demo_namespace_created: true
+        vault_kv2_demo_namespace_already_existed: "{{ namespace_create_result.failed | default(false) and not namespace_check_result.failed | default(true) }}"
+      changed_when: false
+
+    - name: Display namespace creation result
+      ansible.builtin.debug:
+        msg: |
+          Vault namespace: {{ vault_kv2_demo_vault_namespace }}
+          Status: {{ 'Created' if not namespace_create_result.failed else 'Already exists' }}
+
+  rescue:
+    - name: Check if error is due to Vault OSS (namespaces not supported)
+      ansible.builtin.set_fact:
+        vault_kv2_demo_namespace_not_supported: true
+      when: "'Namespace feature not supported' in ansible_failed_result.msg | default('') or 'Unsupported path' in ansible_failed_result.msg | default('')"
+
+    - name: Warn if namespaces are not supported
+      ansible.builtin.debug:
+        msg: |
+          WARNING: Vault namespace creation failed. This is expected with Vault OSS.
+          Continuing with root namespace. If using Vault Enterprise, verify token permissions.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+      when: vault_kv2_demo_namespace_not_supported | default(false)
+
+    - name: Fail if namespace creation failed for other reasons
+      ansible.builtin.fail:
+        msg: |
+          Failed to create or verify Vault namespace {{ vault_kv2_demo_vault_namespace }}.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+          If using Vault OSS, set vault_kv2_demo_vault_namespace to empty string.
+      when: not (vault_kv2_demo_namespace_not_supported | default(false))
+
+- name: Set fact for namespace configuration
+  ansible.builtin.set_fact:
+    vault_kv2_demo_namespace_header: >-
+      {{
+        {'X-Vault-Namespace': vault_kv2_demo_vault_namespace}
+        if (vault_kv2_demo_vault_namespace | length > 0 and vault_kv2_demo_namespace_created | default(false))
+        else {}
+      }}
+  changed_when: false
+
+- name: Display namespace configuration summary
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      Vault Namespace Configuration Complete
+      ========================================
+      Namespace: {{ vault_kv2_demo_vault_namespace if vault_kv2_demo_vault_namespace | length > 0 else '(root)' }}
+      Namespace setting will be used in subsequent operations
+      ========================================

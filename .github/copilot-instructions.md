@@ -5,9 +5,10 @@
 ### Ansible Syntax
 1. **FQCN Required**: `ansible.builtin.copy` NOT `copy`
 2. **Booleans**: `true`/`false` NOT `True`/`False`/`yes`/`no`
-3. **Security**: `no_log: true` for tokens/passwords/credentials
-4. **Error Handling**: Use `block`/`rescue`/`always` for critical operations
-5. **Idempotency**: Avoid `shell`/`command` - use built-in modules
+3. **Multi-line Strings**: Use `|-` (literal, strip trailing newlines) or `>-` (folded, strip trailing newlines)
+4. **Security**: `no_log: true` for tokens/passwords/credentials
+5. **Error Handling**: Use `block`/`rescue`/`always` for critical operations
+6. **Idempotency**: Avoid `shell`/`command` - use built-in modules
 
 ### Python Standards
 1. **Version**: Python 3.11+ only
@@ -274,6 +275,42 @@ Before suggesting code, verify:
     mode: '0640'
     backup: true
   notify: Restart application service
+```
+
+### Multi-line Strings (Block Scalars)
+```yaml
+# Use |- for literal style (preserves newlines, strips trailing)
+- name: Create script with multiple lines
+  ansible.builtin.copy:
+    dest: /usr/local/bin/deploy.sh
+    mode: '0755'
+    content: |-
+      #!/bin/bash
+      set -euo pipefail
+
+      echo "Starting deployment"
+      systemctl restart myapp
+      echo "Deployment complete"
+
+# Use >- for folded style (joins lines, strips trailing)
+- name: Display multi-line message
+  ansible.builtin.debug:
+    msg: >-
+      This is a long message that spans multiple lines
+      but will be folded into a single line in the output.
+      Use this for long descriptions or messages.
+
+# Use |- for shell commands
+- name: Run multi-line shell script
+  ansible.builtin.shell: |-
+    if [ -f /etc/myapp/config ]; then
+      echo "Config exists"
+      cat /etc/myapp/config
+    else
+      echo "Config missing"
+      exit 1
+    fi
+  register: shell_result
 ```
 
 ---

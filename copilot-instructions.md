@@ -35,7 +35,16 @@ When generating Ansible playbooks or tasks:
    - Use lowercase `true` and `false` for boolean values
    - Never use `True`, `False`, `yes`, `no`, `on`, or `off`
 
-3. **Documentation**
+3. **Multi-line Strings (Block Scalars)**
+   - Use `|-` (literal block scalar, strip trailing newlines) for preserving line breaks
+   - Use `>-` (folded block scalar, strip trailing newlines) for long text that should wrap
+   - Always use block scalars for shell commands, scripts, and multi-line content
+   - Examples:
+     - Scripts and commands: `content: |-` or `shell: |-`
+     - Long descriptions: `msg: >-`
+     - YAML/JSON content: `content: |-`
+
+4. **Documentation**
    - Include clear description comment block at the start of every playbook
    - Use meaningful play and task names that describe the purpose
    - Document required and optional variables
@@ -325,6 +334,7 @@ When generating code, avoid these common mistakes:
 1. **Shell and Command Modules**
    - Don't suggest `shell` or `command` modules unless absolutely necessary
    - Prefer built-in modules for idempotency and better error handling
+   - When using `shell`/`command`, always use `|-` for multi-line commands
 
 2. **Hardcoded Values**
    - Don't hardcode values in playbooks or roles
@@ -351,7 +361,12 @@ When generating code, avoid these common mistakes:
    - Don't create overly complex Jinja2 templates
    - Keep logic simple and readable
 
-8. **Ignoring EE Constraints**
+8. **Improper Multi-line Syntax**
+   - Don't use quoted strings for multi-line content
+   - Always use `|-` or `>-` block scalars for multi-line strings
+   - Never use `\n` escape sequences in YAML strings
+
+9. **Ignoring EE Constraints**
    - Don't suggest solutions that bypass Execution Environment isolation
    - All dependencies must be in requirements files
 
@@ -438,6 +453,85 @@ vault_password: "secret_password_here"
     validate_certs: true
   register: auth_result
   no_log: true  # Critical for security
+```
+
+### Scenario 4: Multi-line Content
+
+When creating files with multi-line content:
+
+```yaml
+# Shell scripts - use |- for literal content
+- name: Create deployment script
+  ansible.builtin.copy:
+    dest: /usr/local/bin/app-deploy.sh
+    mode: '0755'
+    owner: root
+    group: root
+    content: |-
+      #!/bin/bash
+      set -euo pipefail
+
+      # Deploy application
+      echo "Starting deployment at $(date)"
+      cd /opt/myapp
+      git pull origin main
+      systemctl restart myapp
+      echo "Deployment complete"
+
+# Configuration files - use |- for YAML/JSON/structured content
+- name: Create application config
+  ansible.builtin.copy:
+    dest: /etc/myapp/config.yml
+    mode: '0640'
+    owner: myapp
+    group: myapp
+    content: |-
+      ---
+      database:
+        host: "{{ db_host }}"
+        port: {{ db_port }}
+        name: "{{ db_name }}"
+
+      logging:
+        level: info
+        file: /var/log/myapp/app.log
+
+# Long messages/descriptions - use >- for folded text
+- name: Display installation instructions
+  ansible.builtin.debug:
+    msg: >-
+      The application has been successfully installed.
+      Please review the configuration file at /etc/myapp/config.yml
+      and ensure all database connection settings are correct
+      before starting the service.
+
+# Multi-line shell commands - use |-
+- name: Execute complex shell command
+  ansible.builtin.shell: |-
+    set -e
+    if systemctl is-active --quiet myapp; then
+      echo "Service is running"
+      systemctl status myapp
+    else
+      echo "Service is not running"
+      exit 1
+    fi
+  register: service_check
+  changed_when: false
+
+# SQL scripts - use |-
+- name: Execute SQL migration
+  community.postgresql.postgresql_query:
+    db: myapp_db
+    query: |-
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(50) UNIQUE NOT NULL,
+        email VARCHAR(100) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 ```
 
 ## Additional Resources

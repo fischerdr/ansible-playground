@@ -45,12 +45,10 @@ warn_list:
   - experimental                  # Warn about experimental features
   - role-name                     # Warn about role naming conventions
 
-# Configure specific rules
-rules:
-  # Require 2-space indentation (matches our examples)
-  yaml[indentation]:
-    indent-sequences: true
-
-  # Allow long Jinja2 expressions when using multi-line format
-  jinja[spacing]:
-    enabled: false
+# Configure specific rules (if needed)
+# Note: Most rule configuration is handled via skip_list and enable_list above
+# Uncomment and adjust as needed for your project
+#
+# rules:
+#   yaml[line-length]:
+#     max: 160

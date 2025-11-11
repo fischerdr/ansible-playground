@@ -26,16 +26,27 @@ You are assisting an Automation Engineer working with Ansible to build infrastru
 
 When generating Ansible playbooks or tasks:
 
-1. **FQCN Usage (Required)**
+1. **YAML Document Marker (CRITICAL)**
+   - **ALWAYS** start YAML files with `---` on the first line
+   - This is the YAML document start marker and is required for Ansible
+   - Never omit or remove this marker
+   - Example:
+     ```yaml
+     ---
+     - name: My playbook
+       hosts: all
+     ```
+
+2. **FQCN Usage (Required)**
    - Always use Fully Qualified Collection Names for all modules
    - Example: `ansible.builtin.copy` not `copy`
    - Example: `kubernetes.core.k8s` not `k8s`
 
-2. **Boolean Values**
+3. **Boolean Values**
    - Use lowercase `true` and `false` for boolean values
    - Never use `True`, `False`, `yes`, `no`, `on`, or `off`
 
-3. **Multi-line Strings (Block Scalars)**
+4. **Multi-line Strings (Block Scalars)**
    - Use `|-` (literal block scalar, strip trailing newlines) for preserving line breaks
    - Use `>-` (folded block scalar, strip trailing newlines) for long text that should wrap
    - Always use block scalars for shell commands, scripts, and multi-line content
@@ -49,13 +60,13 @@ When generating Ansible playbooks or tasks:
      - YAML/JSON content: `content: |-`
      - Complex lookups: `value: >-` with multi-line Jinja2
 
-4. **Documentation**
+5. **Documentation**
    - Include clear description comment block at the start of every playbook
    - Use meaningful play and task names that describe the purpose
    - Document required and optional variables
    - Add comments for complex operations
 
-4. **Variable Management**
+6. **Variable Management**
    - Define required variables at the start of the playbook
    - Use `assert` tasks to validate required variables
    - Document optional variables with default values

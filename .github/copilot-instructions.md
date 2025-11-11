@@ -3,14 +3,15 @@
 ## Critical Rules (ALWAYS Follow)
 
 ### Ansible Syntax
-1. **FQCN Required**: `ansible.builtin.copy` NOT `copy`
-2. **Booleans**: `true`/`false` NOT `True`/`False`/`yes`/`no`
-3. **Multi-line Strings**: Use `|-` (literal, strip trailing newlines) or `>-` (folded, strip trailing newlines)
+1. **YAML Document Marker**: ALWAYS start files with `---` on line 1
+2. **FQCN Required**: `ansible.builtin.copy` NOT `copy`
+3. **Booleans**: `true`/`false` NOT `True`/`False`/`yes`/`no`
+4. **Multi-line Strings**: Use `|-` (literal, strip trailing newlines) or `>-` (folded, strip trailing newlines)
    - Complex Jinja2 lookups (>100 chars): Use `>-` with structured formatting
    - Break lookup parameters across lines for readability
-4. **Security**: `no_log: true` for tokens/passwords/credentials
-5. **Error Handling**: Use `block`/`rescue`/`always` for critical operations
-6. **Idempotency**: Avoid `shell`/`command` - use built-in modules
+5. **Security**: `no_log: true` for tokens/passwords/credentials
+6. **Error Handling**: Use `block`/`rescue`/`always` for critical operations
+7. **Idempotency**: Avoid `shell`/`command` - use built-in modules
 
 ### Python Standards
 1. **Version**: Python 3.11+ only

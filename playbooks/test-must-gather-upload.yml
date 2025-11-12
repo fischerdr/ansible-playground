@@ -171,6 +171,128 @@
           ansible.builtin.set_fact:
             test_upload_description: "TEST UPLOAD - must-gather for {{ cluster_name }} - {{ ansible_date_time.iso8601 }}"
 
+        - name: "** PRE-UPLOAD TEST ** Verify Red Hat API connectivity - Get case details"
+          ansible.builtin.uri:
+            url: "https://api.access.redhat.com/support/v1/cases/{{ rh_case }}"
+            method: GET
+            user: "{{ rh_api_user }}"
+            password: "{{ rh_api_pass }}"
+            force_basic_auth: true
+            headers:
+              Accept: "application/json"
+            return_content: true
+            status_code: [200, 401, 403, 404]
+            validate_certs: true
+            timeout: 30
+            use_proxy: "{{ true if proxy_https is defined else false }}"
+          environment:
+            http_proxy: "{{ proxy_http | default('') }}"
+            https_proxy: "{{ proxy_https | default('') }}"
+            no_proxy: "{{ proxy_no | default('') }}"
+          delegate_to: localhost
+          register: rh_case_info
+          no_log: false
+
+        - name: Display Red Hat case information
+          ansible.builtin.debug:
+            msg: |
+              ===================================================================
+              RED HAT CASE API TEST
+              ===================================================================
+              HTTP Status: {{ rh_case_info.status }}
+              {% if rh_case_info.status == 200 %}
+              Case Number: {{ rh_case_info.json.caseNumber | default('N/A') }}
+              Case Type: {{ rh_case_info.json.caseType | default('N/A') }}
+              Severity: {{ rh_case_info.json.severity | default('N/A') }}
+              Status: {{ rh_case_info.json.status | default('N/A') }}
+              Product: {{ rh_case_info.json.product | default('N/A') }}
+              Version: {{ rh_case_info.json.version | default('N/A') }}
+              Support Level: {{ rh_case_info.json.entitlementSla | default('N/A') }}
+              Owner: {{ rh_case_info.json.contactName | default('N/A') }}
+              Red Hat Owner: {{ rh_case_info.json.ownerId | default('N/A') }}
+              Group: {{ rh_case_info.json.groupNumber | default('N/A') }}
+              Opened: {{ rh_case_info.json.createdDate | default('N/A') }}
+              Last Updated: {{ rh_case_info.json.lastModifiedDate | default('N/A') }}
+              Summary: {{ rh_case_info.json.summary | default('N/A') }}
+              {% elif rh_case_info.status == 401 %}
+              ERROR: Authentication failed - check credentials
+              {% elif rh_case_info.status == 403 %}
+              ERROR: Access forbidden - check permissions
+              {% elif rh_case_info.status == 404 %}
+              ERROR: Case not found - verify case number
+              {% else %}
+              ERROR: Unexpected status code
+              {% endif %}
+              ===================================================================
+
+        - name: "** PRE-UPLOAD TEST ** Verify Red Hat API connectivity - List case attachments"
+          ansible.builtin.uri:
+            url: "https://api.access.redhat.com/support/v1/cases/{{ rh_case }}/attachments"
+            method: GET
+            user: "{{ rh_api_user }}"
+            password: "{{ rh_api_pass }}"
+            force_basic_auth: true
+            headers:
+              Accept: "application/json"
+            return_content: true
+            status_code: [200, 401, 403, 404]
+            validate_certs: true
+            timeout: 30
+            use_proxy: "{{ true if proxy_https is defined else false }}"
+          environment:
+            http_proxy: "{{ proxy_http | default('') }}"
+            https_proxy: "{{ proxy_https | default('') }}"
+            no_proxy: "{{ proxy_no | default('') }}"
+          delegate_to: localhost
+          register: rh_case_attachments
+          no_log: false
+
+        - name: Display Red Hat case attachments
+          ansible.builtin.debug:
+            msg: |
+              ===================================================================
+              RED HAT CASE ATTACHMENTS API TEST
+              ===================================================================
+              HTTP Status: {{ rh_case_attachments.status }}
+              {% if rh_case_attachments.status == 200 %}
+              Total Attachments: {{ rh_case_attachments.json | length }}
+              {% if rh_case_attachments.json | length > 0 %}
+
+              Existing Attachments:
+              {% for attachment in rh_case_attachments.json %}
+              - UUID: {{ attachment.uuid | default('N/A') }}
+                Filename: {{ attachment.fileName | default('N/A') }}
+                Size: {{ (attachment.length | default(0) / 1024 / 1024) | round(2) }} MB
+                Created: {{ attachment.createdDate | default('N/A') }}
+                Link: {{ attachment.link | default('N/A') }}
+              {% endfor %}
+              {% else %}
+              No attachments found for this case
+              {% endif %}
+              {% elif rh_case_attachments.status == 401 %}
+              ERROR: Authentication failed - check credentials
+              {% elif rh_case_attachments.status == 403 %}
+              ERROR: Access forbidden - check permissions
+              {% elif rh_case_attachments.status == 404 %}
+              ERROR: Case not found - verify case number
+              {% else %}
+              ERROR: Unexpected status code
+              {% endif %}
+              ===================================================================
+
+        - name: Verify Red Hat API connectivity before upload
+          ansible.builtin.assert:
+            that:
+              - rh_case_info.status == 200
+              - rh_case_attachments.status == 200
+            fail_msg: |
+              Red Hat API connectivity test failed:
+              - Case info status: {{ rh_case_info.status }}
+              - Attachments status: {{ rh_case_attachments.status }}
+
+              Cannot proceed with upload - API is not accessible or credentials are invalid.
+            success_msg: "Red Hat API connectivity verified successfully"
+
         - name: "** TESTING UPLOAD MODULE ** Upload test archives to Red Hat support"
           redhat_upload:
             case_id: "{{ rh_case }}"

@@ -706,7 +706,8 @@ class RedHatUploadController:
         else:
             final_status = "partial"
 
-        return {
+        # Build result dictionary
+        result = {
             "status": final_status,
             "case_id": self.case_id,
             "total_parts": total_parts,
@@ -714,6 +715,19 @@ class RedHatUploadController:
             "failure_count": failure_count,
             "results": self.results,
         }
+
+        # Add descriptive message for failures
+        if final_status != "success":
+            failed_parts = [r for r in self.results if r.get("status") != "success"]
+            failure_reasons = {}
+            for part_result in failed_parts:
+                reason = part_result.get("reason", "unknown")
+                failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
+
+            reason_summary = ", ".join([f"{count} {reason}" for reason, count in failure_reasons.items()])
+            result["summary"] = f"{failure_count}/{total_parts} parts failed ({reason_summary})"
+
+        return result
 
 
 def main():
@@ -759,7 +773,8 @@ def main():
         changed = result["status"] in ["success", "partial"]
 
         if should_fail:
-            module.fail_json(**result)
+            failure_msg = f"Upload {result['status']}: {result['failure_count']}/{result['total_parts']} parts failed"
+            module.fail_json(msg=failure_msg, **result)
         else:
             module.exit_json(changed=changed, **result)
 

@@ -8,17 +8,28 @@
 - name: "Validate required variables and environment"
   tags: [validation, always]
   block:
+    - name: "Set upload mode flag based on rh_case presence"
+      ansible.builtin.set_fact:
+        mustgather_upload_enabled: "{{ rh_case is defined and rh_case | string | length > 0 }}"
+
+    - name: "Display operation mode"
+      ansible.builtin.debug:
+        msg: |
+          Must-gather operation mode: {{ 'COLLECT AND UPLOAD' if mustgather_upload_enabled else 'COLLECT ONLY (no upload)' }}
+          {% if mustgather_upload_enabled %}
+          Red Hat case: {{ rh_case }}
+          {% else %}
+          Red Hat case: Not provided - archives will be preserved locally only
+          {% endif %}
+
     - name: "Validate required variables are defined"
       ansible.builtin.assert:
         that:
-          - rh_case is defined
-          - rh_case | string | length > 0
           - OC_BIN is defined
           - mustgather_output_dir is defined
           - mustgather_collection_dir is defined
         fail_msg: |
           Required variables missing or invalid:
-          - rh_case: Red Hat support case number (provided: {{ rh_case | default('UNDEFINED') }})
           - OC_BIN: Path to oc binary (provided: {{ OC_BIN | default('UNDEFINED') }})
           - mustgather_output_dir: Top-level output directory (provided: {{ mustgather_output_dir | default('UNDEFINED') }})
           - mustgather_collection_dir: Must-gather collection subdirectory (provided: {{ mustgather_collection_dir | default('UNDEFINED') }})
@@ -44,6 +55,7 @@
           Example in group_vars or playbook:
           rh_api_token: "{{ '{{' }} lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:api_token') {{ '}}' }}"
         success_msg: "Red Hat API authentication validated"
+      when: mustgather_upload_enabled
 
   rescue:
     - name: "Log validation failure"
@@ -409,11 +421,39 @@
         msg: "Must-gather archive creation failed"
 
 # ==============================================================================
+# Archive Preservation (when upload is skipped)
+# ==============================================================================
+
+- name: "Preserve archives locally when upload is disabled"
+  tags: [preserve]
+  when: not mustgather_upload_enabled
+  block:
+    - name: "Display archive preservation information"
+      ansible.builtin.debug:
+        msg: |
+          ===================================================================
+          Must-Gather Archives Created (No Upload)
+          ===================================================================
+          Archives preserved at: {{ mustgather_output_dir }}
+          Number of archive parts: {{ archive_files.matched }}
+          {% for file in archive_files.files %}
+          - {{ file.path | basename }}: {{ (file.size / 1024 / 1024) | round(2) }} MB
+          {% endfor %}
+
+          Reason: No Red Hat case number provided (rh_case variable not set)
+
+          To upload these archives later:
+          1. Provide rh_case variable when running the playbook
+          2. Or manually upload to Red Hat support portal
+          ===================================================================
+
+# ==============================================================================
 # Upload Archive(s) to Red Hat Support
 # ==============================================================================
 
 - name: "Transfer and upload must-gather archives to Red Hat support"
   tags: [upload]
+  when: mustgather_upload_enabled
   block:
     - name: "Create temporary directory on controller for archive transfer"
       ansible.builtin.tempfile:
@@ -640,7 +680,7 @@
       ansible.builtin.lineinfile:
         path: "/var/log/ansible-must-gather.log"
         line: |
-          {{ ansible_date_time.iso8601 }} | Host: {{ inventory_hostname }} | Cluster: {{ cluster_name | default('unknown') }} | Status: {{ 'FAILED' if upload_failed | default(false) else 'SUCCESS' }} | Case: {{ rh_case }} | Parts: {{ archive_files.matched | default(0) }} | Archive: {{ 'PRESERVED' if upload_failed | default(false) else 'UPLOADED' }}
+          {{ ansible_date_time.iso8601 }} | Host: {{ inventory_hostname }} | Cluster: {{ cluster_name | default('unknown') }} | Status: {{ 'FAILED' if upload_failed | default(false) else 'SUCCESS' }} | Case: {{ rh_case | default('N/A') }} | Parts: {{ archive_files.matched | default(0) }} | Archive: {{ 'LOCAL_ONLY' if not mustgather_upload_enabled else ('PRESERVED' if upload_failed | default(false) else 'UPLOADED') }}
         create: true
         mode: '0644'
       delegate_to: localhost
@@ -650,10 +690,11 @@
     - name: "Count preserved archives for summary"
       ansible.builtin.find:
         paths: "{{ mustgather_archive_dir }}"
-        patterns: "{{ cluster_name | default('cluster') }}-case{{ rh_case }}-must-gather.tar.gz*"
+        patterns: "{{ cluster_name | default('cluster') }}-case{{ rh_case | default('nocase') }}-must-gather.tar.gz*"
         file_type: file
       register: preserved_archives_count
       failed_when: false
+      when: mustgather_upload_enabled
 
     - name: "Display operation summary"
       ansible.builtin.debug:
@@ -663,16 +704,22 @@
           ===================================================================
           Host: {{ inventory_hostname }}
           Cluster: {{ cluster_name | default('unknown') }}
-          Red Hat Case: {{ rh_case }}
+          Operation Mode: {{ 'COLLECT AND UPLOAD' if mustgather_upload_enabled else 'COLLECT ONLY' }}
+          Red Hat Case: {{ rh_case | default('Not provided') }}
           Status: {{ 'FAILED' if upload_failed | default(false) else 'SUCCESS' }}
           Archive Parts: {{ archive_files.matched | default(0) }}
           Collection Size: {{ (collection_size_bytes | default(0) | int / 1024 / 1024) | round(2) }} MB
           Node Used: {{ candidate_node | default('unknown') }}
+          Archive Location: {{ mustgather_output_dir }}
           Cleanup Performed: {{ 'No (skip_mustgather_deletion=true)' if (skip_mustgather_deletion | default(false) | bool) else 'Yes' }}
+          {% if mustgather_upload_enabled %}
           Preserved Archives: {{ preserved_archives_count.matched | default(0) }} in {{ mustgather_archive_dir }}
           Retention Policy: {{ mustgather_archive_retention_days }}d / {{ mustgather_archive_retention_count }} count
           {% if upload_failed | default(false) %}
           Failed Upload Archives: {{ preserved_archive_path }}
+          {% endif %}
+          {% else %}
+          Upload: Skipped (no Red Hat case provided)
           {% endif %}
           ===================================================================
 

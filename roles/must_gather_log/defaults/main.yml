@@ -33,7 +33,9 @@ mustgather_archive_retention_count: 10  # Keep last N archives (0 = unlimited)
 # Red Hat Case Configuration
 # ==============================================================================
 
-# Red Hat case ID (REQUIRED - must be provided via extra_vars or inventory)
+# Red Hat case ID (OPTIONAL - if not provided, archives will only be collected locally without upload)
+# When rh_case is provided: must-gather is collected AND uploaded to Red Hat support
+# When rh_case is not provided: must-gather is collected ONLY and preserved locally
 rh_case: ""
 
 # Upload description (customize as needed)

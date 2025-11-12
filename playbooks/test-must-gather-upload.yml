@@ -55,8 +55,8 @@
 
         - name: Setup Red Hat API credentials from Vault
           ansible.builtin.set_fact:
-            rh_api_user: "{{ lookup('community.hashi_vault.hashi_vault', '{{ vault_parameters }} secret=static_secrets/data/env/{{ cluster_user }}/redhat/serviceaccount')['svc.user'] }}"
-            rh_api_pass: "{{ lookup('community.hashi_vault.hashi_vault', '{{ vault_parameters }} secret=static_secrets/data/env/{{ cluster_user }}/redhat/serviceaccount')['svc.password'] }}"
+            rh_api_user: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/redhat')['user'] }}"
+            rh_api_pass: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/redhat')['password'] }}"
           no_log: true
 
         - name: Create test working directory

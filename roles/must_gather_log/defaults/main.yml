@@ -9,7 +9,8 @@
 must_gather_version: "4.14"
 
 # Dynamic mirror endpoint selection based on cloud provider
-amex_mirror_endpoint: "{%- if aws.region is defined and aws.region != None -%}awsrepo.aexp.com{%- elif gcp.region is defined and gcp.region != None -%}gcprepo.aexp.com{%- elif azure.region is defined and azure.region != None -%}azurerepo.aexp.com{%- else -%}artifactory.aexp.com{%- endif -%}"
+# Configure per-environment in inventory or group_vars
+amex_mirror_endpoint: ""
 
 # ==============================================================================
 # Directory Configuration (Managed Host)

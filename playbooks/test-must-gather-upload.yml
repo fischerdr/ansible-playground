@@ -14,6 +14,10 @@
     test_archive_size_mb: 10  # Size of test archive in MB
     test_create_split_archives: false  # Set to true to test multi-part upload
 
+    # Upload retry configuration for 503 errors
+    rh_upload_max_retries: 5  # Increased from default 3 for 503 handling
+    rh_upload_retry_backoff: 5  # Increased from default 2 for longer delays
+
   pre_tasks:
     - name: Setup Kubernetes environment for cluster context
       ansible.builtin.include_role:
@@ -213,12 +217,11 @@
           ansible.builtin.uri:
             url: "https://api.access.redhat.com/support/v1/cases/{{ rh_case }}"
             method: GET
-            url_username: "{{ rh_api_user if (rh_api_token is not defined or rh_api_token | length == 0) else omit }}"
-            url_password: "{{ rh_api_pass if (rh_api_token is not defined or rh_api_token | length == 0) else omit }}"
-            force_basic_auth: "{{ true if (rh_api_token is not defined or rh_api_token | length == 0) else false }}"
+            url_username: "{{ rh_api_user }}"
+            url_password: "{{ rh_api_pass }}"
+            force_basic_auth: true
             headers:
               Accept: "application/json"
-              Authorization: "{{ 'Bearer ' + rh_api_token if (rh_api_token is defined and rh_api_token | length > 0) else omit }}"
             return_content: true
             status_code: [200, 401, 403, 404]
             validate_certs: true
@@ -268,12 +271,11 @@
           ansible.builtin.uri:
             url: "https://api.access.redhat.com/support/v1/cases/{{ rh_case }}/attachments"
             method: GET
-            url_username: "{{ rh_api_user if (rh_api_token is not defined or rh_api_token | length == 0) else omit }}"
-            url_password: "{{ rh_api_pass if (rh_api_token is not defined or rh_api_token | length == 0) else omit }}"
-            force_basic_auth: "{{ true if (rh_api_token is not defined or rh_api_token | length == 0) else false }}"
+            url_username: "{{ rh_api_user }}"
+            url_password: "{{ rh_api_pass }}"
+            force_basic_auth: true
             headers:
               Accept: "application/json"
-              Authorization: "{{ 'Bearer ' + rh_api_token if (rh_api_token is defined and rh_api_token | length > 0) else omit }}"
             return_content: true
             status_code: [200, 401, 403, 404]
             validate_certs: true
@@ -345,6 +347,7 @@
             proxy_https: "{{ proxy_https | default(omit) }}"
             proxy_no: "{{ proxy_no | default(omit) }}"
             max_retry_attempts: "{{ rh_upload_max_retries | default(3) }}"
+            retry_backoff_base: "{{ rh_upload_retry_backoff | default(2) }}"
             fail_on_partial: "{{ rh_upload_fail_on_partial | default(true) }}"
           delegate_to: localhost
           register: rh_upload_results

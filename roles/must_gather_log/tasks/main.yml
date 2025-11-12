@@ -114,8 +114,7 @@
 
     - name: "Construct label dictionary for node patching"
       ansible.builtin.set_fact:
-        mustgather_node_labels:
-          "{{ mustgather_label_selector }}": "{{ mustgather_label_value }}"
+        mustgather_node_labels: "{{ {mustgather_label_selector: mustgather_label_value} }}"
       when:
         - candidate_node | length > 0
         - mustgather_nodes.resources | length == 0

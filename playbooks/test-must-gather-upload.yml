@@ -1,0 +1,300 @@
+---
+# Test playbook for must-gather upload functionality
+# This playbook creates mock archive files and tests only the upload portion
+# of the must_gather_log role, skipping the 45-50 minute must-gather collection
+
+- name: Test must-gather upload to Red Hat support
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: false
+
+  vars:
+    # Test configuration
+    test_archive_size_mb: 10  # Size of test archive in MB
+    test_create_split_archives: false  # Set to true to test multi-part upload
+
+  pre_tasks:
+    - name: Setup Kubernetes environment for cluster context
+      ansible.builtin.include_role:
+        name: setup_env
+
+    - name: Set app paths (idempotent)
+      ansible.builtin.set_fact:
+        OC_BIN: "/usr/local/bin/oc"
+        KUBECTL_BIN: "/usr/local/bin/kubectl"
+        WORK_DIR: "/apps/persistence/clusters/{{ cluster_name | default('unknown-cluster') }}"
+        OCP_INSTALLDIR: "/apps/persistence/clustersinstall/{{ cluster_name | default('unknown-cluster') }}"
+      no_log: true
+
+    - name: Display setup completion status
+      ansible.builtin.debug:
+        msg: |
+          Test Mode: Upload functionality only
+          Cluster: {{ cluster_name | default('unknown-cluster') }}
+          Kubeconfig: {{ kubeconfig_path | default('unset') }}
+          Work directory: {{ WORK_DIR }}
+
+  tasks:
+    - name: Test must-gather upload functionality
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG') | default('')) }}"
+        ANSIBLE_LIBRARY: "{{ playbook_dir }}/../roles/must_gather_log/library"
+      block:
+        - name: Validate required test variables
+          ansible.builtin.assert:
+            that:
+              - rh_case is defined
+              - rh_case | string | length > 0
+              - cluster_name is defined
+            fail_msg: |
+              Required variables for upload test:
+              - rh_case: Red Hat support case number
+              - cluster_name: Cluster name for test archive naming
+            success_msg: "Test variables validated: case={{ rh_case }}, cluster={{ cluster_name }}"
+
+        - name: Setup Red Hat API credentials from Vault
+          ansible.builtin.set_fact:
+            rh_api_user: "{{ lookup('community.hashi_vault.hashi_vault', '{{ vault_parameters }} secret=static_secrets/data/env/{{ cluster_user }}/redhat/serviceaccount')['svc.user'] }}"
+            rh_api_pass: "{{ lookup('community.hashi_vault.hashi_vault', '{{ vault_parameters }} secret=static_secrets/data/env/{{ cluster_user }}/redhat/serviceaccount')['svc.password'] }}"
+          no_log: true
+
+        - name: Create test working directory
+          ansible.builtin.file:
+            path: "{{ WORK_DIR }}/test-must-gather-{{ ansible_date_time.epoch }}"
+            state: directory
+            mode: '0755'
+          register: test_work_dir
+
+        - name: Set test directory facts
+          ansible.builtin.set_fact:
+            mustgather_output_dir: "{{ test_work_dir.path }}"
+            mustgather_collection_dir: "{{ test_work_dir.path }}/mock-collection"
+
+        - name: Create mock collection directory structure
+          ansible.builtin.file:
+            path: "{{ mustgather_collection_dir }}/{{ item }}"
+            state: directory
+            mode: '0755'
+          loop:
+            - namespaces
+            - cluster-scoped-resources
+            - host_service_logs
+
+        - name: Create mock must-gather files for realistic testing
+          ansible.builtin.copy:
+            content: |
+              Mock must-gather data for upload testing
+              Cluster: {{ cluster_name }}
+              Case: {{ rh_case }}
+              Generated: {{ ansible_date_time.iso8601 }}
+
+              This is test data - line {{ item }}
+            dest: "{{ mustgather_collection_dir }}/namespaces/test-data-{{ item }}.log"
+            mode: '0644'
+          loop: "{{ range(1, 100) | list }}"
+          loop_control:
+            label: "test-data-{{ item }}.log"
+
+        - name: Create test archive of specified size
+          ansible.builtin.shell:
+            cmd: |
+              set -euo pipefail
+              cd {{ mustgather_output_dir }}
+              # Create a file of specified size with random data
+              dd if=/dev/urandom of={{ mustgather_collection_dir }}/random-data.bin bs=1M count={{ test_archive_size_mb }} 2>/dev/null
+              echo "Created {{ test_archive_size_mb }}MB test data"
+            executable: /bin/bash
+          register: create_test_data
+          changed_when: true
+
+        - name: Display test data creation result
+          ansible.builtin.debug:
+            msg: "{{ create_test_data.stdout }}"
+
+        - name: Create single test archive
+          ansible.builtin.command:
+            cmd: "tar czf must-gather.tar.gz -C {{ mustgather_output_dir }} {{ mustgather_collection_dir | basename }}"
+          args:
+            chdir: "{{ mustgather_output_dir }}"
+          register: archive_result
+          changed_when: archive_result.rc == 0
+          when: not test_create_split_archives
+
+        - name: Create split test archives (for multi-part upload testing)
+          ansible.builtin.shell:
+            cmd: |
+              set -euo pipefail
+              cd {{ mustgather_output_dir }}
+              tar czf - {{ mustgather_collection_dir | basename }} | split -b 5M -d -a 3 - must-gather.tar.gz.part
+            executable: /bin/bash
+          register: split_archive_result
+          changed_when: split_archive_result.rc == 0
+          when: test_create_split_archives
+
+        - name: List created test archive files
+          ansible.builtin.find:
+            paths: "{{ mustgather_output_dir }}"
+            patterns: "must-gather.tar.gz*"
+            file_type: file
+          register: archive_files
+
+        - name: Display test archive information
+          ansible.builtin.debug:
+            msg: |
+              Test archives created:
+              Number of parts: {{ archive_files.matched }}
+              {% for file in archive_files.files %}
+              - {{ file.path | basename }}: {{ (file.size / 1024 / 1024) | round(2) }} MB
+              {% endfor %}
+
+        - name: Create temporary directory on controller for archive transfer
+          ansible.builtin.tempfile:
+            state: directory
+            prefix: "mustgather_test_"
+          delegate_to: localhost
+          register: controller_temp_dir
+          changed_when: false
+
+        - name: Fetch test archive files to controller
+          ansible.builtin.fetch:
+            src: "{{ item.path }}"
+            dest: "{{ controller_temp_dir.path }}/{{ item.path | basename }}"
+            flat: true
+          loop: "{{ archive_files.files }}"
+          loop_control:
+            label: "{{ item.path | basename }}"
+          no_log: true
+
+        - name: Set upload description for test
+          ansible.builtin.set_fact:
+            test_upload_description: "TEST UPLOAD - must-gather for {{ cluster_name }} - {{ ansible_date_time.iso8601 }}"
+
+        - name: "** TESTING UPLOAD MODULE ** Upload test archives to Red Hat support"
+          redhat_upload:
+            case_id: "{{ rh_case }}"
+            archive_pattern: "{{ controller_temp_dir.path }}/*.tar.gz*"
+            upload_description: "{{ test_upload_description }}"
+            api_token: "{{ rh_api_token | default(omit) }}"
+            api_user: "{{ rh_api_user | default(omit) }}"
+            api_pass: "{{ rh_api_pass | default(omit) }}"
+            proxy_http: "{{ proxy_http | default(omit) }}"
+            proxy_https: "{{ proxy_https | default(omit) }}"
+            proxy_no: "{{ proxy_no | default(omit) }}"
+            max_retry_attempts: "{{ rh_upload_max_retries | default(3) }}"
+            fail_on_partial: "{{ rh_upload_fail_on_partial | default(true) }}"
+          delegate_to: localhost
+          register: rh_upload_results
+          no_log: false
+
+        - name: Set upload status from module results
+          ansible.builtin.set_fact:
+            upload_status:
+              status: "{{ rh_upload_results.status }}"
+              case_id: "{{ rh_upload_results.case_id }}"
+              total_parts: "{{ rh_upload_results.total_parts }}"
+              success_count: "{{ rh_upload_results.success_count }}"
+              failure_count: "{{ rh_upload_results.failure_count }}"
+              results: "{{ rh_upload_results.results }}"
+
+        - name: Display detailed upload test results
+          ansible.builtin.debug:
+            msg: |
+              ===================================================================
+              UPLOAD TEST RESULTS
+              ===================================================================
+              Status: {{ upload_status.status | upper }}
+              Case ID: {{ upload_status.case_id }}
+              Total Parts: {{ upload_status.total_parts }}
+              Successful Uploads: {{ upload_status.success_count }}
+              Failed Uploads: {{ upload_status.failure_count }}
+
+              Per-Part Upload Details:
+              {% for result in upload_status.results %}
+              Part {{ result.part }}: {{ result.file }}
+                Status: {{ result.status | upper }}
+                Attempts: {{ result.attempts }}
+              {% if result.status == 'failed' %}
+                Failure Reason: {{ result.reason }}
+                HTTP Code: {{ result.http_code | default('N/A') }}
+              {% elif result.status == 'success' %}
+                HTTP Code: {{ result.http_code }}
+              {% endif %}
+              {% endfor %}
+              ===================================================================
+
+        - name: Verify upload success
+          ansible.builtin.assert:
+            that:
+              - upload_status.status == 'success'
+              - upload_status.failure_count == 0
+              - upload_status.success_count == upload_status.total_parts
+            success_msg: "Upload test PASSED: All {{ upload_status.total_parts }} part(s) uploaded successfully"
+            fail_msg: "Upload test FAILED: {{ upload_status.failure_count }} of {{ upload_status.total_parts }} parts failed"
+
+      rescue:
+        - name: Display upload test failure details
+          ansible.builtin.debug:
+            msg: |
+              ===================================================================
+              UPLOAD TEST FAILED
+              ===================================================================
+              {% if rh_upload_results is defined %}
+              Module execution failed:
+              {{ rh_upload_results | to_nice_json }}
+              {% else %}
+              Test setup or execution error
+              {% endif %}
+
+              Test archives preserved at: {{ controller_temp_dir.path }}
+              ===================================================================
+
+        - name: Fail test playbook with detailed error
+          ansible.builtin.fail:
+            msg: |
+              Upload test failed for case {{ rh_case }}.
+              Review error details above.
+              Test archives preserved at: {{ controller_temp_dir.path }}
+
+      always:
+        - name: Clean up test working directory on managed host
+          ansible.builtin.file:
+            path: "{{ test_work_dir.path }}"
+            state: absent
+          when: test_work_dir is defined
+
+        - name: Clean up controller temporary directory on success
+          ansible.builtin.file:
+            path: "{{ controller_temp_dir.path }}"
+            state: absent
+          delegate_to: localhost
+          when:
+            - controller_temp_dir is defined
+            - upload_status is defined
+            - upload_status.status == 'success'
+
+        - name: Preserve controller temporary directory on failure
+          ansible.builtin.debug:
+            msg: |
+              Test archives preserved for review at:
+              {{ controller_temp_dir.path }}
+
+              Manual cleanup required after investigation.
+          when:
+            - controller_temp_dir is defined
+            - upload_status is defined
+            - upload_status.status != 'success'
+
+        - name: Display test completion summary
+          ansible.builtin.debug:
+            msg: |
+              ===================================================================
+              TEST EXECUTION COMPLETE
+              ===================================================================
+              Test Type: Red Hat Upload Module (redhat_upload.py)
+              Case ID: {{ rh_case }}
+              Cluster: {{ cluster_name }}
+              Archive Size: {{ test_archive_size_mb }}MB
+              Split Archives: {{ test_create_split_archives }}
+              Result: {{ upload_status.status | default('UNKNOWN') | upper }}
+              ===================================================================

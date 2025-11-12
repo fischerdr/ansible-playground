@@ -112,6 +112,14 @@
           Ensure at least one node is labeled tier=infra in the cluster.
       when: candidate_node | length == 0
 
+    - name: "Construct label dictionary for node patching"
+      ansible.builtin.set_fact:
+        mustgather_node_labels:
+          "{{ mustgather_label_selector }}": "{{ mustgather_label_value }}"
+      when:
+        - candidate_node | length > 0
+        - mustgather_nodes.resources | length == 0
+
     - name: "Label candidate infra node for must-gather (idempotent merge patch)"
       kubernetes.core.k8s:
         api_version: v1
@@ -119,8 +127,7 @@
         name: "{{ candidate_node }}"
         definition:
           metadata:
-            labels:
-              "{{ mustgather_label_selector }}": "{{ mustgather_label_value }}"
+            labels: "{{ mustgather_node_labels }}"
         merge_type: merge
         state: present
       when:

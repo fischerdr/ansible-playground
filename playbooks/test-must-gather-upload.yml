@@ -175,16 +175,17 @@
           ansible.builtin.uri:
             url: "https://api.access.redhat.com/support/v1/cases/{{ rh_case }}"
             method: GET
-            user: "{{ rh_api_user }}"
-            password: "{{ rh_api_pass }}"
-            force_basic_auth: true
+            user: "{{ rh_api_user | default(omit) }}"
+            password: "{{ rh_api_pass | default(omit) }}"
+            force_basic_auth: "{{ true if (rh_api_user is defined and rh_api_pass is defined) else false }}"
             headers:
               Accept: "application/json"
+              Authorization: "{{ 'Bearer ' + rh_api_token if (rh_api_token is defined and rh_api_token | length > 0) else omit }}"
             return_content: true
             status_code: [200, 401, 403, 404]
             validate_certs: true
             timeout: 30
-            use_proxy: "{{ true if proxy_https is defined else false }}"
+            use_proxy: "{{ true if (proxy_http is defined or proxy_https is defined) else false }}"
           environment:
             http_proxy: "{{ proxy_http | default('') }}"
             https_proxy: "{{ proxy_https | default('') }}"
@@ -229,16 +230,17 @@
           ansible.builtin.uri:
             url: "https://api.access.redhat.com/support/v1/cases/{{ rh_case }}/attachments"
             method: GET
-            user: "{{ rh_api_user }}"
-            password: "{{ rh_api_pass }}"
-            force_basic_auth: true
+            user: "{{ rh_api_user | default(omit) }}"
+            password: "{{ rh_api_pass | default(omit) }}"
+            force_basic_auth: "{{ true if (rh_api_user is defined and rh_api_pass is defined) else false }}"
             headers:
               Accept: "application/json"
+              Authorization: "{{ 'Bearer ' + rh_api_token if (rh_api_token is defined and rh_api_token | length > 0) else omit }}"
             return_content: true
             status_code: [200, 401, 403, 404]
             validate_certs: true
             timeout: 30
-            use_proxy: "{{ true if proxy_https is defined else false }}"
+            use_proxy: "{{ true if (proxy_http is defined or proxy_https is defined) else false }}"
           environment:
             http_proxy: "{{ proxy_http | default('') }}"
             https_proxy: "{{ proxy_https | default('') }}"

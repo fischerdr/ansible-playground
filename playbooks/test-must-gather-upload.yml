@@ -79,6 +79,8 @@
             - namespaces
             - cluster-scoped-resources
             - host_service_logs
+          loop_control:
+            label: "{{ item }}"
 
         - name: Create mock must-gather files for realistic testing
           ansible.builtin.copy:

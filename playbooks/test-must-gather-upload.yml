@@ -52,10 +52,9 @@
               - cluster_name: Cluster name for test archive naming
             success_msg: "Test variables validated: case={{ rh_case }}, cluster={{ cluster_name }}"
 
-        - name: Setup Red Hat API credentials from Vault
+        - name: Setup Red Hat API token from Vault
           ansible.builtin.set_fact:
-            rh_api_user: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/redhat')['user'] }}"
-            rh_api_pass: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/redhat')['password'] }}"
+            rh_api_token: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/redhat')['token'] }}"
           no_log: true
 
         - name: Create test working directory
@@ -175,12 +174,9 @@
           ansible.builtin.uri:
             url: "https://api.access.redhat.com/support/v1/cases/{{ rh_case }}"
             method: GET
-            user: "{{ rh_api_user | default(omit) }}"
-            password: "{{ rh_api_pass | default(omit) }}"
-            force_basic_auth: "{{ true if (rh_api_user is defined and rh_api_pass is defined) else false }}"
             headers:
               Accept: "application/json"
-              Authorization: "{{ 'Bearer ' + rh_api_token if (rh_api_token is defined and rh_api_token | length > 0) else omit }}"
+              Authorization: "Bearer {{ rh_api_token }}"
             return_content: true
             status_code: [200, 401, 403, 404]
             validate_certs: true
@@ -230,12 +226,9 @@
           ansible.builtin.uri:
             url: "https://api.access.redhat.com/support/v1/cases/{{ rh_case }}/attachments"
             method: GET
-            user: "{{ rh_api_user | default(omit) }}"
-            password: "{{ rh_api_pass | default(omit) }}"
-            force_basic_auth: "{{ true if (rh_api_user is defined and rh_api_pass is defined) else false }}"
             headers:
               Accept: "application/json"
-              Authorization: "{{ 'Bearer ' + rh_api_token if (rh_api_token is defined and rh_api_token | length > 0) else omit }}"
+              Authorization: "Bearer {{ rh_api_token }}"
             return_content: true
             status_code: [200, 401, 403, 404]
             validate_certs: true
@@ -300,9 +293,7 @@
             case_id: "{{ rh_case }}"
             archive_pattern: "{{ controller_temp_dir.path }}/*.tar.gz*"
             upload_description: "{{ test_upload_description }}"
-            api_token: "{{ rh_api_token | default(omit) }}"
-            api_user: "{{ rh_api_user | default(omit) }}"
-            api_pass: "{{ rh_api_pass | default(omit) }}"
+            api_token: "{{ rh_api_token }}"
             proxy_http: "{{ proxy_http | default(omit) }}"
             proxy_https: "{{ proxy_https | default(omit) }}"
             proxy_no: "{{ proxy_no | default(omit) }}"

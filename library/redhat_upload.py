@@ -1,0 +1,1 @@
+../roles/must_gather_log/library/redhat_upload.py

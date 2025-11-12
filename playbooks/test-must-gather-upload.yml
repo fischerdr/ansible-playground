@@ -39,7 +39,6 @@
     - name: Test must-gather upload functionality
       environment:
         KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG') | default('')) }}"
-        ANSIBLE_LIBRARY: "{{ playbook_dir }}/../roles/must_gather_log/library"
       block:
         - name: Validate required test variables
           ansible.builtin.assert:

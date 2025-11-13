@@ -16,19 +16,17 @@ from __future__ import annotations
 import glob
 import logging
 import os
-import ssl
 import time
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
-from urllib.error import HTTPError, URLError
-from urllib.request import (
-    BaseHandler,
-    HTTPBasicAuthHandler,
-    HTTPPasswordMgrWithDefaultRealm,
-    Request,
-    build_opener,
-    install_opener,
-)
+
+try:
+    import requests
+    from requests.auth import HTTPBasicAuth
+
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
 
 from ansible.module_utils.basic import AnsibleModule
 
@@ -286,9 +284,6 @@ class RedHatUploadController:
         # Note: Trailing slash is optional but included for consistency with Red Hat documentation
         self.upload_url = f"{API_BASE}/cases/{self.case_id}/attachments/"
 
-        # Setup HTTP opener with proxy and authentication
-        self._setup_opener()
-
     def _setup_logging(self) -> logging.Logger:
         """Setup file logging if log_dir is provided."""
         logger = logging.getLogger(f"redhat_upload_{self.case_id}")
@@ -336,153 +331,131 @@ class RedHatUploadController:
 
         return logger
 
-    def _setup_opener(self):
-        """Setup HTTP opener with proxy and authentication handlers.
-
-        Proxy handling strategy:
-        - Use environment variables for proxy (urllib's default mechanism)
-        - DO NOT use ProxyHandler - it conflicts with env vars and breaks HTTPS CONNECT
-        - Environment variables must be set BEFORE creating auth handlers
-        - This allows urllib to handle proxy tunneling while auth handler handles API auth
-        """
-        # Set proxy environment variables (urllib's native proxy mechanism)
-        # Must be set before creating any handlers
-        if self.proxy_http:
-            os.environ["http_proxy"] = self.proxy_http
-            os.environ["HTTP_PROXY"] = self.proxy_http
-        if self.proxy_https:
-            os.environ["https_proxy"] = self.proxy_https
-            os.environ["HTTPS_PROXY"] = self.proxy_https
-        if self.proxy_no:
-            os.environ["no_proxy"] = self.proxy_no
-            os.environ["NO_PROXY"] = self.proxy_no
-
-        handlers: List[BaseHandler] = []
-
-        # DO NOT add ProxyHandler - let urllib use environment variables
-        # ProxyHandler + environment variables causes conflicts
-
-        # Authentication (configured AFTER proxy environment variables are set)
-        if self.api_token:
-            # Token-based authentication (Bearer token in header)
-            # Will be handled in _build_request
-            pass
-        elif self.api_user and self.api_pass:
-            # Basic authentication
-            password_mgr = HTTPPasswordMgrWithDefaultRealm()
-            password_mgr.add_password(
-                None, self.upload_url, self.api_user, self.api_pass
-            )
-            handlers.append(HTTPBasicAuthHandler(password_mgr))
-
-        # Build opener
-        if handlers:
-            opener = build_opener(*handlers)
-            install_opener(opener)
-        else:
-            # Even with no handlers, install default opener to pick up env vars
-            install_opener(build_opener())
-
-    def _build_request(self, file_path: str, description: str) -> Tuple[Request, bytes]:
-        """Build multipart/form-data request for file upload.
+    def _prepare_upload_config(self, file_path: str, description: str) -> Dict:
+        """Prepare upload configuration for requests library.
 
         Red Hat API requires multipart/form-data with:
         - field "file": the file content
         - field "description": upload description text
 
-        Example curl equivalent:
-        curl -u <username> -F "file=@<path>" -F "description=<desc>" -X POST <url>
+        Returns dict with files, data, headers, auth, proxies for requests.post()
         """
-        # Read file content
-        with open(file_path, "rb") as f:
-            file_content = f.read()
-
-        # Get filename
         filename = os.path.basename(file_path)
 
-        # Build multipart/form-data body
-        boundary = "----WebKitFormBoundary" + str(int(time.time() * 1000))
-        body_parts = []
+        # Prepare multipart/form-data for requests
+        # requests library handles the boundary and Content-Type automatically
+        files = {"file": (filename, open(file_path, "rb"), "application/octet-stream")}
 
-        # Add description field
-        body_parts.append(f"--{boundary}\r\n".encode())
-        body_parts.append(
-            'Content-Disposition: form-data; name="description"\r\n\r\n'.encode()
-        )
-        body_parts.append(description.encode("utf-8"))
-        body_parts.append("\r\n".encode())
+        data = {"description": description}
 
-        # Add file field
-        body_parts.append(f"--{boundary}\r\n".encode())
-        body_parts.append(
-            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode()
-        )
-        body_parts.append("Content-Type: application/octet-stream\r\n\r\n".encode())
-        body_parts.append(file_content)
-        body_parts.append(f"\r\n--{boundary}--\r\n".encode())
-
-        body = b"".join(body_parts)
-
-        # Build request
+        # Build headers
         headers = {
-            "Content-Type": f"multipart/form-data; boundary={boundary}",
             "Accept": "application/json",
-            "User-Agent": "python-requests/2.28.0",  # Mimic standard HTTP client
-            "Content-Length": str(len(body)),
-            "Connection": "close",  # Avoid connection reuse issues
+            "User-Agent": "python-requests/2.31.0",
         }
 
         # Add Bearer token if provided
         if self.api_token:
             headers["Authorization"] = f"Bearer {self.api_token}"
 
-        request = Request(self.upload_url, data=body, headers=headers)
+        # Setup authentication
+        auth = None
+        if self.api_user and self.api_pass:
+            auth = HTTPBasicAuth(self.api_user, self.api_pass)
 
-        return request, body
+        # Setup proxies
+        proxies = {}
+        if self.proxy_http:
+            proxies["http"] = self.proxy_http
+        if self.proxy_https:
+            proxies["https"] = self.proxy_https
+
+        if not proxies:
+            proxies = None
+
+        return {
+            "files": files,
+            "data": data,
+            "headers": headers,
+            "auth": auth,
+            "proxies": proxies,
+        }
 
     def _execute_upload_request(
-        self, request: Request, timeout: int
+        self, upload_config: Dict, timeout: int
     ) -> Tuple[Optional[int], Optional[str], Optional[Exception]]:
-        """Execute HTTP request and return (http_code, response_body, error)."""
-        import urllib.request
+        """Execute HTTP upload using requests library.
 
+        Args:
+            upload_config: Dict with files, data, headers, auth, proxies
+            timeout: Request timeout in seconds
+
+        Returns:
+            Tuple of (http_code, response_body, error)
+        """
         try:
-            # Create SSL context with proxy-friendly settings
-            ssl_context = ssl.create_default_context()
-            if not self.validate_certs:
-                ssl_context.check_hostname = False
-                ssl_context.verify_mode = ssl.CERT_NONE
-            else:
-                # Enable TLS 1.2+ for proxy compatibility
-                ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
-                # Load default CA certificates for Red Hat API
-                ssl_context.load_default_certs()
-
-            # Proxy tunneling for HTTPS requires specific handling
-            # Python's urllib will automatically use CONNECT method for HTTPS through HTTP proxy
-
-            # Execute request
-            response = urllib.request.urlopen(
-                request, timeout=timeout, context=ssl_context
+            response = requests.post(
+                self.upload_url,
+                files=upload_config["files"],
+                data=upload_config["data"],
+                headers=upload_config["headers"],
+                auth=upload_config["auth"],
+                proxies=upload_config["proxies"],
+                timeout=timeout,
+                verify=self.validate_certs,
             )
 
-            http_code = response.getcode()
-            response_body = response.read().decode("utf-8", errors="ignore")
+            http_code = response.status_code
+            response_body = response.text
+
+            # Close file handle
+            upload_config["files"]["file"][1].close()
 
             return http_code, response_body, None
 
-        except HTTPError as e:
-            http_code = e.code
+        except requests.exceptions.Timeout as e:
+            # Close file handle on error
             try:
-                response_body = e.read().decode("utf-8", errors="ignore")
+                upload_config["files"]["file"][1].close()
             except Exception:
-                response_body = str(e)
-            return http_code, response_body, None
-
-        except URLError as e:
+                pass
             return None, None, e
 
+        except requests.exceptions.ProxyError as e:
+            try:
+                upload_config["files"]["file"][1].close()
+            except Exception:
+                pass
+            return None, None, e
+
+        except requests.exceptions.SSLError as e:
+            try:
+                upload_config["files"]["file"][1].close()
+            except Exception:
+                pass
+            return None, None, e
+
+        except requests.exceptions.ConnectionError as e:
+            try:
+                upload_config["files"]["file"][1].close()
+            except Exception:
+                pass
+            return None, None, e
+
+        except requests.exceptions.HTTPError as e:
+            http_code = e.response.status_code if e.response else None
+            response_body = e.response.text if e.response else str(e)
+            try:
+                upload_config["files"]["file"][1].close()
+            except Exception:
+                pass
+            return http_code, response_body, None
+
         except Exception as e:
+            try:
+                upload_config["files"]["file"][1].close()
+            except Exception:
+                pass
             return None, None, e
 
     def _is_retryable_error(self, http_code: Optional[int]) -> bool:
@@ -627,26 +600,28 @@ class RedHatUploadController:
                 time.sleep(backoff)
                 backoff = backoff * 2
 
-            # Build request
+            # Prepare upload configuration
             try:
                 self.logger.debug(
-                    f"Building request for part {part_number}, attempt {attempt}"
+                    f"Preparing upload config for part {part_number}, attempt {attempt}"
                 )
-                request, _ = self._build_request(file_path, description)
-                self.logger.debug(f"Request built successfully for part {part_number}")
+                upload_config = self._prepare_upload_config(file_path, description)
+                self.logger.debug(
+                    f"Upload config prepared successfully for part {part_number}"
+                )
             except Exception as e:
                 self.logger.error(
-                    f"Failed to build request for part {part_number} (attempt {attempt}): {str(e)}"
+                    f"Failed to prepare upload config for part {part_number} (attempt {attempt}): {str(e)}"
                 )
                 if attempt < self.max_retry_attempts:
                     self.module.warn(
-                        f"Failed to build request for part {part_number} (attempt {attempt}): {str(e)}"
+                        f"Failed to prepare upload config for part {part_number} (attempt {attempt}): {str(e)}"
                     )
                     attempt += 1
                     continue
                 else:
                     self.logger.error(
-                        f"Exhausted retries building request for part {part_number}"
+                        f"Exhausted retries preparing upload config for part {part_number}"
                     )
                     return {
                         "part": part_number,
@@ -657,12 +632,12 @@ class RedHatUploadController:
                         "error": str(e),
                     }
 
-            # Execute request
+            # Execute upload request
             self.logger.debug(
                 f"Executing upload request for part {part_number}, attempt {attempt}"
             )
             http_code, response_body, error = self._execute_upload_request(
-                request, self.timeout
+                upload_config, self.timeout
             )
             self.logger.debug(
                 f"Upload request completed - HTTP {http_code}, error: {error}"
@@ -897,6 +872,13 @@ def main():
     }
 
     module = AnsibleModule(argument_spec=argument_spec, supports_check_mode=False)
+
+    # Check for requests library
+    if not HAS_REQUESTS:
+        module.fail_json(
+            msg="The 'requests' library is required for this module. "
+            "Install it using: pip install requests"
+        )
 
     try:
         controller = RedHatUploadController(module, module.params)

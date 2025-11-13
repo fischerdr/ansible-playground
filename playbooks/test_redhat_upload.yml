@@ -57,7 +57,7 @@
           - "Validate SSL certs: {{ validate_ssl_certs }}"
           - "HTTP Proxy: {{ proxy_http | default('None') }}"
           - "HTTPS Proxy: {{ proxy_https | default('None') }}"
-          - "Auth method: {{ 'Token' if rh_api_token else 'Basic (user/pass)' }}"
+          - "Auth method: {{ 'Token' if (rh_api_token is defined and rh_api_token | length > 0) else 'Basic (user/pass)' }}"
 
     - name: Create test log directory
       ansible.builtin.file:
@@ -77,6 +77,7 @@
         dest: "{{ test_log_dir }}/test_upload.tar.gz"
         format: gz
         force_archive: true
+        mode: '0644'
       register: create_tarball
 
     - name: Display test file info

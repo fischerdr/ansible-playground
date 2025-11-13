@@ -111,6 +111,13 @@
           ansible.builtin.set_fact:
             mustgather_output_dir: "{{ test_work_dir.path }}"
             mustgather_collection_dir: "{{ test_work_dir.path }}/mock-collection"
+            mustgather_upload_logs: "{{ test_work_dir.path }}/logs"
+
+        - name: Create upload logging directory
+          ansible.builtin.file:
+            path: "{{ mustgather_upload_logs }}"
+            state: directory
+            mode: '0755'
 
         - name: Create mock collection directory structure
           ansible.builtin.file:
@@ -349,6 +356,7 @@
             max_retry_attempts: "{{ rh_upload_max_retries | default(3) }}"
             retry_backoff_base: "{{ rh_upload_retry_backoff | default(2) }}"
             fail_on_partial: "{{ rh_upload_fail_on_partial | default(true) }}"
+            log_dir: "{{ mustgather_upload_logs }}"
           delegate_to: localhost
           register: rh_upload_results
           no_log: false
@@ -387,6 +395,18 @@
                 HTTP Code: {{ result.http_code }}
               {% endif %}
               {% endfor %}
+              ===================================================================
+
+        - name: Display upload log file location
+          ansible.builtin.debug:
+            msg: |
+              ===================================================================
+              UPLOAD LOG FILES
+              ===================================================================
+              Detailed upload logs are available in: {{ mustgather_upload_logs }}
+
+              To view upload logs:
+                find {{ mustgather_upload_logs }} -name "redhat_upload_*.log" -type f
               ===================================================================
 
         - name: Verify upload success

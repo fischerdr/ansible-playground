@@ -26,6 +26,9 @@ mustgather_collection_dir: "{{ mustgather_output_dir }}/{{ cluster_name | defaul
 # Archive preservation directory for historical reference
 mustgather_archive_dir: "{{ WORK_DIR | default('/tmp') }}/must-gather-archives"
 
+# Upload logging directory for detailed upload logs
+mustgather_upload_logs: "{{ WORK_DIR | default('/tmp') }}/must-gather-upload-logs"
+
 # Archive retention policy
 mustgather_archive_retention_days: 30  # Keep archives for 30 days (0 = keep forever)
 mustgather_archive_retention_count: 10  # Keep last N archives (0 = unlimited)

@@ -178,6 +178,12 @@
         state: directory
         mode: '0755'
 
+    - name: "Create upload logging directory if it does not exist"
+      ansible.builtin.file:
+        path: "{{ mustgather_upload_logs }}"
+        state: directory
+        mode: '0755'
+
     - name: "Check for existing must-gather archives to preserve"
       ansible.builtin.find:
         paths: "{{ WORK_DIR | default('/tmp') }}"
@@ -491,6 +497,7 @@
         max_retry_attempts: "{{ rh_upload_max_retries | default(3) }}"
         retry_backoff_base: "{{ rh_upload_retry_backoff | default(2) }}"
         fail_on_partial: "{{ rh_upload_fail_on_partial | default(true) }}"
+        log_dir: "{{ mustgather_upload_logs | default(omit) }}"
       delegate_to: localhost
       register: rh_upload_results
       no_log: true

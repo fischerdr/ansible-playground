@@ -14,9 +14,11 @@
 from __future__ import annotations
 
 import glob
+import logging
 import os
 import ssl
 import time
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.request import (
@@ -275,6 +277,10 @@ class RedHatUploadController:
 
         self.results: List[Dict] = []
         self.upload_start_time = None  # Track upload start for time estimates
+        self.log_dir = params.get("log_dir")
+
+        # Setup file logging if log_dir provided
+        self.logger = self._setup_logging()
 
         # Build upload URL
         # Red Hat API endpoint: https://api.access.redhat.com/support/v1/cases/<case_number>/attachments/
@@ -283,6 +289,50 @@ class RedHatUploadController:
 
         # Setup HTTP opener with proxy and authentication
         self._setup_opener()
+
+    def _setup_logging(self) -> logging.Logger:
+        """Setup file logging if log_dir is provided."""
+        logger = logging.getLogger(f"redhat_upload_{self.case_id}")
+        logger.setLevel(logging.DEBUG)
+
+        # Clear any existing handlers
+        logger.handlers = []
+
+        if self.log_dir:
+            # Create log directory if it doesn't exist
+            try:
+                os.makedirs(self.log_dir, exist_ok=True)
+
+                # Create log file with timestamp
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                log_file = os.path.join(
+                    self.log_dir,
+                    f"redhat_upload_{self.case_id}_{timestamp}.log"
+                )
+
+                # File handler with detailed formatting
+                fh = logging.FileHandler(log_file)
+                fh.setLevel(logging.DEBUG)
+                formatter = logging.Formatter(
+                    '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S'
+                )
+                fh.setFormatter(formatter)
+                logger.addHandler(fh)
+
+                self.module.log(f"Upload logging enabled: {log_file}")
+                logger.info(f"Upload session started for case {self.case_id}")
+                logger.info(f"Archive pattern: {self.archive_pattern}")
+                logger.info(f"Upload URL: {self.upload_url}")
+                logger.info(f"Proxy HTTP: {self.proxy_http if self.proxy_http else 'None'}")
+                logger.info(f"Proxy HTTPS: {self.proxy_https if self.proxy_https else 'None'}")
+                logger.info(f"Max retries: {self.max_retry_attempts}")
+                logger.info(f"Retry backoff: {self.retry_backoff_base}s")
+
+            except Exception as e:
+                self.module.warn(f"Failed to setup file logging: {str(e)}")
+
+        return logger
 
     def _setup_opener(self):
         """Setup HTTP opener with proxy and authentication handlers."""
@@ -536,8 +586,11 @@ class RedHatUploadController:
         """Upload single file with retry logic and exponential backoff."""
         description = f"{self.upload_description} - Part {part_number}/{total_parts}"
         filename = os.path.basename(file_path)
+        file_size = os.path.getsize(file_path)
+        file_size_mb = file_size / (1024 * 1024)
 
         self.module.log(f"Uploading part {part_number}/{total_parts}: {filename}")
+        self.logger.info(f"Starting upload - Part {part_number}/{total_parts}: {filename} ({file_size_mb:.2f} MB)")
 
         attempt = 1
         backoff = self.retry_backoff_base
@@ -547,13 +600,17 @@ class RedHatUploadController:
                 self.module.log(
                     f"Retry attempt {attempt}/{self.max_retry_attempts} for part {part_number} after {backoff}s delay"
                 )
+                self.logger.warning(f"Retry attempt {attempt}/{self.max_retry_attempts} for part {part_number} after {backoff}s delay")
                 time.sleep(backoff)
                 backoff = backoff * 2
 
             # Build request
             try:
+                self.logger.debug(f"Building request for part {part_number}, attempt {attempt}")
                 request, _ = self._build_request(file_path, description)
+                self.logger.debug(f"Request built successfully for part {part_number}")
             except Exception as e:
+                self.logger.error(f"Failed to build request for part {part_number} (attempt {attempt}): {str(e)}")
                 if attempt < self.max_retry_attempts:
                     self.module.warn(
                         f"Failed to build request for part {part_number} (attempt {attempt}): {str(e)}"
@@ -561,6 +618,7 @@ class RedHatUploadController:
                     attempt += 1
                     continue
                 else:
+                    self.logger.error(f"Exhausted retries building request for part {part_number}")
                     return {
                         "part": part_number,
                         "file": filename,
@@ -571,9 +629,11 @@ class RedHatUploadController:
                     }
 
             # Execute request
+            self.logger.debug(f"Executing upload request for part {part_number}, attempt {attempt}")
             http_code, response_body, error = self._execute_upload_request(
                 request, self.timeout
             )
+            self.logger.debug(f"Upload request completed - HTTP {http_code}, error: {error}")
 
             # Handle connection errors
             if error is not None:
@@ -602,6 +662,7 @@ class RedHatUploadController:
                 self.module.log(
                     f"Successfully uploaded part {part_number}/{total_parts} (HTTP {http_code})"
                 )
+                self.logger.info(f"✓ Upload SUCCESS - Part {part_number}/{total_parts} (HTTP {http_code}, attempt {attempt})")
                 return {
                     "part": part_number,
                     "file": filename,
@@ -615,6 +676,7 @@ class RedHatUploadController:
                 self.module.warn(
                     f"Retryable error HTTP {http_code} for part {part_number} (attempt {attempt})"
                 )
+                self.logger.warning(f"Retryable error HTTP {http_code} for part {part_number} (attempt {attempt}) - Response: {response_body[:200] if response_body else 'N/A'}")
 
                 if attempt < self.max_retry_attempts:
                     attempt += 1
@@ -623,6 +685,7 @@ class RedHatUploadController:
                     self.module.log(
                         f"Upload failed after {attempt} attempts for part {part_number}: HTTP {http_code}"
                     )
+                    self.logger.error(f"✗ Upload FAILED - Part {part_number} exhausted retries (HTTP {http_code}, {attempt} attempts)")
                     result = {
                         "part": part_number,
                         "file": filename,
@@ -640,6 +703,7 @@ class RedHatUploadController:
                 self.module.log(
                     f"Non-retryable error HTTP {http_code} for part {part_number}"
                 )
+                self.logger.error(f"✗ Upload FAILED - Part {part_number} non-retryable error (HTTP {http_code}, attempt {attempt}) - Response: {response_body[:200] if response_body else 'N/A'}")
                 result = {
                     "part": part_number,
                     "file": filename,
@@ -782,6 +846,7 @@ def main():
         "max_file_size_bytes": dict(type="int", required=False, default=1073741824),
         "validate_certs": dict(type="bool", required=False, default=True),
         "timeout": dict(type="int", required=False, default=300),
+        "log_dir": dict(type="str", required=False, default=None),
     }
 
     module = AnsibleModule(argument_spec=argument_spec, supports_check_mode=False)

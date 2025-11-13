@@ -99,6 +99,7 @@ timeout_seconds: 300
 rh_upload_max_retries: 3  # Maximum retry attempts per archive part
 rh_upload_retry_backoff: 2  # Base backoff seconds (exponential: base * 2^attempt)
 rh_upload_fail_on_partial: true  # Fail playbook if any part fails (false = allow partial success)
+rh_upload_timeout: 1800  # Upload timeout in seconds (default: 1800s = 30 min for large files through proxies)
 
 # ==============================================================================
 # Archive Size Limits

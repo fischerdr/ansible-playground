@@ -94,6 +94,7 @@ timeout_seconds: 300
 
 # Red Hat upload retry configuration
 rh_upload_max_retries: 3  # Maximum retry attempts per archive part
+rh_upload_retry_backoff: 2  # Base backoff seconds (exponential: base * 2^attempt)
 rh_upload_fail_on_partial: true  # Fail playbook if any part fails (false = allow partial success)
 
 # ==============================================================================

@@ -489,6 +489,7 @@
         proxy_https: "{{ proxy_https | default(omit) }}"
         proxy_no: "{{ proxy_no | default(omit) }}"
         max_retry_attempts: "{{ rh_upload_max_retries | default(3) }}"
+        retry_backoff_base: "{{ rh_upload_retry_backoff | default(2) }}"
         fail_on_partial: "{{ rh_upload_fail_on_partial | default(true) }}"
       delegate_to: localhost
       register: rh_upload_results

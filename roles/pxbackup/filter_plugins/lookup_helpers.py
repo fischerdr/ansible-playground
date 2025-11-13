@@ -1,12 +1,13 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+
 class FilterModule(object):
     """Custom filters for hierarchical lookups."""
 
     def filters(self):
         return {
-            'hierarchical_lookup': self.hierarchical_lookup,
+            "hierarchical_lookup": self.hierarchical_lookup,
         }
 
     def hierarchical_lookup(self, data, user, env, region, default_value=None):
@@ -25,13 +26,13 @@ class FilterModule(object):
         """
         # Define the lookup paths in order of preference
         lookup_paths = [
-            'users.{}.{}.{}'.format(user, env, region),
-            'users.{}.{}.default'.format(user, env),
-            'users.{}.default'.format(user),
-            'users.default.{}.{}'.format(env, region),
-            'users.default.{}.default'.format(env),
-            'users.default.default',
-            'default'
+            "users.{}.{}.{}".format(user, env, region),
+            "users.{}.{}.default".format(user, env),
+            "users.{}.default".format(user),
+            "users.default.{}.{}".format(env, region),
+            "users.default.{}.default".format(env),
+            "users.default.default",
+            "default",
         ]
 
         # Try each path in order
@@ -54,7 +55,7 @@ class FilterModule(object):
         Returns:
             The value if found, None otherwise
         """
-        keys = path.split('.')
+        keys = path.split(".")
         current = data
 
         for key in keys:

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import List, Optional, Tuple, Dict
+from typing import Dict, List, Optional, Tuple
 
 from ansible.module_utils.basic import AnsibleModule
 from kubernetes import client, config
@@ -131,7 +131,9 @@ class DefragController:
         self.member_list_param = member_list or ""
         if isinstance(self.member_list_param, list):
             # Input is already a list - use directly after stripping whitespace
-            self.member_list = [str(m).strip() for m in self.member_list_param if m and str(m).strip()]
+            self.member_list = [
+                str(m).strip() for m in self.member_list_param if m and str(m).strip()
+            ]
         elif isinstance(self.member_list_param, str):
             # Input is a string - split on comma
             self.member_list = [
@@ -149,10 +151,10 @@ class DefragController:
 
         # results list of dicts
         self.results: List[Dict] = []
-        
+
         # Initialize Kubernetes client
         self._init_k8s_client()
-        
+
         if module.check_mode:
             module.exit_json(changed=False, results=[], skipped=True)
 
@@ -176,10 +178,9 @@ class DefragController:
         try:
             v1 = client.CoreV1Api()
             pods = v1.list_namespaced_pod(
-                namespace="openshift-etcd",
-                label_selector="app=etcd"
+                namespace="openshift-etcd", label_selector="app=etcd"
             )
-            
+
             pod_names = [pod.metadata.name for pod in pods.items]
             if self.debug:
                 self.module.log(msg=f"Discovered etcd pods: {pod_names}")
@@ -194,7 +195,9 @@ class DefragController:
     # -------------------------
     # Pod execution helpers
     # -------------------------
-    def _execute_in_pod(self, pod_name: str, command: List[str], timeout_seconds: int = 30) -> Tuple[int, str, str]:
+    def _execute_in_pod(
+        self, pod_name: str, command: List[str], timeout_seconds: int = 30
+    ) -> Tuple[int, str, str]:
         """
         Execute command inside a pod using the Kubernetes Python client.
         Returns (return_code, stdout, stderr)
@@ -202,7 +205,7 @@ class DefragController:
         try:
             # Create the API instance
             v1 = client.CoreV1Api()
-            
+
             # Use stream to execute the command
             resp = stream(
                 v1.connect_get_namespaced_pod_exec,
@@ -213,20 +216,28 @@ class DefragController:
                 stdin=False,
                 stdout=True,
                 tty=False,
-                _request_timeout=timeout_seconds
+                _request_timeout=timeout_seconds,
             )
-            
+
             # Return successful result - the response is already the stdout
             return 0, resp, ""
         except ApiException as e:
             if e.status == 404:
                 return 1, "", f"Pod {pod_name} not found"
             elif e.status == 400:
-                return 1, "", f"Bad request executing command in pod {pod_name}: {e.reason}"
+                return (
+                    1,
+                    "",
+                    f"Bad request executing command in pod {pod_name}: {e.reason}",
+                )
             else:
                 return 1, "", f"API error executing command in pod {pod_name}: {e}"
         except Exception as e:
-            return 1, "", f"Unexpected error executing command in pod {pod_name}: {str(e)}"
+            return (
+                1,
+                "",
+                f"Unexpected error executing command in pod {pod_name}: {str(e)}",
+            )
 
     # -------------------------
     # Member list / endpoint status parsers
@@ -239,7 +250,7 @@ class DefragController:
         """
         command = ["/bin/sh", "-c", "etcdctl member list --write-out=json"]
         rc, out, err = self._execute_in_pod(pod, command, self.etcd_cmd_timeout)
-        
+
         if rc != 0:
             # Older etcdctl variants might not support json output; warn and return empty list
             self.module.warn(
@@ -305,7 +316,7 @@ class DefragController:
         """
         command = ["/bin/sh", "-c", "etcdctl endpoint status --write-out=json"]
         rc, out, err = self._execute_in_pod(pod, command, self.etcd_cmd_timeout)
-        
+
         if rc != 0:
             self.module.warn(
                 f"endpoint status json failed on {pod}: rc={rc} stderr={err.strip()}"
@@ -466,7 +477,9 @@ class DefragController:
         try:
             # First, check health
             command = ["/bin/sh", "-c", "etcdctl endpoint status --write-out=table"]
-            rc_check, out_check, err_check = self._execute_in_pod(pod, command, self.etcd_cmd_timeout)
+            rc_check, out_check, err_check = self._execute_in_pod(
+                pod, command, self.etcd_cmd_timeout
+            )
             if rc_check != 0:
                 res = {
                     "member": pod,
@@ -643,6 +656,7 @@ class DefragController:
 # -------------------------
 # Module entrypoint
 # -------------------------
+
 
 def main():
     argument_spec = dict(

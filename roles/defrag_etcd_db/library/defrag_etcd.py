@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import shlex
 import time
-from typing import List, Optional, Tuple, Dict
+from typing import Dict, List, Optional, Tuple
 
 from ansible.module_utils.basic import AnsibleModule
 
@@ -137,7 +137,9 @@ class DefragController:
         self.member_list_param = member_list or ""
         if isinstance(self.member_list_param, list):
             # Input is already a list - use directly after stripping whitespace
-            self.member_list = [str(m).strip() for m in self.member_list_param if m and str(m).strip()]
+            self.member_list = [
+                str(m).strip() for m in self.member_list_param if m and str(m).strip()
+            ]
         elif isinstance(self.member_list_param, str):
             # Input is a string - split on comma
             self.member_list = [

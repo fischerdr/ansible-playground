@@ -26,15 +26,17 @@ print("-" * 80)
 print("Test 1: Using ProxyHandler only")
 print("-" * 80)
 try:
-    proxy_handler = urllib.request.ProxyHandler({
-        'http': PROXY_HTTP,
-        'https': PROXY_HTTPS,
-    })
+    proxy_handler = urllib.request.ProxyHandler(
+        {
+            "http": PROXY_HTTP,
+            "https": PROXY_HTTPS,
+        }
+    )
     opener = urllib.request.build_opener(proxy_handler)
     urllib.request.install_opener(opener)
 
     req = urllib.request.Request(TEST_URL)
-    req.add_header('Accept', 'application/json')
+    req.add_header("Accept", "application/json")
 
     print("Attempting connection...")
     response = urllib.request.urlopen(req, timeout=10)
@@ -55,15 +57,16 @@ print("-" * 80)
 print("Test 2: Using environment variables only")
 print("-" * 80)
 import os
-os.environ['http_proxy'] = PROXY_HTTP
-os.environ['https_proxy'] = PROXY_HTTPS
+
+os.environ["http_proxy"] = PROXY_HTTP
+os.environ["https_proxy"] = PROXY_HTTPS
 
 try:
     # Reset opener to use environment variables
     urllib.request.install_opener(urllib.request.build_opener())
 
     req = urllib.request.Request(TEST_URL)
-    req.add_header('Accept', 'application/json')
+    req.add_header("Accept", "application/json")
 
     print("Attempting connection...")
     response = urllib.request.urlopen(req, timeout=10)
@@ -78,8 +81,8 @@ except Exception as e:
     print(f"✗ FAILED: {type(e).__name__}: {e}")
 
 # Clean up
-del os.environ['http_proxy']
-del os.environ['https_proxy']
+del os.environ["http_proxy"]
+del os.environ["https_proxy"]
 
 print()
 print("=" * 80)

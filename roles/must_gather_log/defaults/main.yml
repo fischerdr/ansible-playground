@@ -102,7 +102,7 @@ rh_upload_fail_on_partial: true  # Fail playbook if any part fails (false = allo
 rh_upload_timeout: 1800  # Upload timeout in seconds (default: 1800s = 30 min for large files through proxies)
 
 # ==============================================================================
-# Archive Size Limits
+# Archive Size Limits and Splitting Configuration
 # ==============================================================================
 
 # Maximum single archive size (1GB = Red Hat API limit)
@@ -110,6 +110,12 @@ max_archive_size_bytes: 1073741824  # 1GB in bytes
 
 # Split threshold (90% of max to account for compression overhead)
 split_threshold_bytes: 966367641  # 900MB in bytes
+
+# Split size for large archives (100-500GB production use)
+# IMPORTANT: For 100-500GB archives, use memory-efficient streaming split
+# Red Hat API has 1GB limit per file - use 800MB to stay safely under limit
+# Each part will be compressed independently for resume capability
+mustgather_split_size_mb: 800  # Size of each split part in MB (recommended: 800MB)
 
 # ==============================================================================
 # Operational Notes

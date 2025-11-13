@@ -187,7 +187,9 @@
     - name: "Check for existing must-gather archives to preserve"
       ansible.builtin.find:
         paths: "{{ WORK_DIR | default('/tmp') }}"
-        patterns: "must-gather-*/must-gather.tar.gz*"
+        patterns:
+          - "must-gather-*/must-gather.tar.gz"  # Single archives
+          - "must-gather-*/must-gather.part*.tar.gz"  # Split archives
         file_type: file
       register: existing_archives
 
@@ -378,12 +380,19 @@
       changed_when: archive_result.rc == 0
       when: collection_size_bytes | int <= (max_archive_size_bytes | int * 0.9)
 
-    - name: "Create split archives when size exceeds limit"
+    - name: "Create split archives when size exceeds limit (memory-efficient for 100-500GB)"
       ansible.builtin.shell:
         cmd: |
           set -euo pipefail
           cd {{ mustgather_output_dir }}
-          tar czf - {{ mustgather_collection_dir | basename }} | split -b 900M -d -a 3 - must-gather.tar.gz.part
+          # Memory-efficient streaming split: tar -> split -> compress each part independently
+          # This avoids loading entire archive in memory (critical for 100-500GB archives)
+          # Each part is compressed independently, allowing parallel decompression and resume capability
+          tar cf - {{ mustgather_collection_dir | basename }} | \
+            split -b {{ mustgather_split_size_mb }}M \
+                  -d -a 3 \
+                  --filter='gzip -9 > "$FILE.tar.gz"' \
+                  - must-gather.part
         executable: /bin/bash
       register: split_archive_result
       changed_when: split_archive_result.rc == 0
@@ -392,7 +401,9 @@
     - name: "List archive files created"
       ansible.builtin.find:
         paths: "{{ mustgather_output_dir }}"
-        patterns: "must-gather.tar.gz*"
+        patterns:
+          - "must-gather.tar.gz"  # Single archive pattern
+          - "must-gather.part*.tar.gz"  # Split archive pattern (memory-efficient)
         file_type: file
       register: archive_files
 
@@ -486,7 +497,7 @@
     - name: "Upload all archive parts to Red Hat support case with retry handling"
       redhat_upload:
         case_id: "{{ rh_case }}"
-        archive_pattern: "{{ controller_temp_dir.path }}/*.tar.gz*"
+        archive_pattern: "{{ controller_temp_dir.path }}/*must-gather*.tar.gz"
         upload_description: "{{ computed_upload_description }}"
         api_token: "{{ rh_api_token | default(omit) }}"
         api_user: "{{ rh_api_user | default(omit) }}"
@@ -699,7 +710,9 @@
     - name: "Count preserved archives for summary"
       ansible.builtin.find:
         paths: "{{ mustgather_archive_dir }}"
-        patterns: "{{ cluster_name | default('cluster') }}-case{{ rh_case | default('nocase') }}-must-gather.tar.gz*"
+        patterns:
+          - "{{ cluster_name | default('cluster') }}-case{{ rh_case | default('nocase') }}-must-gather.tar.gz"
+          - "{{ cluster_name | default('cluster') }}-case{{ rh_case | default('nocase') }}-must-gather.part*.tar.gz"
         file_type: file
       register: preserved_archives_count
       failed_when: false

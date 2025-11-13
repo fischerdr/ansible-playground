@@ -11,8 +11,12 @@
 
   vars:
     # Test configuration
-    test_archive_size_mb: 10  # Size of test archive in MB
+    test_archive_size_mb: 10  # Size of test archive in MB (use 1489 for multi-part testing)
     test_create_split_archives: false  # Set to true to test multi-part upload
+
+    # Split configuration for large archives (100-500GB production use)
+    # Red Hat API has 1GB limit per file - use 800MB to stay safely under limit
+    split_size_mb: 800  # Size of each split part in MB (800MB recommended for production)
 
     # Upload retry configuration for 503 errors
     rh_upload_max_retries: 5  # Increased from default 3 for 503 handling
@@ -171,12 +175,19 @@
           changed_when: archive_result.rc == 0
           when: not test_create_split_archives
 
-        - name: Create split test archives (for multi-part upload testing)
+        - name: Create split test archives (memory-efficient for 100-500GB production use)
           ansible.builtin.shell:
             cmd: |
               set -euo pipefail
               cd {{ mustgather_output_dir }}
-              tar czf - {{ mustgather_collection_dir | basename }} | split -b 5M -d -a 3 - must-gather.tar.gz.part
+              # Memory-efficient streaming split: tar -> split -> compress each part independently
+              # This avoids loading entire archive in memory (critical for 100-500GB archives)
+              # Each part is compressed independently, allowing parallel decompression and resume capability
+              tar cf - {{ mustgather_collection_dir | basename }} | \
+                split -b {{ split_size_mb }}M \
+                      -d -a 3 \
+                      --filter='gzip -9 > "$FILE.tar.gz"' \
+                      - must-gather.part
             executable: /bin/bash
           register: split_archive_result
           changed_when: split_archive_result.rc == 0
@@ -185,7 +196,9 @@
         - name: List created test archive files
           ansible.builtin.find:
             paths: "{{ mustgather_output_dir }}"
-            patterns: "must-gather.tar.gz*"
+            patterns:
+              - "must-gather.tar.gz"  # Single archive pattern
+              - "must-gather.part*.tar.gz"  # Split archive pattern
             file_type: file
           register: archive_files
 
@@ -345,7 +358,7 @@
         - name: "** TESTING UPLOAD MODULE ** Upload test archives to Red Hat support"
           redhat_upload:
             case_id: "{{ rh_case }}"
-            archive_pattern: "{{ controller_temp_dir.path }}/*.tar.gz*"
+            archive_pattern: "{{ controller_temp_dir.path }}/*must-gather*.tar.gz"
             upload_description: "{{ test_upload_description }}"
             api_token: "{{ rh_api_token | default(omit) }}"
             api_user: "{{ rh_api_user | default(omit) }}"

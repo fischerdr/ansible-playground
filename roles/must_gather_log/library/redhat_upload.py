@@ -142,9 +142,10 @@ options:
   timeout:
     description:
       - Request timeout in seconds
+      - Recommended 1800s (30 min) for large files through proxies
     type: int
     required: false
-    default: 300
+    default: 1800
 author:
   - Senior Systems Automation Engineer
 """
@@ -270,7 +271,7 @@ class RedHatUploadController:
         self.fail_on_partial = params.get("fail_on_partial", True)
         self.max_file_size_bytes = params.get("max_file_size_bytes", 1073741824)
         self.validate_certs = params.get("validate_certs", True)
-        self.timeout = params.get("timeout", 300)
+        self.timeout = params.get("timeout", 1800)
 
         self.results: List[Dict] = []
         self.upload_start_time = None  # Track upload start for time estimates
@@ -867,7 +868,7 @@ def main():
         "fail_on_partial": dict(type="bool", required=False, default=True),
         "max_file_size_bytes": dict(type="int", required=False, default=1073741824),
         "validate_certs": dict(type="bool", required=False, default=True),
-        "timeout": dict(type="int", required=False, default=300),
+        "timeout": dict(type="int", required=False, default=1800),
         "log_dir": dict(type="str", required=False, default=None),
     }
 

@@ -37,6 +37,13 @@ This checklist verifies that the `redhat_upload.py` module refactoring from `url
   - Added: `requests.exceptions.HTTPError`
   - All exceptions include proper file handle cleanup
 
+- [x] **Enhanced logging**
+  - Session start banner with configuration details
+  - Timeout, proxy_no, validate_certs logging
+  - Auth method identification (Token vs Basic)
+  - Upload method identification (requests library)
+  - Retry backoff base logging
+
 - [x] **Code quality**
   - Python syntax: Valid
   - Black formatting: Passed

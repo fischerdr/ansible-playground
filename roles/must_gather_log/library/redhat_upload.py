@@ -146,12 +146,21 @@ options:
     type: int
     required: false
     default: 1800
+  log_dir:
+    description:
+      - Directory path for detailed upload logging
+      - If provided, creates log file C(redhat_upload_<case_id>_<timestamp>.log)
+      - Logs include session configuration, retry attempts, HTTP responses, and timing
+      - Useful for troubleshooting upload failures and performance analysis
+    type: str
+    required: false
+    default: null
 author:
   - Senior Systems Automation Engineer
 """
 
 EXAMPLES = r"""
-- name: Upload archive parts to Red Hat support case with token authentication
+- name: Upload archive parts to Red Hat support case with token authentication and detailed logging
   redhat_upload:
     case_id: "01234567"
     archive_pattern: "/tmp/archives/*.tar.gz*"
@@ -159,17 +168,23 @@ EXAMPLES = r"""
     api_token: "{{ vault_rh_api_token }}"
     max_retry_attempts: 5
     fail_on_partial: true
+    timeout: 1800
+    log_dir: "/var/log/must-gather-uploads"
 
-- name: Upload single archive file with username/password authentication
+- name: Upload single archive file with username/password authentication through proxy
   redhat_upload:
     case_id: "01234567"
     archive_pattern: "/tmp/must-gather.tar.gz"
     upload_description: "must-gather for cluster-1"
     api_user: "{{ vault_rh_api_user }}"
     api_pass: "{{ vault_rh_api_pass }}"
+    proxy_http: "http://proxy.example.com:8080"
     proxy_https: "https://proxy.example.com:8080"
+    proxy_no: "localhost,127.0.0.1,.internal"
+    timeout: 3600
+    log_dir: "{{ mustgather_upload_logs }}"
 
-- name: Upload archives allowing partial success
+- name: Upload archives allowing partial success with extended timeout
   redhat_upload:
     case_id: "01234567"
     archive_pattern: "{{ controller_temp_dir.path }}/*.tar.gz*"
@@ -177,6 +192,10 @@ EXAMPLES = r"""
     api_token: "{{ rh_api_token }}"
     fail_on_partial: false
     max_retry_attempts: 3
+    retry_backoff_base: 2
+    timeout: 1800
+    validate_certs: true
+    log_dir: "{{ mustgather_upload_logs | default(omit) }}"
 """
 
 RETURN = r"""
@@ -205,6 +224,11 @@ failure_count:
   type: int
   returned: always
   sample: 0
+log_file:
+  description: Path to detailed upload log file
+  type: str
+  returned: when log_dir parameter is provided
+  sample: "/var/log/must-gather-uploads/redhat_upload_01234567_20251113_143052.log"
 results:
   description: Detailed per-part upload results
   type: list
@@ -276,6 +300,7 @@ class RedHatUploadController:
         self.results: List[Dict] = []
         self.upload_start_time = None  # Track upload start for time estimates
         self.log_dir = params.get("log_dir")
+        self.log_file = None  # Will be set if log_dir is provided
 
         # Setup file logging if log_dir provided
         self.logger = self._setup_logging()
@@ -314,18 +339,28 @@ class RedHatUploadController:
                 fh.setFormatter(formatter)
                 logger.addHandler(fh)
 
+                # Store log file path for return value
+                self.log_file = log_file
+
                 self.module.log(f"Upload logging enabled: {log_file}")
-                logger.info(f"Upload session started for case {self.case_id}")
+                logger.info("=" * 80)
+                logger.info("UPLOAD SESSION START - Method: requests library")
+                logger.info("=" * 80)
+                logger.info(f"Case ID: {self.case_id}")
                 logger.info(f"Archive pattern: {self.archive_pattern}")
                 logger.info(f"Upload URL: {self.upload_url}")
+                logger.info("Upload method: python-requests/2.31.0")
+                logger.info(f"Proxy HTTP: {self.proxy_http or 'None'}")
+                logger.info(f"Proxy HTTPS: {self.proxy_https or 'None'}")
+                logger.info(f"Proxy NO: {self.proxy_no or 'None'}")
+                logger.info(f"Validate certs: {self.validate_certs}")
+                logger.info(f"Timeout: {self.timeout}s")
                 logger.info(
-                    f"Proxy HTTP: {self.proxy_http if self.proxy_http else 'None'}"
-                )
-                logger.info(
-                    f"Proxy HTTPS: {self.proxy_https if self.proxy_https else 'None'}"
+                    f"Auth method: {'Token' if self.api_token else 'Basic (user/pass)'}"
                 )
                 logger.info(f"Max retries: {self.max_retry_attempts}")
-                logger.info(f"Retry backoff: {self.retry_backoff_base}s")
+                logger.info(f"Retry backoff base: {self.retry_backoff_base}s")
+                logger.info("=" * 80)
 
             except Exception as e:
                 self.module.warn(f"Failed to setup file logging: {str(e)}")
@@ -832,6 +867,10 @@ class RedHatUploadController:
             "failure_count": failure_count,
             "results": self.results,
         }
+
+        # Add log file path if logging was enabled
+        if self.log_file:
+            result["log_file"] = self.log_file
 
         # Add descriptive message for failures
         if final_status != "success":

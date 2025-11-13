@@ -16,13 +16,9 @@ import time
 from datetime import datetime
 from typing import Dict, Optional, Tuple
 from urllib.error import HTTPError, URLError
-from urllib.request import (
-    HTTPBasicAuthHandler,
-    HTTPPasswordMgrWithDefaultRealm,
-    Request,
-    build_opener,
-    install_opener,
-)
+from urllib.request import (HTTPBasicAuthHandler,
+                            HTTPPasswordMgrWithDefaultRealm, Request,
+                            build_opener, install_opener)
 
 from ansible.module_utils.basic import AnsibleModule
 
@@ -204,7 +200,9 @@ class TestUploadController:
 
         return logger
 
-    def _test_upload_urllib(self) -> Tuple[str, Optional[int], Optional[str], Optional[str]]:
+    def _test_upload_urllib(
+        self,
+    ) -> Tuple[str, Optional[int], Optional[str], Optional[str]]:
         """Test upload using urllib (standard library)."""
         self.logger.info(">>> STARTING URLLIB UPLOAD TEST <<<")
 
@@ -229,7 +227,9 @@ class TestUploadController:
         if self.api_user and self.api_pass:
             self.logger.debug("Configuring Basic authentication handler")
             password_mgr = HTTPPasswordMgrWithDefaultRealm()
-            password_mgr.add_password(None, self.upload_url, self.api_user, self.api_pass)
+            password_mgr.add_password(
+                None, self.upload_url, self.api_user, self.api_pass
+            )
             handlers.append(HTTPBasicAuthHandler(password_mgr))
 
         # Build opener
@@ -246,7 +246,9 @@ class TestUploadController:
         with open(self.test_file, "rb") as f:
             file_content = f.read()
         file_size = len(file_content)
-        self.logger.info(f"File size: {file_size} bytes ({file_size / (1024 * 1024):.2f} MB)")
+        self.logger.info(
+            f"File size: {file_size} bytes ({file_size / (1024 * 1024):.2f} MB)"
+        )
 
         # Build multipart/form-data
         filename = os.path.basename(self.test_file)
@@ -256,18 +258,24 @@ class TestUploadController:
 
         body_parts = []
         body_parts.append(f"--{boundary}\r\n".encode())
-        body_parts.append('Content-Disposition: form-data; name="description"\r\n\r\n'.encode())
+        body_parts.append(
+            'Content-Disposition: form-data; name="description"\r\n\r\n'.encode()
+        )
         body_parts.append(self.upload_description.encode("utf-8"))
         body_parts.append("\r\n".encode())
         body_parts.append(f"--{boundary}\r\n".encode())
-        body_parts.append(f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode())
+        body_parts.append(
+            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode()
+        )
         body_parts.append("Content-Type: application/octet-stream\r\n\r\n".encode())
         body_parts.append(file_content)
         body_parts.append(f"\r\n--{boundary}--\r\n".encode())
 
         body = b"".join(body_parts)
         body_size = len(body)
-        self.logger.info(f"Request body size: {body_size} bytes ({body_size / (1024 * 1024):.2f} MB)")
+        self.logger.info(
+            f"Request body size: {body_size} bytes ({body_size / (1024 * 1024):.2f} MB)"
+        )
 
         # Build request headers
         headers = {
@@ -312,7 +320,9 @@ class TestUploadController:
             import urllib.request
 
             self.logger.debug("Calling urllib.request.urlopen()...")
-            response = urllib.request.urlopen(request, timeout=self.timeout, context=ssl_context)
+            response = urllib.request.urlopen(
+                request, timeout=self.timeout, context=ssl_context
+            )
 
             elapsed = time.time() - start_time
             http_code = response.getcode()
@@ -346,11 +356,15 @@ class TestUploadController:
         except Exception as e:
             elapsed = time.time() - start_time
             error_msg = str(e)
-            self.logger.error(f"✗ Unexpected Error (elapsed: {elapsed:.2f}s): {error_msg}")
+            self.logger.error(
+                f"✗ Unexpected Error (elapsed: {elapsed:.2f}s): {error_msg}"
+            )
             self.logger.exception("Exception details:")
             return "unexpected_error", None, None, error_msg
 
-    def _test_upload_requests(self) -> Tuple[str, Optional[int], Optional[str], Optional[str]]:
+    def _test_upload_requests(
+        self,
+    ) -> Tuple[str, Optional[int], Optional[str], Optional[str]]:
         """Test upload using requests library."""
         try:
             import requests
@@ -375,11 +389,15 @@ class TestUploadController:
         # Read file
         self.logger.debug(f"Reading test file: {self.test_file}")
         file_size = os.path.getsize(self.test_file)
-        self.logger.info(f"File size: {file_size} bytes ({file_size / (1024 * 1024):.2f} MB)")
+        self.logger.info(
+            f"File size: {file_size} bytes ({file_size / (1024 * 1024):.2f} MB)"
+        )
 
         # Prepare multipart/form-data
         filename = os.path.basename(self.test_file)
-        files = {"file": (filename, open(self.test_file, "rb"), "application/octet-stream")}
+        files = {
+            "file": (filename, open(self.test_file, "rb"), "application/octet-stream")
+        }
         data = {"description": self.upload_description}
 
         # Setup headers
@@ -464,14 +482,18 @@ class TestUploadController:
         except requests.exceptions.ConnectionError as e:
             elapsed = time.time() - start_time
             error_msg = str(e)
-            self.logger.error(f"✗ Connection Error (elapsed: {elapsed:.2f}s): {error_msg}")
+            self.logger.error(
+                f"✗ Connection Error (elapsed: {elapsed:.2f}s): {error_msg}"
+            )
             files["file"][1].close()
             return "connection_error", None, None, error_msg
 
         except Exception as e:
             elapsed = time.time() - start_time
             error_msg = str(e)
-            self.logger.error(f"✗ Unexpected Error (elapsed: {elapsed:.2f}s): {error_msg}")
+            self.logger.error(
+                f"✗ Unexpected Error (elapsed: {elapsed:.2f}s): {error_msg}"
+            )
             self.logger.exception("Exception details:")
             files["file"][1].close()
             return "unexpected_error", None, None, error_msg
@@ -542,7 +564,10 @@ def main():
         if result["status"] == "success":
             module.exit_json(changed=True, **result)
         else:
-            module.fail_json(msg=f"Upload test failed: {result.get('error', 'Unknown error')}", **result)
+            module.fail_json(
+                msg=f"Upload test failed: {result.get('error', 'Unknown error')}",
+                **result,
+            )
 
     except Exception as e:
         module.fail_json(msg=f"Module failed: {str(e)}", failed=True)

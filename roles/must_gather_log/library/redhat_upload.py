@@ -21,9 +21,14 @@ import time
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
-from urllib.request import (BaseHandler, HTTPBasicAuthHandler,
-                            HTTPPasswordMgrWithDefaultRealm,
-                            Request, build_opener, install_opener)
+from urllib.request import (
+    BaseHandler,
+    HTTPBasicAuthHandler,
+    HTTPPasswordMgrWithDefaultRealm,
+    Request,
+    build_opener,
+    install_opener,
+)
 
 from ansible.module_utils.basic import AnsibleModule
 

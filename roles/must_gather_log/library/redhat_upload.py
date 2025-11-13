@@ -289,20 +289,7 @@ class RedHatUploadController:
         handlers: List[BaseHandler] = []
 
         # Proxy configuration
-        # Set environment variables for proxy (urllib needs these for HTTPS through proxy)
-        import os
-
-        if self.proxy_http:
-            os.environ['http_proxy'] = self.proxy_http
-            os.environ['HTTP_PROXY'] = self.proxy_http
-        if self.proxy_https:
-            os.environ['https_proxy'] = self.proxy_https
-            os.environ['HTTPS_PROXY'] = self.proxy_https
-        if self.proxy_no:
-            os.environ['no_proxy'] = self.proxy_no
-            os.environ['NO_PROXY'] = self.proxy_no
-
-        # Build proxy handler
+        # ProxyHandler alone is sufficient - environment variables cause auth issues
         proxy_dict = {}
         if self.proxy_http:
             proxy_dict["http"] = self.proxy_http

@@ -103,7 +103,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/test_redhat_upload.yml \
 
 The playbook will create detailed log files in the test directory:
 
-```
+```text
 /tmp/redhat_upload_test/
 ├── test_upload_urllib_{case_id}_{timestamp}.log
 ├── test_upload_requests_{case_id}_{timestamp}.log
@@ -114,6 +114,7 @@ The playbook will create detailed log files in the test directory:
 ### Log File Contents
 
 Each log includes:
+
 - Session configuration (URLs, proxy, auth method)
 - File size and request body size
 - Full request headers (with redacted auth tokens)
@@ -126,7 +127,7 @@ Each log includes:
 
 ### Success (HTTP 200-299)
 
-```
+```text
 status: "success"
 http_code: 200
 method: "urllib" or "requests"
@@ -134,7 +135,7 @@ method: "urllib" or "requests"
 
 ### HTTP 503 (Service Unavailable)
 
-```
+```text
 status: "http_error"
 http_code: 503
 error: "HTTP 503"
@@ -145,7 +146,7 @@ This indicates Red Hat API server is temporarily unavailable or overloaded.
 
 ### Connection/Proxy Errors
 
-```
+```text
 status: "url_error" or "proxy_error"
 error: "Connection refused" or "Proxy connection failed"
 ```
@@ -154,7 +155,7 @@ Check network connectivity and proxy configuration.
 
 ### SSL/TLS Errors
 
-```
+```text
 status: "ssl_error"
 error: "Certificate verification failed"
 ```
@@ -194,6 +195,7 @@ The test runs both implementations to identify library-specific issues:
 - **requests**: Third-party library, generally more user-friendly
 
 If one succeeds and the other fails, it may indicate:
+
 - Proxy handling differences
 - SSL/TLS negotiation differences
 - HTTP header formatting differences

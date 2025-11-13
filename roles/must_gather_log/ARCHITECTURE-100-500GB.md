@@ -7,11 +7,13 @@ This document describes the architectural changes made to support **100-500GB mu
 ## Problem Statement
 
 The original implementation used:
+
 ```bash
 tar czf - data/ | split -b 900M - must-gather.tar.gz.part
 ```
 
 **This approach fails catastrophically with 100-500GB archives because:**
+
 1. Entire compressed archive loads into memory
 2. For 500GB uncompressed → ~312GB compressed → **OOM kill**
 3. No resume capability (network failure = start over)
@@ -62,20 +64,23 @@ tar cf - data/ | split -b 800M --filter='gzip -9 > "$FILE.tar.gz"' - must-gather
 ## Naming Convention Change
 
 ### Old (Broken for Large Archives)
-```
+
+```text
 must-gather.tar.gz.part000
 must-gather.tar.gz.part001
 must-gather.tar.gz.part002
 ```
 
 ### New (Memory-Efficient)
-```
+
+```text
 must-gather.part000.tar.gz
 must-gather.part001.tar.gz
 must-gather.part002.tar.gz
 ```
 
 **Why the change?**
+
 - Each part is independently gzipped (`.tar.gz` extension per file)
 - Supports parallel decompression: `gunzip must-gather.part*.tar.gz`
 - Clear indication each part is a complete gzipped archive
@@ -85,7 +90,7 @@ must-gather.part002.tar.gz
 
 ### Example: 1489MB Test Archive with 800MB Split
 
-```
+```text
 Uncompressed: 1489MB
 Split size: 800MB
 Parts: ceil(1489/800) = 2 parts
@@ -98,7 +103,7 @@ Total: 2 files, ~930MB compressed
 
 ### Example: 500GB Production Archive with 800MB Split
 
-```
+```text
 Uncompressed: 500GB = 512,000MB
 Split size: 800MB
 Parts: ceil(512000/800) = 640 parts
@@ -174,6 +179,7 @@ If upload fails on part 347 of 640:
 4. **Check logs** at `{{ mustgather_upload_logs }}/redhat_upload_*.log`
 
 Example failure recovery:
+
 ```yaml
 - name: Resume failed upload
   ansible.builtin.include_role:
@@ -211,6 +217,7 @@ Example failure recovery:
 **Symptom**: `Cannot allocate memory` error during archive creation
 
 **Diagnosis**: Check which splitting method is being used:
+
 ```bash
 # BAD (old method - loads in memory):
 tar czf - data/ | split -b 900M
@@ -226,6 +233,7 @@ tar cf - data/ | split -b 800M --filter='gzip -9 > "$FILE.tar.gz"'
 **Symptom**: `Connection error: ReadTimeout` on large parts
 
 **Fix**: Increase timeout and reduce split size:
+
 ```yaml
 mustgather_split_size_mb: 500  # Smaller parts
 rh_upload_timeout: 7200  # 2 hours
@@ -238,6 +246,7 @@ rh_upload_timeout: 7200  # 2 hours
 **Cause**: High compression ratio (low entropy data compresses poorly)
 
 **Fix**: Reduce split size to account for worst-case compression:
+
 ```yaml
 mustgather_split_size_mb: 700  # More conservative
 ```
@@ -247,6 +256,7 @@ mustgather_split_size_mb: 700  # More conservative
 **Symptom**: Upload completes but some parts failed
 
 **Response**:
+
 1. Check detailed logs: `{{ mustgather_upload_logs }}/redhat_upload_*.log`
 2. Identify failed parts from module output
 3. Re-run with `fail_on_partial: false`

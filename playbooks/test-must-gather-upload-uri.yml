@@ -1,0 +1,339 @@
+---
+# Test playbook for must-gather upload using ansible.builtin.uri module
+# This is a parallel implementation to test-must-gather-upload.yml
+# Uses uri module instead of custom Python redhat_upload module
+
+- name: Test must-gather upload to Red Hat support using uri module
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: false
+
+  vars:
+    # Test configuration
+    test_archive_size_mb: 10  # Size of test archive in MB
+    test_create_split_archives: false  # Set to true to test multi-part upload
+
+    # Upload retry configuration
+    rh_upload_max_retries: 5  # Maximum retry attempts per file
+    rh_upload_retry_backoff: 5  # Fixed delay between retries (seconds)
+
+  pre_tasks:
+    - name: Setup Kubernetes environment for cluster context
+      ansible.builtin.include_role:
+        name: setup_env
+
+    - name: Set app paths (idempotent)
+      ansible.builtin.set_fact:
+        OC_BIN: "/usr/local/bin/oc"
+        KUBECTL_BIN: "/usr/local/bin/kubectl"
+        WORK_DIR: "/apps/persistence/clusters/{{ cluster_name | default('unknown-cluster') }}"
+        OCP_INSTALLDIR: "/apps/persistence/clustersinstall/{{ cluster_name | default('unknown-cluster') }}"
+      no_log: true
+
+    - name: Display setup completion status
+      ansible.builtin.debug:
+        msg: |
+          Test Mode: Upload functionality using uri module
+          Cluster: {{ cluster_name | default('unknown-cluster') }}
+          Kubeconfig: {{ kubeconfig_path | default('unset') }}
+          Work directory: {{ WORK_DIR }}
+
+  tasks:
+    - name: Test must-gather upload functionality with uri module
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG') | default('')) }}"
+      block:
+        - name: Validate required test variables
+          ansible.builtin.assert:
+            that:
+              - rh_case is defined
+              - rh_case | string | length > 0
+              - cluster_name is defined
+            fail_msg: |
+              Required variables for upload test:
+              - rh_case: Red Hat support case number
+              - cluster_name: Cluster name for test archive naming
+            success_msg: "Test variables validated: case={{ rh_case }}, cluster={{ cluster_name }}"
+
+        - name: Setup Red Hat API credentials from Vault
+          ansible.builtin.set_fact:
+            rh_api_user: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/redhat')['user'] }}"
+            rh_api_pass: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/redhat')['password'] }}"
+            rh_offline_token: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/redhat').get('offline_token', '') }}"
+          no_log: true
+
+        - name: "** OAUTH TOKEN ** Exchange Red Hat offline token for access token"
+          ansible.builtin.uri:
+            url: "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token"
+            method: POST
+            body_format: form-urlencoded
+            body:
+              grant_type: "refresh_token"
+              client_id: "rhsm-api"
+              refresh_token: "{{ rh_offline_token }}"
+            headers:
+              Content-Type: "application/x-www-form-urlencoded"
+            return_content: true
+            status_code: [200, 400, 401]
+            validate_certs: true
+            timeout: 30
+          environment:
+            http_proxy: "{{ proxy_http | default('') }}"
+            https_proxy: "{{ proxy_https | default('') }}"
+            no_proxy: "{{ proxy_no | default('') }}"
+          delegate_to: localhost
+          register: rh_oauth_response
+          no_log: false
+          when:
+            - rh_offline_token is defined
+            - rh_offline_token | length > 0
+
+        - name: Set Red Hat API access token from OAuth response
+          ansible.builtin.set_fact:
+            rh_api_token: "{{ rh_oauth_response.json.access_token }}"
+          no_log: true
+          when:
+            - rh_oauth_response is defined
+            - not rh_oauth_response.skipped | default(false)
+            - rh_oauth_response.status == 200
+
+        - name: Display authentication method
+          ansible.builtin.debug:
+            msg: "Using {{ 'OAuth Bearer token' if rh_api_token | default('') else 'Basic authentication (username/password)' }}"
+
+        - name: Create temporary test directory
+          ansible.builtin.tempfile:
+            state: directory
+            prefix: "mustgather_uri_test_"
+          register: test_work_dir
+
+        - name: Set test directory facts
+          ansible.builtin.set_fact:
+            mustgather_output_dir: "{{ test_work_dir.path }}"
+            mustgather_collection_dir: "{{ test_work_dir.path }}/mock-collection"
+            mustgather_upload_logs: "{{ test_work_dir.path }}/logs"
+
+        - name: Create upload logging directory
+          ansible.builtin.file:
+            path: "{{ mustgather_upload_logs }}"
+            state: directory
+            mode: '0755'
+
+        - name: Create mock must-gather collection directory
+          ansible.builtin.file:
+            path: "{{ mustgather_collection_dir }}"
+            state: directory
+            mode: '0755'
+
+        - name: Create test archive file
+          ansible.builtin.command:
+            cmd: >
+              dd if=/dev/urandom of={{ mustgather_collection_dir }}/test-data.bin
+              bs=1M count={{ test_archive_size_mb }}
+            creates: "{{ mustgather_collection_dir }}/test-data.bin"
+
+        - name: Create primary test archive
+          community.general.archive:
+            path: "{{ mustgather_collection_dir }}"
+            dest: "{{ mustgather_output_dir }}/must-gather.tar.gz"
+            format: gz
+            force_archive: true
+            mode: '0644'
+
+        - name: Create split archives for multi-part upload test
+          ansible.builtin.command:
+            cmd: >
+              split -b 5M -d -a 2
+              {{ mustgather_output_dir }}/must-gather.tar.gz
+              {{ mustgather_output_dir }}/must-gather.tar.gz.
+            creates: "{{ mustgather_output_dir }}/must-gather.tar.gz.00"
+          when: test_create_split_archives | default(false)
+
+        - name: Find all test archive files
+          ansible.builtin.find:
+            paths: "{{ mustgather_output_dir }}"
+            patterns: "must-gather.tar.gz*"
+            file_type: file
+          register: test_files
+
+        - name: Display test files to be uploaded
+          ansible.builtin.debug:
+            msg: |
+              Found {{ test_files.files | length }} test file(s) to upload:
+              {% for file in test_files.files | sort(attribute='path') %}
+              - {{ file.path | basename }} ({{ (file.size / 1024 / 1024) | round(2) }} MB)
+              {% endfor %}
+
+        - name: Set upload description
+          ansible.builtin.set_fact:
+            test_upload_description: "URI MODULE TEST - must-gather for {{ cluster_name }} - {{ ansible_date_time.iso8601 }}"
+
+        - name: "** TEST RED HAT API CONNECTIVITY **"
+          ansible.builtin.uri:
+            url: "https://api.access.redhat.com/support/v1/cases/{{ rh_case }}"
+            method: GET
+            headers:
+              Accept: application/json
+              Authorization: "{{ 'Bearer ' + rh_api_token if rh_api_token | default('') else omit }}"
+            url_username: "{{ rh_api_user if not (rh_api_token | default('')) else omit }}"
+            url_password: "{{ rh_api_pass if not (rh_api_token | default('')) else omit }}"
+            force_basic_auth: "{{ true if (rh_api_user | default('')) and not (rh_api_token | default('')) else false }}"
+            return_content: true
+            status_code: [200, 401, 403, 404]
+            timeout: 30
+          environment:
+            http_proxy: "{{ proxy_http | default('') }}"
+            https_proxy: "{{ proxy_https | default('') }}"
+            no_proxy: "{{ proxy_no | default('') }}"
+          delegate_to: localhost
+          register: api_test
+          no_log: false
+
+        - name: Validate API connectivity
+          ansible.builtin.assert:
+            that:
+              - api_test.status == 200
+            fail_msg: |
+              Red Hat API connectivity test failed:
+              HTTP {{ api_test.status }}: {{ api_test.msg | default('Unknown error') }}
+
+              Cannot proceed with upload - API is not accessible or credentials are invalid.
+            success_msg: "Red Hat API connectivity verified successfully"
+
+        - name: "** UPLOAD FILES USING URI MODULE **"
+          ansible.builtin.uri:
+            # API endpoint
+            url: "https://api.access.redhat.com/support/v1/cases/{{ rh_case }}/attachments/"
+            method: POST
+
+            # File upload (multipart form-data)
+            body_format: form-multipart
+            body:
+              description: "{{ test_upload_description }} - Part {{ idx + 1 }}/{{ test_files.files | length }}"
+              file:
+                filename: "{{ item.path | basename }}"
+                content: "{{ lookup('file', item.path) }}"
+                mime_type: application/gzip
+
+            # Authentication (Bearer token takes precedence)
+            headers:
+              Accept: application/json
+              Authorization: "{{ 'Bearer ' + rh_api_token if rh_api_token | default('') else omit }}"
+            url_username: "{{ rh_api_user if not (rh_api_token | default('')) else omit }}"
+            url_password: "{{ rh_api_pass if not (rh_api_token | default('')) else omit }}"
+            force_basic_auth: "{{ true if (rh_api_user | default('')) and not (rh_api_token | default('')) else false }}"
+
+            # Response handling
+            status_code: [200, 201]
+            return_content: true
+            dest: "{{ mustgather_upload_logs }}/part{{ idx + 1 }}_response.json"
+
+            # Timeouts
+            timeout: 300
+
+          # Proxy support via environment variables
+          environment:
+            http_proxy: "{{ proxy_http | default('') }}"
+            https_proxy: "{{ proxy_https | default('') }}"
+            no_proxy: "{{ proxy_no | default('') }}"
+
+          # Loop through files
+          loop: "{{ test_files.files | sort(attribute='path') }}"
+          loop_control:
+            index_var: idx
+            label: "Part {{ idx + 1 }}/{{ test_files.files | length }}: {{ item.path | basename }}"
+
+          # Retry configuration
+          register: upload_results
+          retries: "{{ rh_upload_max_retries }}"
+          delay: "{{ rh_upload_retry_backoff }}"
+          until: upload_results.status in [200, 201]
+
+          # Enable logging for testing (password logged via url_password, not in plain text)
+          no_log: true  # noqa: no-log-password
+          delegate_to: localhost
+
+        - name: "Display Red Hat API responses"
+          ansible.builtin.debug:
+            msg: |
+              ===================================================================
+              PART {{ idx + 1 }}/{{ upload_results.results | length }} UPLOAD RESULT
+              ===================================================================
+              Status: HTTP {{ item.status }}
+              Attempts: {{ item.attempts }}
+
+              Red Hat API Response:
+              {% if item.json is defined and item.json | length > 0 %}
+                Case Number:      {{ item.json[0].caseNumber }}
+                Attachment UUID:  {{ item.json[0].uuid }}
+                File Name:        {{ item.json[0].fileName }}
+                File Size:        {{ item.json[0].size }} bytes ({{ item.json[0].sizeKB }} KB)
+                Upload Date:      {{ item.json[0].createdDate }}
+                Created By:       {{ item.json[0].createdBy }}
+                SHA256 Checksum:  {{ item.json[0].checksum }}
+                Download Link:    {{ item.json[0].link }}
+              {% else %}
+                {{ item.content | default('No response content') }}
+              {% endif %}
+              ===================================================================
+          loop: "{{ upload_results.results }}"
+          loop_control:
+            index_var: idx
+            label: "Part {{ idx + 1 }}"
+
+        - name: Display upload summary
+          ansible.builtin.debug:
+            msg: |
+              ===================================================================
+              UPLOAD TEST SUMMARY (URI MODULE)
+              ===================================================================
+              Total Files: {{ upload_results.results | length }}
+              Successful: {{ upload_results.results | selectattr('status', 'in', [200, 201]) | list | length }}
+              Failed: {{ upload_results.results | rejectattr('status', 'in', [200, 201]) | list | length }}
+
+              Test Directory: {{ test_work_dir.path }}
+              Log Files: {{ mustgather_upload_logs }}
+
+              To view detailed API responses:
+                find {{ mustgather_upload_logs }} -name "part*_response.json" -type f
+              ===================================================================
+
+        - name: Verify all uploads succeeded
+          ansible.builtin.assert:
+            that:
+              - upload_results.results | selectattr('status', 'in', [200, 201]) | list | length == test_files.files | length
+            success_msg: "✓ Upload test PASSED: All {{ test_files.files | length }} part(s) uploaded successfully"
+            fail_msg: "✗ Upload test FAILED: {{ upload_results.results | rejectattr('status', 'in', [200, 201]) | list | length }} of {{ test_files.files | length }} parts failed"
+
+      rescue:
+        - name: Display upload test failure details
+          ansible.builtin.debug:
+            msg: |
+              ===================================================================
+              UPLOAD TEST FAILED (URI MODULE)
+              ===================================================================
+              {% if upload_results is defined %}
+              Upload Results:
+              {{ upload_results | to_nice_json }}
+              {% else %}
+              Test setup or execution error
+              {% endif %}
+              ===================================================================
+
+        - name: Fail playbook on upload errors
+          ansible.builtin.fail:
+            msg: "Upload test failed - see details above"
+
+      always:
+        - name: Display test cleanup information
+          ansible.builtin.debug:
+            msg: |
+              Test artifacts preserved at: {{ test_work_dir.path }}
+
+              To manually cleanup:
+                rm -rf {{ test_work_dir.path }}
+
+              To review logs:
+                ls -lh {{ mustgather_upload_logs }}
+                cat {{ mustgather_upload_logs }}/part*_response.json

@@ -17,14 +17,28 @@ This is an enterprise Ansible Automation Platform (AAP) project for managing Kub
 
 ## Development Commands
 
+### Python Environment
+
+**IMPORTANT:** Always use the Python virtual environment located at `/development/git/ansible-playground/.venv`
+
+```bash
+# Activate virtual environment
+source .venv/bin/activate
+
+# Verify you're using the correct Python
+which python  # Should show: /development/git/ansible-playground/.venv/bin/python
+```
+
+All Python commands, pip installations, and tool executions must be run using the virtual environment Python interpreter at `.venv/bin/python`.
+
 ### Setup and Installation
 
 ```bash
-# Install Python dependencies
-python -m pip install -r requirements.txt
+# Install Python dependencies (using venv)
+.venv/bin/python -m pip install -r requirements.txt
 
 # Install Ansible collections
-ansible-galaxy collection install -r requirements.yml
+.venv/bin/ansible-galaxy collection install -r requirements.yml
 
 # Build execution environment
 chmod +x build.sh
@@ -33,25 +47,42 @@ chmod +x build.sh
 
 ### Testing and Quality
 
-```bash
-# Code formatting and linting
-black .
-flake8 .
-mypy .
+**IMPORTANT:** All linting and formatting tools must be run using the virtual environment.
 
-# Ansible-specific linting
-ansible-lint
+```bash
+# Code formatting (black) - run on Python files
+.venv/bin/black .
+
+# Import sorting (isort) - run on Python files
+.venv/bin/isort .
+
+# Python linting (flake8) - run on Python files
+.venv/bin/flake8 .
+
+# Type checking (mypy) - run on Python files
+.venv/bin/mypy .
+
+# Ansible-specific linting - run on playbooks and roles
+.venv/bin/ansible-lint
 
 # YAML linting
-yamllint .
+.venv/bin/yamllint .
 
 # Run tests
-pytest
+.venv/bin/pytest
 
 # Tox testing environments
-tox -e podman  # Build with Podman
-tox -e docker  # Build with Docker
+.venv/bin/tox -e podman  # Build with Podman
+.venv/bin/tox -e docker  # Build with Docker
 ```
+
+**Automatic Quality Checks:**
+
+When modifying files, automatically run appropriate tools:
+
+- **Python files** (`.py`, custom modules in `roles/*/library/`): Run black, isort, flake8
+- **Ansible files** (playbooks `*.yml`, roles, tasks): Run ansible-lint
+- **All changes**: Run ansible-lint on affected playbooks/roles
 
 ### Running Playbooks
 
@@ -216,3 +247,87 @@ This project is designed for **Ansible Automation Platform (AAP)** deployment:
 ### Communication Style
 
 When working with this codebase, maintain a formal, professional tone appropriate for enterprise environments. Emphasize maintainability, clarity, and operational soundness in all changes.
+
+### Documentation Standards
+
+**IMPORTANT:** Follow these rules when working with documentation:
+
+- **No emojis or icons** - Documentation must be professional and text-only
+- **Ask before creating** - Always ask the user for approval before generating or modifying documentation files
+- **No unsolicited documentation** - Never proactively create README files, markdown documentation, or similar without explicit user request
+
+This applies to all documentation including:
+
+- README files
+- Markdown documentation (*.md)
+- Code comments and docstrings (emojis prohibited)
+- Commit messages (emojis prohibited)
+
+## Claude Code Workflow Requirements
+
+### Virtual Environment Usage
+
+**CRITICAL:** All Python and Ansible commands MUST use the virtual environment at `/development/git/ansible-playground/.venv`
+
+- Python interpreter: `.venv/bin/python`
+- Pip: `.venv/bin/pip`
+- Ansible tools: `.venv/bin/ansible`, `.venv/bin/ansible-playbook`, `.venv/bin/ansible-lint`, `.venv/bin/ansible-galaxy`
+- Linting tools: `.venv/bin/black`, `.venv/bin/isort`, `.venv/bin/flake8`, `.venv/bin/mypy`
+
+### Automatic Quality Enforcement
+
+After making code changes, automatically run appropriate tools:
+
+**For Python files** (`.py` files, modules in `roles/*/library/`, filter plugins):
+
+1. `.venv/bin/isort <file>` - Sort imports
+2. `.venv/bin/black <file>` - Format code
+3. `.venv/bin/flake8 <file>` - Check for linting issues
+
+**For Ansible files** (playbooks, roles, tasks):
+
+1. `.venv/bin/ansible-lint <file-or-directory>` - Lint Ansible content
+
+These tools run automatically without requiring user approval (configured in `.claude/settings.local.json`).
+
+### Expected Behavior
+
+When Claude Code modifies files, it should:
+
+1. Make the requested changes
+2. Automatically run the appropriate quality tools based on file type
+3. Fix any issues found by the tools
+4. Report the results to the user
+
+This ensures all code maintains consistent quality and follows project standards.
+
+### Git Commit Messages
+
+**IMPORTANT:** Do NOT add Claude Code attribution or co-authorship to commit messages.
+
+Commit messages should:
+
+- Follow conventional commit format when appropriate
+- Be concise and descriptive
+- Focus on the "why" rather than the "what"
+- Match the repository's existing commit style
+- **NOT include** any Claude Code branding, attribution, or co-authorship footers
+
+Bad example (DO NOT USE):
+
+```text
+Add new feature
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+```
+
+Good example:
+
+```text
+Add etcd defragmentation monitoring
+
+Implements health check validation before and after defrag operations
+to ensure cluster stability.
+```

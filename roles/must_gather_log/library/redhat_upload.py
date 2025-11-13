@@ -21,15 +21,9 @@ import time
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
-from urllib.request import (
-    BaseHandler,
-    HTTPBasicAuthHandler,
-    HTTPPasswordMgrWithDefaultRealm,
-    ProxyHandler,
-    Request,
-    build_opener,
-    install_opener,
-)
+from urllib.request import (BaseHandler, HTTPBasicAuthHandler,
+                            HTTPPasswordMgrWithDefaultRealm,
+                            Request, build_opener, install_opener)
 
 from ansible.module_utils.basic import AnsibleModule
 
@@ -306,16 +300,15 @@ class RedHatUploadController:
                 # Create log file with timestamp
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 log_file = os.path.join(
-                    self.log_dir,
-                    f"redhat_upload_{self.case_id}_{timestamp}.log"
+                    self.log_dir, f"redhat_upload_{self.case_id}_{timestamp}.log"
                 )
 
                 # File handler with detailed formatting
                 fh = logging.FileHandler(log_file)
                 fh.setLevel(logging.DEBUG)
                 formatter = logging.Formatter(
-                    '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S'
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S",
                 )
                 fh.setFormatter(formatter)
                 logger.addHandler(fh)
@@ -324,8 +317,12 @@ class RedHatUploadController:
                 logger.info(f"Upload session started for case {self.case_id}")
                 logger.info(f"Archive pattern: {self.archive_pattern}")
                 logger.info(f"Upload URL: {self.upload_url}")
-                logger.info(f"Proxy HTTP: {self.proxy_http if self.proxy_http else 'None'}")
-                logger.info(f"Proxy HTTPS: {self.proxy_https if self.proxy_https else 'None'}")
+                logger.info(
+                    f"Proxy HTTP: {self.proxy_http if self.proxy_http else 'None'}"
+                )
+                logger.info(
+                    f"Proxy HTTPS: {self.proxy_https if self.proxy_https else 'None'}"
+                )
                 logger.info(f"Max retries: {self.max_retry_attempts}")
                 logger.info(f"Retry backoff: {self.retry_backoff_base}s")
 
@@ -335,20 +332,32 @@ class RedHatUploadController:
         return logger
 
     def _setup_opener(self):
-        """Setup HTTP opener with proxy and authentication handlers."""
+        """Setup HTTP opener with proxy and authentication handlers.
+
+        Proxy handling strategy:
+        - Use environment variables for proxy (urllib's default mechanism)
+        - DO NOT use ProxyHandler - it conflicts with env vars and breaks HTTPS CONNECT
+        - Environment variables must be set BEFORE creating auth handlers
+        - This allows urllib to handle proxy tunneling while auth handler handles API auth
+        """
+        # Set proxy environment variables (urllib's native proxy mechanism)
+        # Must be set before creating any handlers
+        if self.proxy_http:
+            os.environ["http_proxy"] = self.proxy_http
+            os.environ["HTTP_PROXY"] = self.proxy_http
+        if self.proxy_https:
+            os.environ["https_proxy"] = self.proxy_https
+            os.environ["HTTPS_PROXY"] = self.proxy_https
+        if self.proxy_no:
+            os.environ["no_proxy"] = self.proxy_no
+            os.environ["NO_PROXY"] = self.proxy_no
+
         handlers: List[BaseHandler] = []
 
-        # Proxy configuration
-        # ProxyHandler alone is sufficient - environment variables cause auth issues
-        proxy_dict = {}
-        if self.proxy_http:
-            proxy_dict["http"] = self.proxy_http
-        if self.proxy_https:
-            proxy_dict["https"] = self.proxy_https
-        if proxy_dict:
-            handlers.append(ProxyHandler(proxy_dict))
+        # DO NOT add ProxyHandler - let urllib use environment variables
+        # ProxyHandler + environment variables causes conflicts
 
-        # Authentication
+        # Authentication (configured AFTER proxy environment variables are set)
         if self.api_token:
             # Token-based authentication (Bearer token in header)
             # Will be handled in _build_request
@@ -365,6 +374,9 @@ class RedHatUploadController:
         if handlers:
             opener = build_opener(*handlers)
             install_opener(opener)
+        else:
+            # Even with no handlers, install default opener to pick up env vars
+            install_opener(build_opener())
 
     def _build_request(self, file_path: str, description: str) -> Tuple[Request, bytes]:
         """Build multipart/form-data request for file upload.
@@ -445,7 +457,9 @@ class RedHatUploadController:
             # Python's urllib will automatically use CONNECT method for HTTPS through HTTP proxy
 
             # Execute request
-            response = urllib.request.urlopen(request, timeout=timeout, context=ssl_context)
+            response = urllib.request.urlopen(
+                request, timeout=timeout, context=ssl_context
+            )
 
             http_code = response.getcode()
             response_body = response.read().decode("utf-8", errors="ignore")
@@ -590,7 +604,9 @@ class RedHatUploadController:
         file_size_mb = file_size / (1024 * 1024)
 
         self.module.log(f"Uploading part {part_number}/{total_parts}: {filename}")
-        self.logger.info(f"Starting upload - Part {part_number}/{total_parts}: {filename} ({file_size_mb:.2f} MB)")
+        self.logger.info(
+            f"Starting upload - Part {part_number}/{total_parts}: {filename} ({file_size_mb:.2f} MB)"
+        )
 
         attempt = 1
         backoff = self.retry_backoff_base
@@ -600,17 +616,23 @@ class RedHatUploadController:
                 self.module.log(
                     f"Retry attempt {attempt}/{self.max_retry_attempts} for part {part_number} after {backoff}s delay"
                 )
-                self.logger.warning(f"Retry attempt {attempt}/{self.max_retry_attempts} for part {part_number} after {backoff}s delay")
+                self.logger.warning(
+                    f"Retry attempt {attempt}/{self.max_retry_attempts} for part {part_number} after {backoff}s delay"
+                )
                 time.sleep(backoff)
                 backoff = backoff * 2
 
             # Build request
             try:
-                self.logger.debug(f"Building request for part {part_number}, attempt {attempt}")
+                self.logger.debug(
+                    f"Building request for part {part_number}, attempt {attempt}"
+                )
                 request, _ = self._build_request(file_path, description)
                 self.logger.debug(f"Request built successfully for part {part_number}")
             except Exception as e:
-                self.logger.error(f"Failed to build request for part {part_number} (attempt {attempt}): {str(e)}")
+                self.logger.error(
+                    f"Failed to build request for part {part_number} (attempt {attempt}): {str(e)}"
+                )
                 if attempt < self.max_retry_attempts:
                     self.module.warn(
                         f"Failed to build request for part {part_number} (attempt {attempt}): {str(e)}"
@@ -618,7 +640,9 @@ class RedHatUploadController:
                     attempt += 1
                     continue
                 else:
-                    self.logger.error(f"Exhausted retries building request for part {part_number}")
+                    self.logger.error(
+                        f"Exhausted retries building request for part {part_number}"
+                    )
                     return {
                         "part": part_number,
                         "file": filename,
@@ -629,11 +653,15 @@ class RedHatUploadController:
                     }
 
             # Execute request
-            self.logger.debug(f"Executing upload request for part {part_number}, attempt {attempt}")
+            self.logger.debug(
+                f"Executing upload request for part {part_number}, attempt {attempt}"
+            )
             http_code, response_body, error = self._execute_upload_request(
                 request, self.timeout
             )
-            self.logger.debug(f"Upload request completed - HTTP {http_code}, error: {error}")
+            self.logger.debug(
+                f"Upload request completed - HTTP {http_code}, error: {error}"
+            )
 
             # Handle connection errors
             if error is not None:
@@ -662,7 +690,9 @@ class RedHatUploadController:
                 self.module.log(
                     f"Successfully uploaded part {part_number}/{total_parts} (HTTP {http_code})"
                 )
-                self.logger.info(f"✓ Upload SUCCESS - Part {part_number}/{total_parts} (HTTP {http_code}, attempt {attempt})")
+                self.logger.info(
+                    f"✓ Upload SUCCESS - Part {part_number}/{total_parts} (HTTP {http_code}, attempt {attempt})"
+                )
                 return {
                     "part": part_number,
                     "file": filename,
@@ -676,7 +706,9 @@ class RedHatUploadController:
                 self.module.warn(
                     f"Retryable error HTTP {http_code} for part {part_number} (attempt {attempt})"
                 )
-                self.logger.warning(f"Retryable error HTTP {http_code} for part {part_number} (attempt {attempt}) - Response: {response_body[:200] if response_body else 'N/A'}")
+                self.logger.warning(
+                    f"Retryable error HTTP {http_code} for part {part_number} (attempt {attempt}) - Response: {response_body[:200] if response_body else 'N/A'}"
+                )
 
                 if attempt < self.max_retry_attempts:
                     attempt += 1
@@ -685,7 +717,9 @@ class RedHatUploadController:
                     self.module.log(
                         f"Upload failed after {attempt} attempts for part {part_number}: HTTP {http_code}"
                     )
-                    self.logger.error(f"✗ Upload FAILED - Part {part_number} exhausted retries (HTTP {http_code}, {attempt} attempts)")
+                    self.logger.error(
+                        f"✗ Upload FAILED - Part {part_number} exhausted retries (HTTP {http_code}, {attempt} attempts)"
+                    )
                     result = {
                         "part": part_number,
                         "file": filename,
@@ -703,7 +737,9 @@ class RedHatUploadController:
                 self.module.log(
                     f"Non-retryable error HTTP {http_code} for part {part_number}"
                 )
-                self.logger.error(f"✗ Upload FAILED - Part {part_number} non-retryable error (HTTP {http_code}, attempt {attempt}) - Response: {response_body[:200] if response_body else 'N/A'}")
+                self.logger.error(
+                    f"✗ Upload FAILED - Part {part_number} non-retryable error (HTTP {http_code}, attempt {attempt}) - Response: {response_body[:200] if response_body else 'N/A'}"
+                )
                 result = {
                     "part": part_number,
                     "file": filename,
@@ -771,7 +807,9 @@ class RedHatUploadController:
             # Progress logging for large uploads
             if total_parts > 10 and part_number % 10 == 0:
                 elapsed = time.time() - self.upload_start_time
-                avg_time_per_part = elapsed / (part_number - 1) if part_number > 1 else 0
+                avg_time_per_part = (
+                    elapsed / (part_number - 1) if part_number > 1 else 0
+                )
                 remaining_parts = total_parts - (part_number - 1)
                 estimated_remaining_sec = avg_time_per_part * remaining_parts
                 estimated_remaining_min = estimated_remaining_sec / 60
@@ -822,8 +860,12 @@ class RedHatUploadController:
                 reason = part_result.get("reason", "unknown")
                 failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
 
-            reason_summary = ", ".join([f"{count} {reason}" for reason, count in failure_reasons.items()])
-            result["summary"] = f"{failure_count}/{total_parts} parts failed ({reason_summary})"
+            reason_summary = ", ".join(
+                [f"{count} {reason}" for reason, count in failure_reasons.items()]
+            )
+            result["summary"] = (
+                f"{failure_count}/{total_parts} parts failed ({reason_summary})"
+            )
 
         return result
 

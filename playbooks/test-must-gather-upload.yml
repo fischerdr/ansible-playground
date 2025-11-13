@@ -393,8 +393,8 @@
           ansible.builtin.assert:
             that:
               - upload_status.status == 'success'
-              - upload_status.failure_count == 0
-              - upload_status.success_count == upload_status.total_parts
+              - upload_status.failure_count | int == 0
+              - upload_status.success_count | int == upload_status.total_parts | int
             success_msg: "Upload test PASSED: All {{ upload_status.total_parts }} part(s) uploaded successfully"
             fail_msg: "Upload test FAILED: {{ upload_status.failure_count }} of {{ upload_status.total_parts }} parts failed"
 

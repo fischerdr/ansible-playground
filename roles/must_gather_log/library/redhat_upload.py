@@ -274,6 +274,7 @@ class RedHatUploadController:
         self.timeout = params.get("timeout", 300)
 
         self.results: List[Dict] = []
+        self.upload_start_time = None  # Track upload start for time estimates
 
         # Build upload URL
         # Red Hat API endpoint: https://api.access.redhat.com/support/v1/cases/<case_number>/attachments/
@@ -288,6 +289,20 @@ class RedHatUploadController:
         handlers: List[BaseHandler] = []
 
         # Proxy configuration
+        # Set environment variables for proxy (urllib needs these for HTTPS through proxy)
+        import os
+
+        if self.proxy_http:
+            os.environ['http_proxy'] = self.proxy_http
+            os.environ['HTTP_PROXY'] = self.proxy_http
+        if self.proxy_https:
+            os.environ['https_proxy'] = self.proxy_https
+            os.environ['HTTPS_PROXY'] = self.proxy_https
+        if self.proxy_no:
+            os.environ['no_proxy'] = self.proxy_no
+            os.environ['NO_PROXY'] = self.proxy_no
+
+        # Build proxy handler
         proxy_dict = {}
         if self.proxy_http:
             proxy_dict["http"] = self.proxy_http
@@ -358,6 +373,9 @@ class RedHatUploadController:
         headers = {
             "Content-Type": f"multipart/form-data; boundary={boundary}",
             "Accept": "application/json",
+            "User-Agent": "python-requests/2.28.0",  # Mimic standard HTTP client
+            "Content-Length": str(len(body)),
+            "Connection": "close",  # Avoid connection reuse issues
         }
 
         # Add Bearer token if provided
@@ -375,20 +393,22 @@ class RedHatUploadController:
         import urllib.request
 
         try:
-            # Create SSL context if certificate validation is disabled
-            ssl_context = None
+            # Create SSL context with proxy-friendly settings
+            ssl_context = ssl.create_default_context()
             if not self.validate_certs:
-                ssl_context = ssl.create_default_context()
                 ssl_context.check_hostname = False
                 ssl_context.verify_mode = ssl.CERT_NONE
+            else:
+                # Enable TLS 1.2+ for proxy compatibility
+                ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+                # Load default CA certificates for Red Hat API
+                ssl_context.load_default_certs()
+
+            # Proxy tunneling for HTTPS requires specific handling
+            # Python's urllib will automatically use CONNECT method for HTTPS through HTTP proxy
 
             # Execute request
-            if ssl_context:
-                response = urllib.request.urlopen(
-                    request, timeout=timeout, context=ssl_context
-                )
-            else:
-                response = urllib.request.urlopen(request, timeout=timeout)
+            response = urllib.request.urlopen(request, timeout=timeout, context=ssl_context)
 
             http_code = response.getcode()
             response_body = response.read().decode("utf-8", errors="ignore")
@@ -545,7 +565,7 @@ class RedHatUploadController:
 
             # Build request
             try:
-                request, body = self._build_request(file_path, description)
+                request, _ = self._build_request(file_path, description)
             except Exception as e:
                 if attempt < self.max_retry_attempts:
                     self.module.warn(
@@ -687,14 +707,41 @@ class RedHatUploadController:
         success_count = 0
         failure_count = 0
 
+        # Log total upload size for visibility
+        total_size_mb = sum(os.path.getsize(f) for f in archive_files) / (1024 * 1024)
+        self.module.log(
+            f"Starting upload of {total_parts} parts, total size: {total_size_mb:.2f} MB"
+        )
+
+        # Start time tracking
+        self.upload_start_time = time.time()
+
         for file_path in archive_files:
+            # Progress logging for large uploads
+            if total_parts > 10 and part_number % 10 == 0:
+                elapsed = time.time() - self.upload_start_time
+                avg_time_per_part = elapsed / (part_number - 1) if part_number > 1 else 0
+                remaining_parts = total_parts - (part_number - 1)
+                estimated_remaining_sec = avg_time_per_part * remaining_parts
+                estimated_remaining_min = estimated_remaining_sec / 60
+
+                self.module.log(
+                    f"Upload progress: {part_number}/{total_parts} "
+                    f"({success_count} success, {failure_count} failed) - "
+                    f"Est. remaining: {estimated_remaining_min:.1f} min"
+                )
+
             result = self.upload_file_with_retry(file_path, part_number, total_parts)
             self.results.append(result)
 
             if result.get("status") == "success":
                 success_count += 1
+                self.module.log(f"Part {part_number}/{total_parts}: ✓ Success")
             else:
                 failure_count += 1
+                self.module.warn(
+                    f"Part {part_number}/{total_parts}: ✗ Failed - {result.get('reason', 'unknown')}"
+                )
 
             part_number += 1
 

@@ -1,0 +1,4664 @@
+{
+  "swagger" : "2.0",
+  "info" : {
+    "version" : "v1",
+    "title" : "Support Services",
+    "description" : "Swagger documentation for external users",
+    "contact" : {
+      "name" : "Hydra Team",
+      "email" : "hydra-dev@redhat.com"
+    },
+    "x-audience" : "Partner & Customer"
+  },
+  "host" : "api.access.redhat.com",
+  "basePath" : "/support",
+  "tags" : [ {
+    "name" : "case",
+    "description" : "Case APIs"
+  }, {
+    "name" : "search",
+    "description" : "Search APIs"
+  }, {
+    "name" : "business hours",
+    "description" : "Business Hours APIs"
+  }, {
+    "name" : "Account",
+    "description" : "Account APIs"
+  }, {
+    "name" : "case attachments",
+    "description" : "Case Attachments APIs"
+  }, {
+    "name" : "sftp",
+    "description" : "Red Hat Secure FTP APIs"
+  } ],
+  "securityDefinitions" : {
+    "Bearer" : {
+      "type" : "apiKey",
+      "name" : "Authorization",
+      "in" : "header"
+    }
+  },
+  "schemes" : [ "https" ],
+  "paths" : {
+    "/v1/cases" : {
+      "post" : {
+        "tags" : [ "case" ],
+        "summary" : "Create new case",
+        "description" : "Create a case with the information posted in the content.",
+        "operationId" : "createCase",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "in" : "body",
+          "name" : "body",
+          "schema" : {
+            "$ref" : "#/definitions/Case"
+          },
+          "description" : "case details",
+          "required" : true
+        } ],
+        "responses" : {
+          "201" : {
+            "description" : "The location URI for the created case",
+            "schema" : {
+              "$ref" : "#/definitions/CaseLocation"
+            }
+          },
+          "403" : {
+            "description" : "Account mismatch.",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/cases/filter" : {
+      "post" : {
+        "tags" : [ "case" ],
+        "summary" : "Get Cases by filters",
+        "description" : "Retrieve the cases specified by the filter object passed as the content of the request.",
+        "operationId" : "getCases",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "in" : "body",
+          "name" : "body",
+          "description" : "case filters",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/definitions/CaseFilter"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "Cases founds are:",
+            "schema" : {
+              "$ref" : "#/definitions/CasesFilterResponse"
+            }
+          },
+          "403" : {
+            "description" : "Account mismatch.",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/cases/{caseNumber}" : {
+      "get" : {
+        "tags" : [ "case" ],
+        "summary" : "Get Case By Case Number",
+        "description" : "Retrieve the case based on the case number supplied in the path.",
+        "operationId" : "getCase",
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "caseNumber",
+          "in" : "path",
+          "description" : "case number",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "The case that was found",
+            "schema" : {
+              "$ref" : "#/definitions/Case"
+            }
+          },
+          "403" : {
+            "description" : "Account mismatch.",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "404" : {
+            "description" : "Case not found",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      },
+      "put" : {
+        "tags" : [ "case" ],
+        "summary" : "Update case",
+        "description" : "Update the case specified in the path with the content of the request.",
+        "operationId" : "updateCase",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "caseNumber",
+          "in" : "path",
+          "description" : "Case Number",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "in" : "body",
+          "name" : "body",
+          "description" : "case details",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/definitions/UpdateCaseRequest"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "The case that was updated"
+          },
+          "403" : {
+            "description" : "Account mismatch.",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "404" : {
+            "description" : "Case not found",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/cases/{caseNumber}/comments" : {
+      "get" : {
+        "tags" : [ "case" ],
+        "summary" : "Get Comments on case",
+        "description" : "Retrieve the comments on the case number specified in the path.",
+        "operationId" : "getCaseComments",
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "caseNumber",
+          "in" : "path",
+          "description" : "Case Number",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "name" : "startDate",
+          "in" : "query",
+          "description" : "Start Date",
+          "required" : false,
+          "type" : "string"
+        }, {
+          "name" : "endDate",
+          "in" : "query",
+          "description" : "End Date",
+          "required" : false,
+          "type" : "string"
+        }, {
+          "name" : "sortField",
+          "in" : "query",
+          "description" : "Sort Field",
+          "required" : false,
+          "type" : "string"
+        }, {
+          "name" : "sortOrder",
+          "in" : "query",
+          "description" : "Sort Order",
+          "required" : false,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "The required case that was found",
+            "schema" : {
+              "type" : "array",
+              "items" : {
+                "$ref" : "#/definitions/CaseComment"
+              }
+            }
+          },
+          "403" : {
+            "description" : "Account mismatch.",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "404" : {
+            "description" : "Case not found",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      },
+      "post" : {
+        "tags" : [ "case" ],
+        "summary" : "Create Comment on case",
+        "description" : "Add a comment to the case specified in the path with the content of the request.",
+        "operationId" : "createCaseComment",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "caseNumber",
+          "in" : "path",
+          "description" : "caseNumber",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "in" : "body",
+          "name" : "body",
+          "description" : "comment body",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/definitions/CaseComment"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "The case that was found",
+            "schema" : {
+              "$ref" : "#/definitions/CaseComment"
+            }
+          },
+          "403" : {
+            "description" : "Account mismatch.",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "404" : {
+            "description" : "Case not found",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/cases/{caseNumber}/comments/{commentId}" : {
+      "get" : {
+        "tags" : [ "case" ],
+        "summary" : "Get case comment by comment id",
+        "description" : "Retrieve the content specified by the case number and comment id in the path.",
+        "operationId" : "getCaseCommentById",
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "caseNumber",
+          "in" : "path",
+          "description" : "Case Number",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "name" : "commentId",
+          "in" : "path",
+          "description" : "Comment Id",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "Case comment",
+            "schema" : {
+              "$ref" : "#/definitions/CaseComment"
+            }
+          },
+          "403" : {
+            "description" : "Account mismatch.",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "404" : {
+            "description" : "Case or Comment not found",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/cases/{caseNumber}/externaltrackerupdates" : {
+      "get" : {
+        "tags" : [ "case" ],
+        "summary" : "List the externalUpdates on the specified case",
+        "description" : "Retrieve the externalUpdates on the case number specified in the path.",
+        "operationId" : "getExternalTrackerUpdates",
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "caseNumber",
+          "in" : "path",
+          "description" : "Case Number",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "name" : "startDate",
+          "in" : "query",
+          "description" : "Start Date",
+          "required" : false,
+          "type" : "string"
+        }, {
+          "name" : "endDate",
+          "in" : "query",
+          "description" : "End Date",
+          "required" : false,
+          "type" : "string"
+        }, {
+          "name" : "sortField",
+          "in" : "query",
+          "description" : "Sort Field",
+          "required" : false,
+          "type" : "string"
+        }, {
+          "name" : "sortOrder",
+          "in" : "query",
+          "description" : "Sort Order",
+          "required" : false,
+          "type" : "string"
+        }, {
+          "name" : "originatingSystem",
+          "in" : "query",
+          "description" : "Originating system",
+          "required" : false,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "Retrieve the externalUpdates on the case number specified in the path.",
+            "schema" : {
+              "$ref" : "#/definitions/ExternalTrackerUpdate"
+            }
+          },
+          "403" : {
+            "description" : "Account mismatch.",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "404" : {
+            "description" : "No ExternalTrackerUpdates found",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/cases/{caseNumber}/notifiedusers" : {
+      "post" : {
+        "tags" : [ "case" ],
+        "summary" : "Add notified users to case",
+        "description" : "Add notified users to the case specified by the case number in the path.",
+        "operationId" : "addNotifiedUsers",
+        "consumes" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "caseNumber",
+          "in" : "path",
+          "description" : "CaseNumber",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "in" : "body",
+          "name" : "body",
+          "description" : "Notified users to add",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/definitions/CaseExtNotifiedUsersType"
+          }
+        } ],
+        "responses" : {
+          "201" : {
+            "description" : "The notified user was added"
+          },
+          "403" : {
+            "description" : "Account mismatch.",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/cases/{caseNumber}/notifiedusers/{delUsername}" : {
+      "delete" : {
+        "tags" : [ "case" ],
+        "summary" : "Delete notified user from case",
+        "description" : "Remove the user specified by the ssoUsername parameter from the case.",
+        "operationId" : "removeNotifiedUsers",
+        "parameters" : [ {
+          "name" : "caseNumber",
+          "in" : "path",
+          "description" : "CaseNumber",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "name" : "delUsername",
+          "in" : "path",
+          "description" : "Case notified user to delete",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "Notified user was deleted"
+          },
+          "403" : {
+            "description" : "Account mismatch.",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/search/kcs" : {
+      "get" : {
+        "tags" : [ "search" ],
+        "summary" : "Search based on Search Criteria",
+        "description" : "Retrieves the list of documents from Solr based on the input request",
+        "operationId" : "getKcsSearchResults",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Solr query",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "Solr Response"
+          },
+          "500" : {
+            "description" : "Unable to fetch kcs data",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        }
+      }
+    },
+    "/search/v2/kcs" : {
+      "post" : {
+        "tags" : [ "search" ],
+        "summary" : "Search based on Search Criteria",
+        "description" : "Retrieves the list of documents from Solr based on the input request",
+        "operationId" : "getSolrV2SearchResult",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "in" : "body",
+          "name" : "body",
+          "description" : "Kcs search details",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/definitions/SolrSearchRequest"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "Solr Response"
+          },
+          "500" : {
+            "description" : "Unable to fetch kcs data",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        }
+      }
+    },
+    "/search/cases" : {
+      "get" : {
+        "tags" : [ "search" ],
+        "summary" : "Search cases based on Search Criteria",
+        "description" : "Retrieves the list of cases from Solr based on the input request",
+        "operationId" : "getSolrCasesSearchResult",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Solr query",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "name" : "partnerSearch",
+          "in" : "query",
+          "description" : "If you want to include partners accounts as well",
+          "required" : false,
+          "type" : "boolean"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "Solr Response"
+          },
+          "500" : {
+            "description" : "Unable to fetch cases from solr",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/search/v2/cases" : {
+      "post" : {
+        "tags" : [ "search" ],
+        "summary" : "Search cases based on Search Criteria",
+        "description" : "Retrieves the list of cases from Solr based on the input request",
+        "operationId" : "getSolrCasesSearchV2Result",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "in" : "body",
+          "name" : "body",
+          "description" : "cases search details",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/definitions/SolrCaseSearchRequest"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "Solr Response"
+          },
+          "500" : {
+            "description" : "Unable to fetch cases from solr",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/search/recommendations" : {
+      "get" : {
+        "tags" : [ "search" ],
+        "summary" : "Fetches Recommendation based on Search Criteria",
+        "description" : "Retrieves the list of recommendations from Solr based on the input request",
+        "operationId" : "getRecommendations",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "q",
+          "in" : "query",
+          "description" : "Input query",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "Recommendation Response"
+          },
+          "500" : {
+            "description" : "Unable to fetch recommendations",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      },
+      "post" : {
+        "tags" : [ "search" ],
+        "summary" : "Create Recommendations",
+        "description" : "Add a recommendation to the case as specified by the case number in the path.",
+        "operationId" : "createRecommendations",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "in" : "body",
+          "name" : "body",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/definitions/Recommendation"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "Recommendation Response"
+          },
+          "500" : {
+            "description" : "Unable to create recommendations",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/businesshours" : {
+      "get" : {
+        "tags" : [ "business hours" ],
+        "summary" : "Get Business Hours",
+        "description" : "Retrieves the list of business hours based on specified timezone.",
+        "operationId" : "getBusinessHours",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "timezone",
+          "in" : "query",
+          "description" : "Timezone",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "All the business hours",
+            "schema" : {
+              "$ref" : "#/definitions/BusinessHours"
+            }
+          },
+          "400" : {
+            "description" : "Invalid Mandatory Parameter:timezone",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "401" : {
+            "description" : "Unable to authenticate user",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "403" : {
+            "description" : "Invalid Permissions",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "404" : {
+            "description" : "No content found for requested timezone",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/accounts/current" : {
+      "get" : {
+        "tags" : [ "Account" ],
+        "summary" : "Find account by calling User",
+        "description" : "Returns the default account for the calling user.",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "responses" : {
+          "200" : {
+            "description" : "The returned account",
+            "schema" : {
+              "$ref" : "#/definitions/Account"
+            }
+          },
+          "400" : {
+            "description" : "Invalid request",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "403" : {
+            "description" : "Invalid permissions",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal server error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/accounts/customer/{partnerAccountNumber}" : {
+      "get" : {
+        "tags" : [ "Account" ],
+        "summary" : "List Customer Accounts for Partner",
+        "description" : "Retrieve the customer accounts for the account specified in the path.",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "partnerAccountNumber",
+          "in" : "path",
+          "description" : "Partner Account Number",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "List of Customer Accounts for Partner",
+            "schema" : {
+              "type" : "array",
+              "items" : {
+                "$ref" : "#/definitions/Account"
+              }
+            }
+          },
+          "400" : {
+            "description" : "Invalid request",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "403" : {
+            "description" : "Invalid permissions",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "404" : {
+            "description" : "Invalid partner account number",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal server error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/accounts/{accountNumber}" : {
+      "get" : {
+        "tags" : [ "Account" ],
+        "summary" : "Find account by number",
+        "description" : "Returns the account specified in the path.",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "accountNumber",
+          "in" : "path",
+          "description" : "account number",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "The returned account",
+            "schema" : {
+              "$ref" : "#/definitions/Account"
+            }
+          },
+          "400" : {
+            "description" : "Invalid request",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "403" : {
+            "description" : "Invalid permissions",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "404" : {
+            "description" : "Invalid account number",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal server error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/accounts/{accountNumber}/contacts" : {
+      "get" : {
+        "tags" : [ "Account" ],
+        "summary" : "Find contacts for an account",
+        "description" : "Retrieve the users associated with the account specified in the path.",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "accountNumber",
+          "in" : "path",
+          "description" : "account number",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "The returned contacts",
+            "schema" : {
+              "type" : "array",
+              "items" : {
+                "$ref" : "#/definitions/Contact"
+              }
+            }
+          },
+          "400" : {
+            "description" : "Invalid request",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "403" : {
+            "description" : "Invalid permissions",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "404" : {
+            "description" : "Invalid account number",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal server error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/accounts/partner/{customerAccountNumber}" : {
+      "get" : {
+        "tags" : [ "Account" ],
+        "summary" : "List Partner Accounts for Customer",
+        "description" : "Retrieve the partner accounts  for the account specified in the path.",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "customerAccountNumber",
+          "in" : "path",
+          "description" : "Customer Account Number",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "List of Partner Accounts for Customer",
+            "schema" : {
+              "type" : "array",
+              "items" : {
+                "$ref" : "#/definitions/Account"
+              }
+            }
+          },
+          "400" : {
+            "description" : "Invalid request",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "403" : {
+            "description" : "Invalid permissions",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "404" : {
+            "description" : "Invalid customer account number",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal server error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/accounts/{accountNumber}/casegroups/{groupNumber}/users" : {
+      "get" : {
+        "tags" : [ "Account" ],
+        "summary" : "Retrieve list of users for given case group",
+        "description" : "Retrieve the users on the account and group specified in the path.",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "accountNumber",
+          "in" : "path",
+          "description" : "Account Number",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "name" : "groupNumber",
+          "in" : "path",
+          "description" : "Group Number",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "List of users",
+            "schema" : {
+              "type" : "array",
+              "items" : {
+                "$ref" : "#/definitions/User"
+              }
+            }
+          },
+          "400" : {
+            "description" : "Invalid request",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "403" : {
+            "description" : "Invalid permissions",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "404" : {
+            "description" : "Invalid account number or case group number",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal server error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/cases/{caseNumber}/attachments/" : {
+      "get" : {
+        "tags" : [ "case attachments" ],
+        "summary" : "Get all attachment metadata",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "includeDeleted",
+          "in" : "query",
+          "description" : "flag to include deleted attachments in the response",
+          "required" : false,
+          "type" : "string"
+        }, {
+          "name" : "sortingField",
+          "in" : "query",
+          "description" : "Sorting Field Name like id, lastModifiedDate,createDate,sizeKB except size",
+          "required" : false,
+          "type" : "string"
+        }, {
+          "name" : "sortBy",
+          "in" : "query",
+          "description" : "Sort by desc/asc",
+          "required" : false,
+          "type" : "string"
+        }, {
+          "name" : "caseNumber",
+          "in" : "path",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "The case attachments metadata",
+            "schema" : {
+              "type" : "array",
+              "items" : {
+                "$ref" : "#/definitions/CaseAttachment"
+              }
+            }
+          },
+          "403" : {
+            "description" : "Account mismatch.",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      },
+      "post" : {
+        "tags" : [ "case attachments" ],
+        "summary" : "Upload a case attachment",
+        "consumes" : [ "multipart/form-data" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "caseNumber",
+          "in" : "path",
+          "description" : "Case number",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "The case attachments metadata",
+            "schema" : {
+              "type" : "array",
+              "items" : {
+                "$ref" : "#/definitions/CaseAttachment"
+              }
+            }
+          },
+          "403" : {
+            "description" : "Account mismatch.",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/cases/{caseNumber}/attachments/status" : {
+      "get" : {
+        "tags" : [ "case attachments" ],
+        "summary" : "Upload request status of all attachments for a given case number",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "caseNumber",
+          "in" : "path",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "Upload request status of all attachments"
+          },
+          "403" : {
+            "description" : "Account mismatch.",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/cases/{caseNumber}/attachments/{attachmentId}" : {
+      "head" : {
+        "tags" : [ "case attachments" ],
+        "summary" : "Check case attachment metadata exist or not",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "caseNumber",
+          "in" : "path",
+          "description" : "Case number",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "name" : "attachmentId",
+          "in" : "path",
+          "description" : "attachment Id",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "403" : {
+            "description" : "Account mismatch.",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "404" : {
+            "description" : "Attachment Id not found",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      },
+      "delete" : {
+        "tags" : [ "case attachments" ],
+        "summary" : "Delete attachment metadata",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "caseNumber",
+          "in" : "path",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "name" : "attachmentId",
+          "in" : "path",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "Attachment deleted successfully"
+          },
+          "403" : {
+            "description" : "Account mismatch.",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "404" : {
+            "description" : "Attachment Id not found",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/cases/{caseNumber}/attachments/{attachmentId}/status" : {
+      "get" : {
+        "tags" : [ "case attachments" ],
+        "summary" : "Upload request status",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "caseNumber",
+          "in" : "path",
+          "required" : true,
+          "type" : "string"
+        }, {
+          "name" : "attachmentId",
+          "in" : "path",
+          "required" : true,
+          "type" : "string"
+        } ],
+        "responses" : {
+          "403" : {
+            "description" : "Account mismatch.",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "404" : {
+            "description" : "Attachment Id not found",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/sftp/attachments/" : {
+      "get" : {
+        "tags" : [ "sftp" ],
+        "summary" : "List Sftp Attachments",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "name" : "path",
+          "in" : "query",
+          "description" : "Absolute Path for which you want to list files",
+          "required" : false,
+          "type" : "string"
+        }, {
+          "name" : "includeAll",
+          "in" : "query",
+          "description" : "Recursively lists all files if true. Allowed only for internal users",
+          "required" : false,
+          "type" : "boolean",
+          "default" : "false"
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "List of Attachments",
+            "schema" : {
+              "type" : "array",
+              "items" : {
+                "type" : "string",
+                "format" : "java.lang.String"
+              }
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "204" : {
+            "description" : "No attachments found"
+          },
+          "403" : {
+            "description" : "Forbidden",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/sftp/attachments/status" : {
+      "post" : {
+        "tags" : [ "sftp" ],
+        "summary" : "Get status for SFTP Attachment uploaded by user",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "in" : "body",
+          "name" : "body",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/definitions/SftpAttachmentStatusRequest"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "Attachment Status",
+            "schema" : {
+              "$ref" : "#/definitions/SftpAttachmentStatusRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "403" : {
+            "description" : "Forbidden",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "400" : {
+            "description" : "Invalid Request",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/sftp/token/" : {
+      "put" : {
+        "tags" : [ "sftp" ],
+        "summary" : "Update token for SFTP User",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "in" : "body",
+          "name" : "body",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/definitions/SftpTokenRequest"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "Updated token",
+            "schema" : {
+              "$ref" : "#/definitions/SftpLoginCredentialsRep"
+            }
+          },
+          "400" : {
+            "description" : "Invalid Request",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/sftp/token/reset" : {
+      "get" : {
+        "tags" : [ "sftp" ],
+        "summary" : "Reset token for SFTP User",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "responses" : {
+          "200" : {
+            "description" : "New token",
+            "schema" : {
+              "$ref" : "#/definitions/SftpLoginCredentialsRep"
+            }
+          },
+          "400" : {
+            "description" : "Invalid Request",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v1/sftp/token/upload/temporary" : {
+      "get" : {
+        "tags" : [ "sftp" ],
+        "summary" : "Create upload only SFTP Token for one time use",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "responses" : {
+          "200" : {
+            "description" : "User token",
+            "schema" : {
+              "$ref" : "#/definitions/SftpLoginCredentialsRep"
+            }
+          },
+          "400" : {
+            "description" : "Invalid Request",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    },
+    "/v2/sftp/token/" : {
+      "post" : {
+        "tags" : [ "sftp" ],
+        "summary" : "Create token for SFTP User",
+        "consumes" : [ "application/json" ],
+        "produces" : [ "application/json" ],
+        "parameters" : [ {
+          "in" : "body",
+          "name" : "body",
+          "description" : "body",
+          "required" : false,
+          "schema" : {
+            "$ref" : "#/definitions/SftpTokenRequest"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "User token",
+            "schema" : {
+              "$ref" : "#/definitions/SftpLoginCredentialsRep"
+            }
+          },
+          "400" : {
+            "description" : "Invalid Request",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "schema" : {
+              "$ref" : "#/definitions/ErrorRep"
+            }
+          }
+        },
+        "security" : [ { } ]
+      }
+    }
+  },
+  "definitions" : {
+    "SolrCaseSearchRequest" : {
+      "type" : "object",
+      "description" : "Solr case search request model",
+      "required" : [ "q", "exp" ],
+      "properties" : {
+        "q" : {
+          "type" : "string"
+        },
+        "expression" : {
+          "type" : "string"
+        },
+        "start" : {
+          "type" : "integer",
+          "format" : "int64"
+        },
+        "rows" : {
+          "type" : "integer",
+          "format" : "int64"
+        },
+        "clientName" : {
+          "type" : "string"
+        },
+        "partnerSearch" : {
+          "type" : "boolean"
+        }
+      },
+      "x-className" : {
+        "type" : "string",
+        "format" : "com.redhat.integration.model.solr.SolrCaseSearchRequest"
+      }
+    },
+    "SolrSearchRequest" : {
+      "type" : "object",
+      "description" : "Solr search request model",
+      "required" : [ "q", "exp" ],
+      "properties" : {
+        "q" : {
+          "type" : "string"
+        },
+        "expression" : {
+          "type" : "string"
+        },
+        "start" : {
+          "type" : "integer",
+          "format" : "int64"
+        },
+        "rows" : {
+          "type" : "integer",
+          "format" : "int64"
+        },
+        "clientName" : {
+          "type" : "string"
+        }
+      },
+      "x-className" : {
+        "type" : "string",
+        "format" : "com.redhat.integration.model.solr.SolrSearchRequest"
+      }
+    },
+    "Account" : {
+      "type" : "object",
+      "description" : "Account model",
+      "properties" : {
+        "accountId" : {
+          "type" : "string",
+          "description" : "accountId"
+        },
+        "accountKey" : {
+          "type" : "string",
+          "description" : "accountKey"
+        },
+        "accountNumber" : {
+          "type" : "string",
+          "description" : "accountNumber"
+        },
+        "accountAlias" : {
+          "type" : "string",
+          "description" : "accountAlias"
+        },
+        "accountMembers" : {
+          "type" : "array",
+          "description" : "accountMembers",
+          "items" : {
+            "$ref" : "#/definitions/AccountMember"
+          }
+        },
+        "accountStatus" : {
+          "type" : "string",
+          "description" : "accountStatus"
+        },
+        "additionalEnhancedEntitlementCount" : {
+          "type" : "number",
+          "format" : "double",
+          "description" : "additionalEnhancedEntitlementCount"
+        },
+        "businessHoursId" : {
+          "type" : "string",
+          "description" : "businessHoursId"
+        },
+        "csm" : {
+          "type" : "string",
+          "description" : "csm"
+        },
+        "csmUser" : {
+          "$ref" : "#/definitions/User"
+        },
+        "cannotAddAttachments" : {
+          "type" : "boolean",
+          "description" : "cannotAddAttachments",
+          "default" : false
+        },
+        "caseCount" : {
+          "type" : "number",
+          "format" : "double",
+          "description" : "caseCount"
+        },
+        "customerSegment" : {
+          "type" : "number",
+          "format" : "double",
+          "description" : "customerSegment"
+        },
+        "description" : {
+          "type" : "string",
+          "description" : "description"
+        },
+        "escalateToHomeGeoWith1StTouch" : {
+          "type" : "boolean",
+          "xml" : {
+            "name" : "escalateToHomeGeoWith1stTouch"
+          },
+          "description" : "escalateToHomeGeoWith1StTouch",
+          "default" : false
+        },
+        "escalateToHomeGeoWithoutFirstTouch" : {
+          "type" : "boolean",
+          "description" : "escalateToHomeGeoWithoutFirstTouch",
+          "default" : false
+        },
+        "escalationsInLast30Days" : {
+          "type" : "number",
+          "format" : "double",
+          "description" : "escalationsInLast30Days"
+        },
+        "escalationsInLast60Days" : {
+          "type" : "number",
+          "format" : "double",
+          "description" : "escalationsInLast60Days"
+        },
+        "expectsQuickInitialResponse" : {
+          "type" : "boolean",
+          "description" : "expectsQuickInitialResponse",
+          "default" : false
+        },
+        "gscsmSegment" : {
+          "type" : "string",
+          "description" : "gscsmSegment"
+        },
+        "salesSegment" : {
+          "type" : "string",
+          "description" : "salesSegment"
+        },
+        "hardwarePartner" : {
+          "type" : "boolean",
+          "description" : "hardwarePartner",
+          "default" : false
+        },
+        "hasAvailableEnhancedSLA" : {
+          "type" : "boolean",
+          "description" : "hasAvailableEnhancedSLA",
+          "default" : false
+        },
+        "hasChat" : {
+          "type" : "boolean",
+          "description" : "hasChat",
+          "default" : false
+        },
+        "hasConfirmedStatesideSupport" : {
+          "type" : "boolean",
+          "description" : "hasConfirmedStatesideSupport",
+          "default" : false
+        },
+        "hasEnhancedSLA" : {
+          "type" : "boolean",
+          "description" : "hasEnhancedSLA",
+          "default" : false
+        },
+        "hasGroupACLs" : {
+          "type" : "boolean",
+          "description" : "hasGroupACLs",
+          "default" : false
+        },
+        "hasPreferredSecureSupportAccount" : {
+          "type" : "boolean",
+          "description" : "hasPreferredSecureSupportAccount",
+          "default" : false
+        },
+        "holdSupport" : {
+          "type" : "boolean",
+          "description" : "holdSupport",
+          "default" : false
+        },
+        "identifyingAddressCountry" : {
+          "type" : "string",
+          "description" : "identifyingAddressCountry"
+        },
+        "identifyingAddressSuperRegion" : {
+          "type" : "string",
+          "description" : "identifyingAddressSuperRegion"
+        },
+        "isPartner" : {
+          "type" : "boolean",
+          "description" : "isPartner",
+          "default" : false
+        },
+        "isFocusedPartner" : {
+          "type" : "boolean",
+          "description" : "isFocusedPartner",
+          "default" : false
+        },
+        "isActive" : {
+          "type" : "boolean",
+          "description" : "isActive",
+          "default" : false
+        },
+        "npsScore" : {
+          "type" : "number",
+          "format" : "double",
+          "description" : "npsScore"
+        },
+        "name" : {
+          "type" : "string",
+          "description" : "name"
+        },
+        "owner" : {
+          "$ref" : "#/definitions/User"
+        },
+        "ownerId" : {
+          "type" : "string",
+          "description" : "ownerId"
+        },
+        "parent" : {
+          "$ref" : "#/definitions/Account"
+        },
+        "parentId" : {
+          "type" : "string",
+          "description" : "parentId"
+        },
+        "remainingEnhancedEntitlementCases" : {
+          "type" : "number",
+          "format" : "double",
+          "description" : "remainingEnhancedEntitlementCases"
+        },
+        "requireCGroupOnCreate" : {
+          "type" : "boolean",
+          "description" : "requireCGroupOnCreate",
+          "default" : false
+        },
+        "responseTime" : {
+          "type" : "number",
+          "format" : "double",
+          "description" : "responseTime"
+        },
+        "secureSupport" : {
+          "type" : "boolean",
+          "description" : "secureSupport",
+          "default" : false
+        },
+        "securedEnvironment" : {
+          "type" : "boolean",
+          "description" : "securedEnvironment",
+          "default" : false
+        },
+        "specialHandlingRequired" : {
+          "type" : "boolean",
+          "description" : "specialHandlingRequired",
+          "default" : false
+        },
+        "strategic" : {
+          "type" : "boolean",
+          "description" : "strategic",
+          "default" : false
+        },
+        "superRegion" : {
+          "type" : "string",
+          "description" : "superRegion"
+        },
+        "supportPartner" : {
+          "type" : "boolean",
+          "description" : "supportPartner",
+          "default" : false
+        },
+        "tactical" : {
+          "type" : "boolean",
+          "description" : "tactical",
+          "default" : false
+        },
+        "totalNumberOfEscalations" : {
+          "type" : "number",
+          "format" : "double",
+          "description" : "totalNumberOfEscalations"
+        },
+        "watchlist" : {
+          "type" : "boolean",
+          "description" : "watchlist",
+          "default" : false
+        },
+        "isInternal" : {
+          "type" : "boolean",
+          "description" : "isInternal",
+          "default" : false
+        },
+        "csmUserId" : {
+          "type" : "string",
+          "description" : "csmUserId"
+        },
+        "csmUserName" : {
+          "type" : "string",
+          "description" : "csmUserName"
+        },
+        "csmUserSSOName" : {
+          "type" : "string",
+          "description" : "csmUserSSOName"
+        },
+        "subTerritory" : {
+          "type" : "string",
+          "description" : "subTerritory"
+        },
+        "accountNumberLink" : {
+          "type" : "string",
+          "description" : "accountNumberLink"
+        },
+        "informManagement" : {
+          "type" : "boolean",
+          "description" : "informManagement",
+          "default" : false
+        },
+        "gcsActiveUserCount" : {
+          "type" : "number",
+          "format" : "double",
+          "description" : "gcsActiveUserCount"
+        },
+        "gcsDescription" : {
+          "type" : "string",
+          "description" : "gcsDescription"
+        },
+        "gcsEngagementStartDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "gcsEngagementStartDate"
+        },
+        "gcsHealth" : {
+          "type" : "number",
+          "format" : "double",
+          "description" : "gcsHealth"
+        },
+        "gcsHealthExplanation" : {
+          "type" : "string",
+          "description" : "gcsHealthExplanation"
+        },
+        "gcsHighTouchModel" : {
+          "type" : "string",
+          "description" : "gcsHighTouchModel"
+        },
+        "gcsLocalization" : {
+          "type" : "string",
+          "description" : "gcsLocalization"
+        },
+        "gcsOnboardingStatus" : {
+          "type" : "string",
+          "description" : "gcsOnboardingStatus"
+        },
+        "gcsOptOutReason" : {
+          "type" : "string",
+          "description" : "gcsOptOutReason"
+        },
+        "gcsSSICenter" : {
+          "type" : "string",
+          "description" : "gcsSSICenter"
+        },
+        "gcsStatus" : {
+          "type" : "string",
+          "description" : "gcsStatus"
+        },
+        "gcsMasterRenewalDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "gcsMasterRenewalDate"
+        },
+        "gcsWelcomedDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "gcsWelcomedDate"
+        },
+        "hasGoldenTicket" : {
+          "type" : "boolean",
+          "description" : "hasGoldenTicket",
+          "default" : false
+        },
+        "enhancedDelivery" : {
+          "type" : "boolean",
+          "description" : "enhancedDelivery",
+          "default" : false
+        },
+        "restrictAttachmentDownloads" : {
+          "type" : "boolean",
+          "description" : "restrictAttachmentDownloads",
+          "default" : false
+        },
+        "subscriptionAbuse" : {
+          "type" : "boolean",
+          "description" : "subscriptionAbuse",
+          "default" : false
+        },
+        "remoteSessionTermsAcked" : {
+          "type" : "boolean",
+          "description" : "remoteSessionTermsAcked",
+          "default" : false
+        }
+      },
+      "title" : "Account"
+    },
+    "User" : {
+      "type" : "object",
+      "description" : "User model",
+      "properties" : {
+        "id" : {
+          "type" : "string",
+          "description" : "id"
+        },
+        "aboutMe" : {
+          "type" : "string",
+          "description" : "aboutMe"
+        },
+        "account" : {
+          "$ref" : "#/definitions/Account"
+        },
+        "accountId" : {
+          "type" : "string",
+          "description" : "accountId"
+        },
+        "accountNumber" : {
+          "type" : "string",
+          "description" : "accountNumber"
+        },
+        "alias" : {
+          "type" : "string",
+          "description" : "alias"
+        },
+        "callCenterId" : {
+          "type" : "string",
+          "description" : "callCenterId"
+        },
+        "city" : {
+          "type" : "string",
+          "description" : "city"
+        },
+        "contact" : {
+          "$ref" : "#/definitions/Contact"
+        },
+        "contactId" : {
+          "type" : "string",
+          "description" : "contactId"
+        },
+        "contactNumberRef" : {
+          "type" : "string",
+          "description" : "contactNumberRef"
+        },
+        "contactNumber" : {
+          "type" : "string",
+          "description" : "contactNumber"
+        },
+        "country" : {
+          "type" : "string",
+          "description" : "country"
+        },
+        "countryCustom" : {
+          "type" : "string",
+          "description" : "countryCustom"
+        },
+        "email" : {
+          "type" : "string",
+          "description" : "email"
+        },
+        "explicitKerberosName" : {
+          "type" : "string",
+          "description" : "explicitKerberosName"
+        },
+        "fifthLevelManagerUsername" : {
+          "type" : "string",
+          "description" : "fifthLevelManagerUsername"
+        },
+        "firstName" : {
+          "type" : "string",
+          "description" : "firstName"
+        },
+        "firstNameCustom" : {
+          "type" : "string",
+          "description" : "firstNameCustom"
+        },
+        "fourthLevelManagerUsername" : {
+          "type" : "string",
+          "description" : "fourthLevelManagerUsername"
+        },
+        "fullName" : {
+          "type" : "string",
+          "description" : "fullName"
+        },
+        "fullTitle" : {
+          "type" : "string",
+          "description" : "fullTitle"
+        },
+        "gssCostcenterName" : {
+          "type" : "string",
+          "description" : "gssCostcenterName"
+        },
+        "genesysUsername" : {
+          "type" : "string",
+          "description" : "genesysUsername"
+        },
+        "ircNick" : {
+          "type" : "string",
+          "description" : "ircNick"
+        },
+        "itarUser" : {
+          "type" : "boolean",
+          "description" : "itarUser",
+          "default" : false
+        },
+        "inGSS" : {
+          "type" : "string",
+          "description" : "inGSS"
+        },
+        "isActive" : {
+          "type" : "boolean",
+          "description" : "isActive",
+          "default" : false
+        },
+        "kerberosName" : {
+          "type" : "string",
+          "description" : "kerberosName"
+        },
+        "lastName" : {
+          "type" : "string",
+          "description" : "lastName"
+        },
+        "lastNameCustom" : {
+          "type" : "string",
+          "description" : "lastNameCustom"
+        },
+        "manager" : {
+          "$ref" : "#/definitions/User"
+        },
+        "managerId" : {
+          "type" : "string",
+          "description" : "managerId"
+        },
+        "userRoleId" : {
+          "type" : "string",
+          "description" : "userRoleId"
+        },
+        "managerSID" : {
+          "type" : "string",
+          "description" : "managerSID"
+        },
+        "mobilePhone" : {
+          "type" : "string",
+          "description" : "mobilePhone"
+        },
+        "name" : {
+          "type" : "string",
+          "description" : "name"
+        },
+        "officeLocation" : {
+          "type" : "string",
+          "description" : "officeLocation"
+        },
+        "outOfOfficeChangedBy" : {
+          "type" : "string",
+          "description" : "outOfOfficeChangedBy"
+        },
+        "outOfOffice" : {
+          "type" : "boolean",
+          "description" : "outOfOffice",
+          "default" : false
+        },
+        "outOfOfficeChangedOn" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "outOfOfficeChangedOn"
+        },
+        "phone" : {
+          "type" : "string",
+          "description" : "phone"
+        },
+        "rhatLocation" : {
+          "type" : "string",
+          "description" : "rhatLocation"
+        },
+        "redhatComEmailAddress" : {
+          "type" : "string",
+          "description" : "redhatComEmailAddress"
+        },
+        "region" : {
+          "type" : "string",
+          "description" : "region"
+        },
+        "ssoUsername" : {
+          "type" : "string",
+          "description" : "ssoUsername"
+        },
+        "secondLevelManagerUsername" : {
+          "type" : "string",
+          "description" : "secondLevelManagerUsername"
+        },
+        "sixthLevelManagerUsername" : {
+          "type" : "string",
+          "description" : "sixthLevelManagerUsername"
+        },
+        "superRegion" : {
+          "type" : "string",
+          "description" : "superRegion"
+        },
+        "thirdLevelManagerUsername" : {
+          "type" : "string",
+          "description" : "thirdLevelManagerUsername"
+        },
+        "title" : {
+          "type" : "string",
+          "description" : "title"
+        },
+        "userName" : {
+          "type" : "string",
+          "description" : "userName"
+        },
+        "bomgarUsername" : {
+          "type" : "string",
+          "description" : "bomgarUsername"
+        },
+        "canWorkNightShift" : {
+          "type" : "boolean",
+          "description" : "canWorkNightShift",
+          "default" : false
+        },
+        "timeZone" : {
+          "type" : "string",
+          "description" : "timeZone"
+        },
+        "isManager" : {
+          "type" : "boolean",
+          "description" : "isManager",
+          "default" : false
+        },
+        "virtualOffice" : {
+          "type" : "string",
+          "description" : "virtualOffice"
+        },
+        "department" : {
+          "type" : "string",
+          "description" : "department"
+        },
+        "outOfOfficeStart" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "outOfOfficeStart"
+        },
+        "outOfOfficeEnd" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "outOfOfficeEnd"
+        }
+      },
+      "title" : "User"
+    },
+    "ErrorRep" : {
+      "type" : "object",
+      "description" : "Error model",
+      "properties" : {
+        "internalErrorCode" : {
+          "type" : "string"
+        },
+        "message" : {
+          "type" : "string"
+        },
+        "detailMessage" : {
+          "type" : "string"
+        },
+        "recommendations" : {
+          "type" : "array",
+          "items" : {
+            "type" : "string"
+          }
+        }
+      },
+      "title" : "ErrorRep"
+    },
+    "AccountMember" : {
+      "type" : "object",
+      "description" : "Account member model",
+      "properties" : {
+        "id" : {
+          "type" : "string",
+          "description" : "id"
+        },
+        "createdBy" : {
+          "$ref" : "#/definitions/User"
+        },
+        "createdById" : {
+          "type" : "string",
+          "description" : "createdById"
+        },
+        "createdDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "createdDate"
+        },
+        "lastModifiedBy" : {
+          "$ref" : "#/definitions/User"
+        },
+        "lastModifiedById" : {
+          "type" : "string",
+          "description" : "lastModifiedById"
+        },
+        "lastModifiedDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastModifiedDate"
+        },
+        "name" : {
+          "type" : "string",
+          "description" : "name"
+        },
+        "ownerId" : {
+          "type" : "string",
+          "description" : "ownerId"
+        },
+        "isDeleted" : {
+          "type" : "boolean",
+          "description" : "isDeleted",
+          "default" : false
+        },
+        "isAddToCaseTeam" : {
+          "type" : "boolean",
+          "description" : "isAddToCaseTeam",
+          "default" : false
+        },
+        "isEmailOnUpdates" : {
+          "type" : "boolean",
+          "description" : "isEmailOnUpdates",
+          "default" : false
+        },
+        "minimumSeverity" : {
+          "type" : "string",
+          "description" : "minimumSeverity"
+        },
+        "isNotifyOfNewCases" : {
+          "type" : "boolean",
+          "description" : "isNotifyOfNewCases",
+          "default" : false
+        },
+        "tamCaseStatus" : {
+          "type" : "string",
+          "description" : "tamCaseStatus"
+        },
+        "account" : {
+          "$ref" : "#/definitions/Account"
+        },
+        "member" : {
+          "$ref" : "#/definitions/User"
+        },
+        "role" : {
+          "type" : "string",
+          "description" : "role"
+        },
+        "tamEntitlement" : {
+          "$ref" : "#/definitions/Entitlement"
+        }
+      },
+      "title" : "AccountMember"
+    },
+    "CaseComment" : {
+      "type" : "object",
+      "description" : "Case comment model",
+      "required" : [ "id" ],
+      "properties" : {
+        "id" : {
+          "type" : "string",
+          "description" : "id"
+        },
+        "caseNumber" : {
+          "type" : "string",
+          "description" : "caseNumber"
+        },
+        "commentBody" : {
+          "type" : "string",
+          "description" : "commentBody"
+        },
+        "createdDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "createdDate"
+        },
+        "createdByType" : {
+          "type" : "string",
+          "description" : "createdByType"
+        },
+        "isDraft" : {
+          "type" : "boolean",
+          "description" : "isDraft",
+          "default" : false
+        },
+        "lastModifiedById" : {
+          "type" : "string",
+          "description" : "lastModifiedById"
+        },
+        "lastModifiedDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastModifiedDate"
+        },
+        "publishedDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "publishedDate"
+        },
+        "createdBy" : {
+          "type" : "string",
+          "description" : "createdBy"
+        },
+        "contentType" : {
+          "type" : "string",
+          "description" : "contentType"
+        },
+        "doNotChangeStatus" : {
+          "type" : "boolean",
+          "description" : "doNotChangeStatus",
+          "default" : false
+        }
+      },
+      "title" : "CaseComment"
+    },
+    "Case" : {
+      "type" : "object",
+      "description" : "Case model",
+      "required" : [ "description", "summary", "product", "version" ],
+      "properties" : {
+        "createdById" : {
+          "type" : "string",
+          "description" : "createdById"
+        },
+        "createdDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "createdDate"
+        },
+        "lastModifiedById" : {
+          "type" : "string",
+          "description" : "lastModifiedById"
+        },
+        "lastModifiedDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastModifiedDate"
+        },
+        "lastClosedAt" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastClosedAt"
+        },
+        "id" : {
+          "type" : "string",
+          "description" : "id"
+        },
+        "uri" : {
+          "type" : "string",
+          "description" : "RESTful URI for this case resource.  "
+        },
+        "summary" : {
+          "type" : "string",
+          "description" : "summary"
+        },
+        "actionPlan" : {
+          "type" : "string",
+          "description" : "actionPlan"
+        },
+        "description" : {
+          "type" : "string",
+          "description" : "description"
+        },
+        "status" : {
+          "type" : "string",
+          "description" : "status"
+        },
+        "product" : {
+          "type" : "string",
+          "description" : "product"
+        },
+        "version" : {
+          "type" : "string",
+          "description" : "version"
+        },
+        "caseType" : {
+          "type" : "string",
+          "description" : "caseType"
+        },
+        "accountNumberRef" : {
+          "type" : "string",
+          "description" : "accountNumberRef"
+        },
+        "openshiftClusterID" : {
+          "type" : "string",
+          "description" : "openshiftClusterID"
+        },
+        "openshiftClusterVersion" : {
+          "type" : "string",
+          "description" : "openshiftClusterVersion"
+        },
+        "originatingSystem" : {
+          "type" : "string",
+          "description" : "originatingSystem"
+        },
+        "seSessionId" : {
+          "type" : "string",
+          "description" : "Unique ID used when creating a case (used predominantly by solution engine)"
+        },
+        "notes" : {
+          "type" : "string",
+          "description" : "Unique ID used when creating a case (used predominantly by solution engine)"
+        },
+        "customerEscalation" : {
+          "type" : "boolean",
+          "description" : "customerEscalation",
+          "default" : false
+        },
+        "contactName" : {
+          "type" : "string",
+          "description" : "contactName"
+        },
+        "contactSSOName" : {
+          "type" : "string",
+          "description" : "contactSSOName"
+        },
+        "origin" : {
+          "type" : "string",
+          "description" : "origin"
+        },
+        "ownerId" : {
+          "type" : "string",
+          "description" : "ownerId"
+        },
+        "name" : {
+          "type" : "string",
+          "description" : "name"
+        },
+        "clearPhoneNumber" : {
+          "type" : "boolean",
+          "description" : "clearPhoneNumber",
+          "default" : false
+        },
+        "phone" : {
+          "type" : "string",
+          "description" : "phone"
+        },
+        "phoneCountryCode" : {
+          "type" : "string",
+          "description" : "phoneCountryCode"
+        },
+        "phoneAreaCodePrefixLineNumber" : {
+          "type" : "string",
+          "description" : "phoneNumber"
+        },
+        "suppliedPhoneNumberVerified" : {
+          "type" : "string",
+          "description" : "phoneVerified"
+        },
+        "emailAddress" : {
+          "type" : "string",
+          "description" : "emailAddress"
+        },
+        "severity" : {
+          "type" : "string",
+          "description" : "severity"
+        },
+        "hostname" : {
+          "type" : "string",
+          "description" : "hostname"
+        },
+        "firstCaseInactivityWarningSentAt" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "firstCaseInactivityWarningSentAt"
+        },
+        "secondCaseInactivityWarningSentAt" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "secondCaseInactivityWarningSentAt"
+        },
+        "resolutionDescription" : {
+          "type" : "string",
+          "description" : "resolutionDescription"
+        },
+        "enhancedSLA" : {
+          "type" : "boolean",
+          "description" : "enhancedSLA",
+          "default" : false
+        },
+        "contactIsPartner" : {
+          "type" : "boolean",
+          "description" : "contactIsPartner",
+          "default" : false
+        },
+        "apiTags" : {
+          "type" : "array",
+          "description" : "apiTags",
+          "items" : {
+            "type" : "string"
+          }
+        },
+        "groupNumber" : {
+          "type" : "string",
+          "description" : "groupNumber"
+        },
+        "groupName" : {
+          "type" : "string",
+          "description" : "groupName"
+        },
+        "comments" : {
+          "type" : "array",
+          "description" : "comments",
+          "items" : {
+            "$ref" : "#/definitions/CaseComment"
+          }
+        },
+        "notifiedUsers" : {
+          "type" : "array",
+          "description" : "notifiedUsers",
+          "items" : {
+            "$ref" : "#/definitions/NotifiedUser"
+          }
+        },
+        "notificationAddressEmails" : {
+          "type" : "array",
+          "description" : "notificationAddressEmails",
+          "items" : {
+            "type" : "string"
+          }
+        },
+        "entitlementSla" : {
+          "type" : "string",
+          "description" : "entitlementSla"
+        },
+        "fts" : {
+          "type" : "boolean",
+          "description" : "fts",
+          "default" : false
+        },
+        "sbrGroups" : {
+          "type" : "array",
+          "description" : "sbrGroups",
+          "items" : {
+            "type" : "string"
+          }
+        },
+        "caseLanguage" : {
+          "type" : "string",
+          "description" : "caseLanguage"
+        },
+        "chats" : {
+          "type" : "array",
+          "description" : "Chat transcripts.",
+          "items" : {
+            "$ref" : "#/definitions/CaseChat"
+          }
+        },
+        "isStrategicAccount" : {
+          "type" : "boolean",
+          "description" : "isStrategicAccount",
+          "default" : false
+        },
+        "issue" : {
+          "type" : "string",
+          "description" : "issue"
+        },
+        "environment" : {
+          "type" : "string",
+          "description" : "environment"
+        },
+        "periodicityOfIssue" : {
+          "type" : "string",
+          "description" : "periodicityOfIssue"
+        },
+        "timeFramesAndUrgency" : {
+          "type" : "string",
+          "description" : "timeFramesAndUrgency"
+        },
+        "cep" : {
+          "type" : "boolean",
+          "description" : "cep",
+          "default" : false
+        },
+        "caseNumber" : {
+          "type" : "string",
+          "description" : "caseNumber"
+        },
+        "isClosed" : {
+          "type" : "boolean",
+          "description" : "isClosed",
+          "default" : false
+        },
+        "alternateId" : {
+          "type" : "string",
+          "description" : "alternateId"
+        },
+        "userAgent" : {
+          "type" : "string",
+          "description" : "userAgent"
+        },
+        "caseResourceLinksHldr" : {
+          "$ref" : "#/definitions/HCaseResourceLinks"
+        },
+        "caseResourceLinks" : {
+          "type" : "array",
+          "description" : "caseResourceLinks",
+          "items" : {
+            "$ref" : "#/definitions/CaseResourceLink"
+          }
+        },
+        "insightsArchivesHldr" : {
+          "$ref" : "#/definitions/HInsightsArchives"
+        },
+        "insightsArchives" : {
+          "type" : "array",
+          "description" : "insightsArchives",
+          "items" : {
+            "$ref" : "#/definitions/InsightsArchives"
+          }
+        },
+        "bugzillasHldr" : {
+          "$ref" : "#/definitions/HBugzillas"
+        },
+        "bugzillas" : {
+          "type" : "array",
+          "description" : "bugzillas",
+          "items" : {
+            "$ref" : "#/definitions/BugzillaBug"
+          }
+        },
+        "recordTypeName" : {
+          "type" : "string",
+          "description" : "recordTypeName"
+        },
+        "referrer" : {
+          "type" : "string",
+          "description" : "referrer"
+        },
+        "remoteSessionTermsAcked" : {
+          "type" : "boolean",
+          "description" : "remoteSessionTermsAcked",
+          "default" : false
+        },
+        "screenSessionRequested" : {
+          "type" : "boolean",
+          "description" : "screenSessionRequested",
+          "default" : false
+        },
+        "noClusterIdReason" : {
+          "type" : "string",
+          "description" : "noClusterIdReason"
+        },
+        "noClusterIdReasonExplanation" : {
+          "type" : "string",
+          "description" : "noClusterIdReasonExplanation"
+        },
+        "contactInfo24x7" : {
+          "type" : "string",
+          "description" : "contactInfo24X7"
+        }
+      },
+      "title" : "Case"
+    },
+    "UpdateCaseRequest" : {
+      "type" : "object",
+      "description" : "Update Case Request model",
+      "properties" : {
+        "summary" : {
+          "type" : "string",
+          "description" : "summary"
+        },
+        "description" : {
+          "type" : "string",
+          "description" : "description"
+        },
+        "status" : {
+          "type" : "string",
+          "description" : "status"
+        },
+        "product" : {
+          "type" : "string",
+          "description" : "product"
+        },
+        "version" : {
+          "type" : "string",
+          "description" : "version"
+        },
+        "caseType" : {
+          "type" : "string",
+          "description" : "caseType"
+        },
+        "accountNumberRef" : {
+          "type" : "string",
+          "description" : "accountNumberRef"
+        },
+        "openshiftClusterID" : {
+          "type" : "string",
+          "description" : "openshiftClusterID"
+        },
+        "openshiftClusterVersion" : {
+          "type" : "string",
+          "description" : "openshiftClusterVersion"
+        },
+        "notes" : {
+          "type" : "string",
+          "description" : "Unique ID used when creating a case (used predominantly by solution engine)"
+        },
+        "customerEscalation" : {
+          "type" : "boolean",
+          "description" : "customerEscalation",
+          "default" : false
+        },
+        "contactSSOName" : {
+          "type" : "string",
+          "description" : "contactSSOName"
+        },
+        "name" : {
+          "type" : "string",
+          "description" : "name"
+        },
+        "clearPhoneNumber" : {
+          "type" : "boolean",
+          "description" : "clearPhoneNumber",
+          "default" : false
+        },
+        "phone" : {
+          "type" : "string",
+          "description" : "phone"
+        },
+        "phoneCountryCode" : {
+          "type" : "string",
+          "description" : "phoneCountryCode"
+        },
+        "phoneAreaCodePrefixLineNumber" : {
+          "type" : "string",
+          "description" : "phoneNumber"
+        },
+        "suppliedPhoneNumberVerified" : {
+          "type" : "string",
+          "description" : "phoneVerified"
+        },
+        "emailAddress" : {
+          "type" : "string",
+          "description" : "emailAddress"
+        },
+        "severity" : {
+          "type" : "string",
+          "description" : "severity"
+        },
+        "hostname" : {
+          "type" : "string",
+          "description" : "hostname"
+        },
+        "enhancedSLA" : {
+          "type" : "boolean",
+          "description" : "enhancedSLA",
+          "default" : false
+        },
+        "groupNumber" : {
+          "type" : "string",
+          "description" : "groupNumber"
+        },
+        "entitlementSla" : {
+          "type" : "string",
+          "description" : "entitlementSla"
+        },
+        "fts" : {
+          "type" : "boolean",
+          "description" : "fts",
+          "default" : false
+        },
+        "caseLanguage" : {
+          "type" : "string",
+          "description" : "caseLanguage"
+        },
+        "issue" : {
+          "type" : "string",
+          "description" : "issue"
+        },
+        "environment" : {
+          "type" : "string",
+          "description" : "environment"
+        },
+        "periodicityOfIssue" : {
+          "type" : "string",
+          "description" : "periodicityOfIssue"
+        },
+        "timeFramesAndUrgency" : {
+          "type" : "string",
+          "description" : "timeFramesAndUrgency"
+        },
+        "cep" : {
+          "type" : "boolean",
+          "description" : "cep",
+          "default" : false
+        },
+        "alternateId" : {
+          "type" : "string",
+          "description" : "alternateId"
+        },
+        "noClusterIdReason" : {
+          "type" : "string",
+          "description" : "noClusterIdReason"
+        },
+        "noClusterIdReasonExplanation" : {
+          "type" : "string",
+          "description" : "noClusterIdReasonExplanation"
+        },
+        "contactInfo24x7" : {
+          "type" : "string",
+          "description" : "contactInfo24X7"
+        },
+        "screenSessionRequested" : {
+          "type" : "boolean",
+          "description" : "screenSessionRequested",
+          "default" : false
+        },
+        "reopenedReason" : {
+          "type" : "string",
+          "description" : "contactInfo24X7"
+        }
+      },
+      "title" : "UpdateCaseRequest"
+    },
+    "ExternalTrackerUpdate" : {
+      "type" : "object",
+      "description" : "External tracker update model",
+      "properties" : {
+        "id" : {
+          "type" : "string",
+          "description" : "id"
+        },
+        "body" : {
+          "type" : "string",
+          "description" : "body"
+        },
+        "caseId" : {
+          "type" : "string",
+          "description" : "caseId"
+        },
+        "createdBy" : {
+          "$ref" : "#/definitions/User"
+        },
+        "createdById" : {
+          "type" : "string",
+          "description" : "createdById"
+        },
+        "createdDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "createdDate"
+        },
+        "externalIdentifier" : {
+          "type" : "string",
+          "description" : "externalIdentifier"
+        },
+        "externalTrackerId" : {
+          "type" : "string",
+          "description" : "externalTrackerId"
+        },
+        "externalTracker" : {
+          "$ref" : "#/definitions/ExternalTracker"
+        },
+        "identifier" : {
+          "type" : "string",
+          "description" : "identifier"
+        },
+        "lastActivityDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastActivityDate"
+        },
+        "lastModifiedBy" : {
+          "$ref" : "#/definitions/User"
+        },
+        "lastModifiedById" : {
+          "type" : "string",
+          "description" : "lastModifiedById"
+        },
+        "lastModifiedDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastModifiedDate"
+        },
+        "name" : {
+          "type" : "string",
+          "description" : "name"
+        },
+        "originatingSystemInstance" : {
+          "type" : "string",
+          "description" : "originatingSystemInstance"
+        },
+        "originatingSystemLastUpdatedAt" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "originatingSystemLastUpdatedAt"
+        },
+        "originatingSystem" : {
+          "type" : "string",
+          "description" : "originatingSystem"
+        },
+        "partnerCookie" : {
+          "type" : "string",
+          "description" : "partnerCookie"
+        },
+        "type" : {
+          "type" : "string",
+          "description" : "type"
+        },
+        "updateBy" : {
+          "type" : "string",
+          "description" : "updateBy"
+        },
+        "updateReference" : {
+          "type" : "string",
+          "description" : "updateReference"
+        },
+        "visibility" : {
+          "type" : "string",
+          "description" : "visibility"
+        }
+      },
+      "title" : "ExternalTrackerUpdate"
+    },
+    "CasesFilterResponse" : {
+      "type" : "object",
+      "description" : "Case filter response model",
+      "properties" : {
+        "totalCount" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "cases" : {
+          "type" : "array",
+          "items" : {
+            "$ref" : "#/definitions/Case"
+          }
+        }
+      },
+      "title" : "CaseFilterResponse"
+    },
+    "CaseResourceLink" : {
+      "type" : "object",
+      "description" : "Case resource link model",
+      "required" : [ "algorithmScore" ],
+      "properties" : {
+        "analysisAlgorithm" : {
+          "type" : "string",
+          "description" : "analysisAlgorithm"
+        },
+        "analysisAlgorithmVersion" : {
+          "type" : "string",
+          "description" : "analysisAlgorithmVersion"
+        },
+        "analysisCategory" : {
+          "type" : "string",
+          "description" : "analysisCategory"
+        },
+        "analysisService" : {
+          "type" : "string",
+          "description" : "analysisService"
+        },
+        "analysisServiceVersion" : {
+          "type" : "string",
+          "description" : "analysisServiceVersion"
+        },
+        "bucket" : {
+          "type" : "string",
+          "description" : "bucket"
+        },
+        "caseNumber" : {
+          "type" : "string",
+          "description" : "caseNumber"
+        },
+        "caseURI" : {
+          "type" : "string",
+          "description" : "caseURI"
+        },
+        "client" : {
+          "type" : "string",
+          "description" : "client"
+        },
+        "clientVersion" : {
+          "type" : "string",
+          "description" : "clientVersion"
+        },
+        "customerEvaluation" : {
+          "type" : "string",
+          "description" : "customerEvaluation"
+        },
+        "display" : {
+          "type" : "string",
+          "description" : "display"
+        },
+        "externalCaseURI" : {
+          "type" : "string",
+          "description" : "externalCaseURI"
+        },
+        "firstSuggestedDate" : {
+          "type" : "string",
+          "description" : "firstSuggestedDate"
+        },
+        "isExact" : {
+          "type" : "boolean",
+          "description" : "isExact",
+          "default" : false
+        },
+        "keywords" : {
+          "type" : "string",
+          "description" : "keywords"
+        },
+        "lastCustomerEvaluationSetAt" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastCustomerEvaluationSetAt"
+        },
+        "lastCustomerEvaluationSetBySSOUsername" : {
+          "type" : "string",
+          "description" : "lastCustomerEvaluationSetBySSOUsername"
+        },
+        "lastSetIsExactAt" : {
+          "type" : "string",
+          "description" : "lastSetIsExactAt"
+        },
+        "lastSetIsExactBySSOUsername" : {
+          "type" : "string",
+          "description" : "lastSetIsExactBySSOUsername"
+        },
+        "lastSuggestedDate" : {
+          "type" : "string",
+          "description" : "lastSuggestedDate"
+        },
+        "linked" : {
+          "type" : "boolean",
+          "description" : "linked",
+          "default" : false
+        },
+        "linkedAt" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "linkedAt"
+        },
+        "linkedBy" : {
+          "type" : "string",
+          "description" : "linkedBy"
+        },
+        "linkedByR" : {
+          "$ref" : "#/definitions/User"
+        },
+        "luceneScore" : {
+          "type" : "string",
+          "description" : "luceneScore"
+        },
+        "maturityLevel" : {
+          "type" : "string",
+          "description" : "maturityLevel"
+        },
+        "message" : {
+          "type" : "string",
+          "description" : "message"
+        },
+        "note" : {
+          "type" : "string",
+          "description" : "note"
+        },
+        "origin" : {
+          "type" : "string",
+          "description" : "origin"
+        },
+        "pinnedAt" : {
+          "type" : "string",
+          "description" : "pinnedAt"
+        },
+        "pinnedBy" : {
+          "type" : "string",
+          "description" : "pinnedBy"
+        },
+        "resource" : {
+          "type" : "string",
+          "description" : "resource"
+        },
+        "resourceId" : {
+          "type" : "string",
+          "description" : "resourceId"
+        },
+        "resourceType" : {
+          "type" : "string",
+          "description" : "resourceType"
+        },
+        "resourceTypeLabel" : {
+          "type" : "string",
+          "description" : "resourceTypeLabel"
+        },
+        "lastModifiedBy" : {
+          "$ref" : "#/definitions/User"
+        },
+        "lastModifiedById" : {
+          "type" : "string",
+          "description" : "lastModifiedById"
+        },
+        "lastModifiedDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastModifiedDate"
+        },
+        "createdBy" : {
+          "$ref" : "#/definitions/User"
+        },
+        "createdById" : {
+          "type" : "string",
+          "description" : "createdById"
+        },
+        "createdDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "createdDate"
+        },
+        "caseComment" : {
+          "type" : "string",
+          "description" : "caseComment"
+        },
+        "resourceURI" : {
+          "type" : "string",
+          "description" : "resourceURI"
+        },
+        "resourceViewURI" : {
+          "type" : "string",
+          "description" : "resourceViewURI"
+        },
+        "returnCode" : {
+          "type" : "string",
+          "description" : "returnCode"
+        },
+        "scoringAlgorithmVersion" : {
+          "type" : "string",
+          "description" : "scoringAlgorithmVersion"
+        },
+        "suggestedCount" : {
+          "type" : "string",
+          "description" : "suggestedCount"
+        },
+        "suggestionRelevanceScore" : {
+          "type" : "string",
+          "description" : "suggestionRelevanceScore"
+        },
+        "title" : {
+          "type" : "string",
+          "description" : "title"
+        },
+        "type" : {
+          "type" : "string",
+          "description" : "type"
+        },
+        "tracebackUrl" : {
+          "type" : "string",
+          "description" : "tracebackUrl"
+        },
+        "warnings" : {
+          "type" : "array",
+          "description" : "warnings",
+          "items" : {
+            "type" : "string"
+          }
+        },
+        "algorithmScore" : {
+          "type" : "number",
+          "format" : "double",
+          "description" : "algorithmScore"
+        }
+      },
+      "title" : "CaseResourceLink"
+    },
+    "HCaseResourceLinks" : {
+      "type" : "object",
+      "description" : "List of case resources",
+      "properties" : {
+        "caseResourceLinks" : {
+          "type" : "array",
+          "description" : "caseResourceLinks",
+          "items" : {
+            "$ref" : "#/definitions/CaseResourceLink"
+          }
+        }
+      },
+      "title" : "HCaseResourceLinks"
+    },
+    "HInsightsArchives" : {
+      "type" : "object",
+      "description" : "List of insights archives",
+      "properties" : {
+        "insightsArchives" : {
+          "type" : "array",
+          "description" : "insightsArchives",
+          "items" : {
+            "$ref" : "#/definitions/InsightsArchives"
+          }
+        }
+      },
+      "title" : "HCaseResourceLinks"
+    },
+    "InsightsArchives" : {
+      "type" : "object",
+      "description" : "Insights Archives link model",
+      "required" : [ "inventoryId" ],
+      "properties" : {
+        "id" : {
+          "type" : "string",
+          "description" : "id"
+        },
+        "inventoryId" : {
+          "type" : "string",
+          "description" : "inventoryId"
+        }
+      },
+      "title" : "InsightsArchives"
+    },
+    "CaseChat" : {
+      "type" : "object",
+      "description" : "Case chat model",
+      "properties" : {
+        "id" : {
+          "type" : "string",
+          "description" : "The chat Id."
+        },
+        "caseNumber" : {
+          "type" : "string",
+          "description" : "caseNumber"
+        },
+        "endedBy" : {
+          "type" : "string",
+          "description" : "The user who ends the chat."
+        },
+        "body" : {
+          "type" : "string",
+          "description" : "The chat transcript."
+        },
+        "endTime" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "The chat end time."
+        },
+        "requestTime" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "The chat request time."
+        },
+        "startTime" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "The chat start time."
+        },
+        "agentName" : {
+          "type" : "string",
+          "description" : "The chat agent name."
+        },
+        "visitorName" : {
+          "type" : "string",
+          "description" : "The chat visitor name."
+        }
+      },
+      "title" : "CaseChat"
+    },
+    "BugzillaBug" : {
+      "type" : "object",
+      "description" : "Bugzilla bug model",
+      "properties" : {
+        "id" : {
+          "type" : "string",
+          "description" : "id"
+        },
+        "assignedTo" : {
+          "type" : "string",
+          "description" : "assignedTo"
+        },
+        "blocks2" : {
+          "type" : "string",
+          "description" : "blocks2"
+        },
+        "blocks" : {
+          "type" : "string",
+          "description" : "blocks"
+        },
+        "bugzillaURL" : {
+          "type" : "string",
+          "description" : "bugzillaURL"
+        },
+        "bugzillaKeywords" : {
+          "type" : "string",
+          "description" : "bugzillaKeywords"
+        },
+        "bugzillaLink" : {
+          "type" : "string",
+          "description" : "bugzillaLink"
+        },
+        "bugzillaNumber" : {
+          "type" : "string",
+          "description" : "bugzillaNumber"
+        },
+        "caseNumber" : {
+          "type" : "string",
+          "description" : "caseNumber"
+        },
+        "linkedAt" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "linkedAt"
+        },
+        "component" : {
+          "type" : "string",
+          "description" : "component"
+        },
+        "createdBy" : {
+          "$ref" : "#/definitions/User"
+        },
+        "createdById" : {
+          "type" : "string",
+          "description" : "createdById"
+        },
+        "createdDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "createdDate"
+        },
+        "dependsOn" : {
+          "type" : "string",
+          "description" : "dependsOn"
+        },
+        "depends" : {
+          "type" : "string",
+          "description" : "depends"
+        },
+        "description" : {
+          "type" : "string",
+          "description" : "description"
+        },
+        "dupeOf" : {
+          "type" : "string",
+          "description" : "dupeOf"
+        },
+        "groups" : {
+          "type" : "string",
+          "description" : "groups"
+        },
+        "isOpen" : {
+          "type" : "boolean",
+          "description" : "isOpen",
+          "default" : false
+        },
+        "isPrivate" : {
+          "type" : "boolean",
+          "description" : "isPrivate",
+          "default" : false
+        },
+        "lastModifiedBy" : {
+          "$ref" : "#/definitions/User"
+        },
+        "lastModifiedById" : {
+          "type" : "string",
+          "description" : "lastModifiedById"
+        },
+        "lastModifiedDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastModifiedDate"
+        },
+        "name" : {
+          "type" : "string",
+          "description" : "name"
+        },
+        "platform" : {
+          "type" : "string",
+          "description" : "platform"
+        },
+        "priority" : {
+          "type" : "string",
+          "description" : "priority"
+        },
+        "product" : {
+          "type" : "string",
+          "description" : "product"
+        },
+        "resolution" : {
+          "type" : "string",
+          "description" : "resolution"
+        },
+        "severity" : {
+          "type" : "string",
+          "description" : "severity"
+        },
+        "status" : {
+          "type" : "string",
+          "description" : "status"
+        },
+        "summary" : {
+          "type" : "string",
+          "description" : "summary"
+        },
+        "version" : {
+          "type" : "string",
+          "description" : "version"
+        }
+      },
+      "title" : "BugzillaBug"
+    },
+    "NotifiedUser" : {
+      "type" : "object",
+      "description" : "Notified user model",
+      "properties" : {
+        "ssoUsername" : {
+          "type" : "string",
+          "description" : "ssoUsername"
+        },
+        "title" : {
+          "type" : "string",
+          "description" : "title"
+        },
+        "type" : {
+          "type" : "string",
+          "description" : "type"
+        }
+      },
+      "title" : "NotifiedUser"
+    },
+    "NotifiedUserWithSso" : {
+      "type" : "object",
+      "description" : "Notified user sso username",
+      "required" : [ "ssoUsername" ],
+      "properties" : {
+        "ssoUsername" : {
+          "type" : "string",
+          "description" : "ssoUsername"
+        },
+        "title" : {
+          "type" : "string",
+          "description" : "title"
+        },
+        "type" : {
+          "type" : "string",
+          "description" : "type"
+        }
+      },
+      "title" : "NotifiedUserWithSso"
+    },
+    "CaseLocation" : {
+      "type" : "object",
+      "description" : "Case location model",
+      "properties" : {
+        "locations" : {
+          "type" : "array",
+          "xml" : {
+            "name" : "location"
+          },
+          "description" : "locations",
+          "items" : {
+            "type" : "string"
+          }
+        }
+      },
+      "title" : "CaseLocation"
+    },
+    "CaseExtNotifiedUsersType" : {
+      "type" : "object",
+      "description" : "Case notified users type model",
+      "properties" : {
+        "user" : {
+          "type" : "array",
+          "description" : "user",
+          "items" : {
+            "$ref" : "#/definitions/NotifiedUserWithSso"
+          }
+        }
+      },
+      "title" : "NotifiedUser"
+    },
+    "HBugzillas" : {
+      "type" : "object",
+      "description" : "List of bugzillas",
+      "properties" : {
+        "bugzillas" : {
+          "type" : "array",
+          "xml" : {
+            "name" : "bugzilla"
+          },
+          "description" : "bugzillas",
+          "items" : {
+            "$ref" : "#/definitions/BugzillaBug"
+          }
+        }
+      },
+      "title" : "HBugzillas"
+    },
+    "ExternalTracker" : {
+      "type" : "object",
+      "description" : "External tracker model",
+      "properties" : {
+        "caseNumber" : {
+          "type" : "string",
+          "description" : "caseNumber"
+        },
+        "caseURI" : {
+          "type" : "string",
+          "description" : "caseURI"
+        },
+        "id" : {
+          "type" : "string",
+          "description" : "id"
+        },
+        "caseId" : {
+          "type" : "string",
+          "description" : "caseId"
+        },
+        "closedAt" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "closedAt"
+        },
+        "collaborationCommentId" : {
+          "type" : "string",
+          "description" : "collaborationCommentId"
+        },
+        "collaborationComment" : {
+          "$ref" : "#/definitions/CaseComment"
+        },
+        "createdBy" : {
+          "$ref" : "#/definitions/User"
+        },
+        "createdById" : {
+          "type" : "string",
+          "description" : "createdById"
+        },
+        "createdDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "createdDate"
+        },
+        "createdAt" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "createdAt"
+        },
+        "deletedAt" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "deletedAt"
+        },
+        "deletedByName" : {
+          "type" : "string",
+          "description" : "deletedByName"
+        },
+        "description" : {
+          "type" : "string",
+          "description" : "description"
+        },
+        "eligibilityKeyValue" : {
+          "type" : "string",
+          "description" : "eligibilityKeyValue"
+        },
+        "establishedBy" : {
+          "type" : "string",
+          "description" : "establishedBy"
+        },
+        "establishedByUserId" : {
+          "type" : "string",
+          "description" : "establishedByUserId"
+        },
+        "establishedByUser" : {
+          "$ref" : "#/definitions/User"
+        },
+        "hasBeenPushedSuccessfully" : {
+          "type" : "boolean",
+          "description" : "hasBeenPushedSuccessfully",
+          "default" : false
+        },
+        "hasBeenPushed" : {
+          "type" : "boolean",
+          "description" : "hasBeenPushed",
+          "default" : false
+        },
+        "identifier" : {
+          "type" : "string",
+          "description" : "identifier"
+        },
+        "lastActivityDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastActivityDate"
+        },
+        "lastModifiedBy" : {
+          "$ref" : "#/definitions/User"
+        },
+        "lastModifiedById" : {
+          "type" : "string",
+          "description" : "lastModifiedById"
+        },
+        "lastModifiedDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastModifiedDate"
+        },
+        "lastReferencedDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastReferencedDate"
+        },
+        "lastViewedDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastViewedDate"
+        },
+        "lastPushRequest" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastPushRequest"
+        },
+        "liveID" : {
+          "type" : "string",
+          "description" : "liveID"
+        },
+        "name" : {
+          "type" : "string",
+          "description" : "name"
+        },
+        "overrideEntitlementCheck" : {
+          "type" : "boolean",
+          "description" : "overrideEntitlementCheck",
+          "default" : false
+        },
+        "productID" : {
+          "type" : "string",
+          "description" : "productID"
+        },
+        "productName" : {
+          "type" : "string",
+          "description" : "productName"
+        },
+        "rejectedAt" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "rejectedAt"
+        },
+        "rejectedMessage" : {
+          "type" : "string",
+          "description" : "rejectedMessage"
+        },
+        "rejected" : {
+          "type" : "boolean",
+          "description" : "rejected",
+          "default" : false
+        },
+        "resourceKey" : {
+          "type" : "string",
+          "description" : "resourceKey"
+        },
+        "resourceURL" : {
+          "type" : "string",
+          "description" : "resourceURL"
+        },
+        "severity" : {
+          "type" : "string",
+          "description" : "severity"
+        },
+        "solveCallingCountry" : {
+          "type" : "string",
+          "description" : "solveCallingCountry"
+        },
+        "status" : {
+          "type" : "string",
+          "description" : "status"
+        },
+        "supportTopicID" : {
+          "type" : "string",
+          "description" : "supportTopicID"
+        },
+        "supportTopicName" : {
+          "type" : "string",
+          "description" : "supportTopicName"
+        },
+        "systemInstance" : {
+          "type" : "string",
+          "description" : "systemInstance"
+        },
+        "system" : {
+          "type" : "string",
+          "description" : "system"
+        },
+        "ticketReference" : {
+          "type" : "string",
+          "description" : "ticketReference"
+        },
+        "title" : {
+          "type" : "string",
+          "description" : "title"
+        },
+        "visibilityLevel" : {
+          "type" : "string",
+          "description" : "visibilityLevel"
+        }
+      },
+      "title" : "ExternalTracker"
+    },
+    "CaseFilter" : {
+      "type" : "object",
+      "description" : "Case filter model",
+      "required" : [ "maxResults" ],
+      "properties" : {
+        "associateSSOName" : {
+          "type" : "string",
+          "description" : "associateSSOName"
+        },
+        "contributor" : {
+          "type" : "boolean",
+          "description" : "contributor",
+          "default" : false
+        },
+        "endDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "endDate"
+        },
+        "ftsRole" : {
+          "type" : "boolean",
+          "description" : "ftsRole",
+          "default" : false
+        },
+        "includeClosed" : {
+          "type" : "boolean",
+          "description" : "includeClosed",
+          "default" : false
+        },
+        "includeSecureSupport" : {
+          "type" : "boolean",
+          "description" : "includeSecureSupport",
+          "default" : false
+        },
+        "isLocked" : {
+          "type" : "boolean",
+          "description" : "isLocked",
+          "default" : false
+        },
+        "maxResults" : {
+          "type" : "integer",
+          "format" : "int32",
+          "description" : "maxResults"
+        },
+        "offset" : {
+          "type" : "integer",
+          "format" : "int32",
+          "description" : "offset"
+        },
+        "owner" : {
+          "type" : "boolean",
+          "description" : "owner",
+          "default" : false
+        },
+        "includeAllCustomerCases" : {
+          "type" : "boolean",
+          "description" : "includeAllCustomerCases",
+          "default" : false
+        },
+        "severity" : {
+          "type" : "string",
+          "description" : "severity"
+        },
+        "sortField" : {
+          "type" : "string",
+          "description" : "sortField"
+        },
+        "sortOrder" : {
+          "type" : "string",
+          "description" : "sortOrder"
+        },
+        "startDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "startDate"
+        },
+        "status" : {
+          "type" : "string",
+          "description" : "status"
+        },
+        "translator" : {
+          "type" : "boolean",
+          "description" : "translator",
+          "default" : false
+        },
+        "view" : {
+          "type" : "string",
+          "description" : "view"
+        },
+        "accountNumber" : {
+          "type" : "string",
+          "description" : "accountNumber"
+        },
+        "resourceType" : {
+          "type" : "string",
+          "description" : "resourceType"
+        },
+        "id" : {
+          "type" : "string",
+          "description" : "id"
+        },
+        "uri" : {
+          "type" : "string",
+          "description" : "uri"
+        },
+        "viewUri" : {
+          "type" : "string",
+          "description" : "viewUri"
+        },
+        "caseNumbers" : {
+          "type" : "array",
+          "description" : "caseNumbers",
+          "items" : {
+            "type" : "string"
+          }
+        },
+        "commentIds" : {
+          "type" : "array",
+          "description" : "commentIds",
+          "items" : {
+            "type" : "string"
+          }
+        },
+        "createdBySSOName" : {
+          "type" : "string",
+          "description" : "createdBySSOName"
+        },
+        "groupNumber" : {
+          "type" : "string",
+          "description" : "groupNumber"
+        },
+        "groupNumbers" : {
+          "type" : "array",
+          "description" : "groupNumbers",
+          "items" : {
+            "type" : "string"
+          }
+        },
+        "includePrivate" : {
+          "type" : "boolean",
+          "description" : "includePrivate",
+          "default" : false
+        },
+        "keyword" : {
+          "type" : "string",
+          "description" : "keyword"
+        },
+        "onlyUngrouped" : {
+          "type" : "boolean",
+          "description" : "onlyUngrouped",
+          "default" : false
+        },
+        "ownerSSOName" : {
+          "type" : "string",
+          "description" : "ownerSSOName"
+        },
+        "product" : {
+          "type" : "string",
+          "description" : "product"
+        },
+        "recordType" : {
+          "type" : "string",
+          "description" : "recordType"
+        },
+        "reducedInformation" : {
+          "type" : "boolean",
+          "description" : "reducedInformation",
+          "default" : false
+        },
+        "type" : {
+          "type" : "string",
+          "description" : "type"
+        },
+        "accountNumbers" : {
+          "type" : "array",
+          "description" : "accountNumbers",
+          "items" : {
+            "type" : "string"
+          }
+        },
+        "internalStatuses" : {
+          "type" : "array",
+          "description" : "internalStatuses",
+          "items" : {
+            "type" : "string"
+          }
+        },
+        "maxDateOpened" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "maxDateOpened"
+        },
+        "maxSBT" : {
+          "type" : "integer",
+          "format" : "int32",
+          "description" : "maxSBT"
+        },
+        "minDateOpened" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "minDateOpened"
+        },
+        "minSBT" : {
+          "type" : "integer",
+          "format" : "int32",
+          "description" : "minSBT"
+        },
+        "only24X7" : {
+          "type" : "boolean",
+          "description" : "only24X7",
+          "default" : false
+        },
+        "only24X7HandoverReady" : {
+          "type" : "boolean",
+          "description" : "only24X7HandoverReady",
+          "default" : false
+        },
+        "onlyEscalated" : {
+          "type" : "boolean",
+          "description" : "onlyEscalated",
+          "default" : false
+        },
+        "products" : {
+          "type" : "array",
+          "description" : "products",
+          "items" : {
+            "type" : "string"
+          }
+        },
+        "sbrs" : {
+          "type" : "array",
+          "description" : "sbrs",
+          "items" : {
+            "type" : "string"
+          }
+        },
+        "severities" : {
+          "type" : "array",
+          "description" : "severities",
+          "items" : {
+            "type" : "string"
+          }
+        },
+        "statuses" : {
+          "type" : "array",
+          "description" : "statuses",
+          "items" : {
+            "type" : "string"
+          }
+        },
+        "versions" : {
+          "type" : "array",
+          "description" : "versions",
+          "items" : {
+            "type" : "string"
+          }
+        }
+      },
+      "title" : "CaseFilter"
+    },
+    "Entitlement" : {
+      "type" : "object",
+      "description" : "Entitlement model",
+      "properties" : {
+        "id" : {
+          "type" : "string",
+          "description" : "id"
+        },
+        "createdBy" : {
+          "$ref" : "#/definitions/User"
+        },
+        "createdById" : {
+          "type" : "string",
+          "description" : "createdById"
+        },
+        "createdDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "createdDate"
+        },
+        "lastModifiedBy" : {
+          "$ref" : "#/definitions/User"
+        },
+        "lastModifiedById" : {
+          "type" : "string",
+          "description" : "lastModifiedById"
+        },
+        "lastModifiedDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastModifiedDate"
+        },
+        "name" : {
+          "type" : "string",
+          "description" : "name"
+        },
+        "isDeleted" : {
+          "type" : "boolean",
+          "description" : "isDeleted",
+          "default" : false
+        },
+        "account" : {
+          "$ref" : "#/definitions/Account"
+        },
+        "accountId" : {
+          "type" : "string",
+          "description" : "accountId"
+        },
+        "assetId" : {
+          "type" : "string",
+          "description" : "assetId"
+        },
+        "isAssociatedWithNoEngineeringProducts" : {
+          "type" : "boolean",
+          "description" : "isAssociatedWithNoEngineeringProducts",
+          "default" : false
+        },
+        "businessHoursId" : {
+          "type" : "string",
+          "description" : "businessHoursId"
+        },
+        "businessUnit" : {
+          "type" : "string",
+          "description" : "businessUnit"
+        },
+        "casesPerEntitlement" : {
+          "type" : "integer",
+          "description" : "casesPerEntitlement"
+        },
+        "isConsiderSupported" : {
+          "type" : "boolean",
+          "description" : "isConsiderSupported",
+          "default" : false
+        },
+        "contractLineItemId" : {
+          "type" : "string",
+          "description" : "contractLineItemId"
+        },
+        "contractLineItemSubscriptionProductNum" : {
+          "type" : "string",
+          "description" : "contractLineItemSubscriptionProductNum"
+        },
+        "endDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "endDate"
+        },
+        "entitlementProcessRule" : {
+          "type" : "string",
+          "description" : "entitlementProcessRule"
+        },
+        "externalAccountNumber" : {
+          "type" : "string",
+          "description" : "externalAccountNumber"
+        },
+        "externalContractId" : {
+          "type" : "string",
+          "description" : "externalContractId"
+        },
+        "externalContractLineItemId" : {
+          "type" : "string",
+          "description" : "externalContractLineItemId"
+        },
+        "externalEntitlementId" : {
+          "type" : "string",
+          "description" : "externalEntitlementId"
+        },
+        "externalProductCode" : {
+          "type" : "string",
+          "description" : "externalProductCode"
+        },
+        "installBaseNumber" : {
+          "type" : "string",
+          "description" : "installBaseNumber"
+        },
+        "isPerIncident" : {
+          "type" : "boolean",
+          "description" : "isPerIncident",
+          "default" : false
+        },
+        "isActive" : {
+          "type" : "number",
+          "format" : "double",
+          "description" : "isActive"
+        },
+        "isL3" : {
+          "type" : "boolean",
+          "description" : "isL3",
+          "default" : false
+        },
+        "isLayered" : {
+          "type" : "boolean",
+          "description" : "isLayered",
+          "default" : false
+        },
+        "isManuallySelectedEntitlementProcess" : {
+          "type" : "boolean",
+          "description" : "isManuallySelectedEntitlementProcess",
+          "default" : false
+        },
+        "isTAMEntitlement" : {
+          "type" : "boolean",
+          "description" : "isTAMEntitlement",
+          "default" : false
+        },
+        "lastReferencedDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastReferencedDate"
+        },
+        "lastViewedDate" : {
+          "type" : "boolean",
+          "description" : "lastViewedDate",
+          "default" : false
+        },
+        "levelTypeConcat" : {
+          "type" : "string",
+          "description" : "levelTypeConcat"
+        },
+        "oracleStatus" : {
+          "type" : "string",
+          "description" : "oracleStatus"
+        },
+        "quantity" : {
+          "type" : "number",
+          "format" : "double",
+          "description" : "quantity"
+        },
+        "remainingCases" : {
+          "type" : "integer",
+          "description" : "remainingCases"
+        },
+        "serviceContractId" : {
+          "type" : "string",
+          "description" : "serviceContractId"
+        },
+        "serviceLevel" : {
+          "type" : "string",
+          "description" : "serviceLevel"
+        },
+        "serviceType" : {
+          "type" : "string",
+          "description" : "serviceType"
+        },
+        "serviceLevelLabel" : {
+          "type" : "string",
+          "description" : "serviceLevelLabel"
+        },
+        "serviceValue" : {
+          "type" : "number",
+          "format" : "double",
+          "description" : "serviceValue"
+        },
+        "slaProcessId" : {
+          "type" : "string",
+          "description" : "slaProcessId"
+        },
+        "startDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "startDate"
+        },
+        "status" : {
+          "type" : "string",
+          "description" : "status"
+        },
+        "statusAndStartDate" : {
+          "type" : "number",
+          "format" : "double",
+          "description" : "statusAndStartDate"
+        },
+        "subscriptionNumber" : {
+          "type" : "string",
+          "description" : "subscriptionNumber"
+        },
+        "subscriptionProductNumber" : {
+          "type" : "string",
+          "description" : "subscriptionProductNumber"
+        },
+        "supportLevel" : {
+          "type" : "string",
+          "description" : "supportLevel"
+        },
+        "type" : {
+          "type" : "string",
+          "description" : "type"
+        },
+        "coordinates" : {
+          "type" : "string",
+          "description" : "coordinates"
+        }
+      },
+      "title" : "Entitlement"
+    },
+    "Contact" : {
+      "type" : "object",
+      "description" : "Contact model",
+      "properties" : {
+        "access" : {
+          "type" : "boolean",
+          "default" : false
+        },
+        "canAccessAllAccounts" : {
+          "type" : "boolean",
+          "default" : false
+        },
+        "canAddAttachments" : {
+          "type" : "boolean",
+          "default" : false
+        },
+        "email" : {
+          "type" : "string"
+        },
+        "firstName" : {
+          "type" : "string"
+        },
+        "hasChat" : {
+          "type" : "boolean",
+          "default" : false
+        },
+        "hasUser" : {
+          "type" : "boolean",
+          "default" : false
+        },
+        "isDefault" : {
+          "type" : "boolean",
+          "default" : false
+        },
+        "isEntitled" : {
+          "type" : "boolean",
+          "default" : false
+        },
+        "isInternal" : {
+          "type" : "boolean",
+          "default" : false
+        },
+        "isOrgAdmin" : {
+          "type" : "boolean",
+          "default" : false
+        },
+        "lastName" : {
+          "type" : "string"
+        },
+        "name" : {
+          "type" : "string"
+        },
+        "normalizedTZ" : {
+          "type" : "string"
+        },
+        "phone" : {
+          "type" : "string"
+        },
+        "secureSupportTech" : {
+          "type" : "boolean",
+          "default" : false
+        },
+        "ssoUsername" : {
+          "type" : "string"
+        },
+        "supportPhoneNumber" : {
+          "type" : "string"
+        },
+        "supportPhoneCountryCode" : {
+          "type" : "string"
+        },
+        "supportPhoneAreaCodePrefixLineNumber" : {
+          "type" : "string"
+        },
+        "timezone" : {
+          "type" : "string"
+        },
+        "write" : {
+          "type" : "boolean",
+          "default" : false
+        }
+      },
+      "title" : "Contact"
+    },
+    "Recommendation" : {
+      "type" : "object",
+      "description" : "Recommendation model",
+      "properties" : {
+        "summary" : {
+          "type" : "string"
+        },
+        "description" : {
+          "type" : "string"
+        },
+        "product" : {
+          "type" : "string"
+        },
+        "version" : {
+          "type" : "string"
+        }
+      },
+      "title" : "Recommendation"
+    },
+    "BusinessHours" : {
+      "type" : "object",
+      "description" : "Business hours model",
+      "properties" : {
+        "id" : {
+          "type" : "string",
+          "description" : "id"
+        },
+        "createdById" : {
+          "type" : "string",
+          "description" : "createdById"
+        },
+        "createdDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "createdDate"
+        },
+        "isActive" : {
+          "type" : "boolean",
+          "description" : "isActive",
+          "default" : false
+        },
+        "isDefault" : {
+          "type" : "boolean",
+          "description" : "isDefault",
+          "default" : false
+        },
+        "lastModifiedById" : {
+          "type" : "string",
+          "description" : "lastModifiedById"
+        },
+        "lastModifiedDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastModifiedDate"
+        },
+        "name" : {
+          "type" : "string",
+          "description" : "name"
+        },
+        "systemModstamp" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "systemModstamp"
+        },
+        "timeZoneSidKey" : {
+          "type" : "string",
+          "description" : "timeZoneSidKey"
+        },
+        "mondayEndTime" : {
+          "type" : "string",
+          "example" : "18:00:00.000Z",
+          "description" : "mondayEndTime"
+        },
+        "mondayStartTime" : {
+          "type" : "string",
+          "description" : "mondayStartTime"
+        },
+        "tuesdayEndTime" : {
+          "type" : "string",
+          "description" : "tuesdayEndTime"
+        },
+        "tuesdayStartTime" : {
+          "type" : "string",
+          "description" : "tuesdayStartTime"
+        },
+        "wednesdayEndTime" : {
+          "type" : "string",
+          "description" : "wednesdayEndTime"
+        },
+        "wednesdayStartTime" : {
+          "type" : "string",
+          "description" : "wednesdayStartTime"
+        },
+        "thursdayEndTime" : {
+          "type" : "string",
+          "description" : "thursdayEndTime"
+        },
+        "thursdayStartTime" : {
+          "type" : "string",
+          "description" : "thursdayStartTime"
+        },
+        "fridayEndTime" : {
+          "type" : "string",
+          "description" : "fridayEndTime"
+        },
+        "fridayStartTime" : {
+          "type" : "string",
+          "description" : "fridayStartTime"
+        },
+        "saturdayEndTime" : {
+          "type" : "string",
+          "description" : "saturdayEndTime"
+        },
+        "saturdayStartTime" : {
+          "type" : "string",
+          "description" : "saturdayStartTime"
+        },
+        "sundayEndTime" : {
+          "type" : "string",
+          "description" : "sundayEndTime"
+        },
+        "sundayStartTime" : {
+          "type" : "string",
+          "description" : "sundayStartTime"
+        }
+      },
+      "title" : "BusinessHours"
+    },
+    "CaseAttachment" : {
+      "type" : "object",
+      "properties" : {
+        "caseNumber" : {
+          "type" : "string",
+          "description" : "caseNumber"
+        },
+        "uuid" : {
+          "type" : "string",
+          "description" : "uuid"
+        },
+        "checksum" : {
+          "type" : "string",
+          "description" : "checksum"
+        },
+        "createdDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "createdDate"
+        },
+        "createdBy" : {
+          "type" : "string",
+          "description" : "createdBy"
+        },
+        "description" : {
+          "type" : "string",
+          "description" : "description"
+        },
+        "fileName" : {
+          "type" : "string",
+          "description" : "fileName"
+        },
+        "fileType" : {
+          "type" : "string",
+          "description" : "fileType"
+        },
+        "id" : {
+          "type" : "string",
+          "description" : "id"
+        },
+        "isArchived" : {
+          "type" : "boolean",
+          "description" : "isArchived",
+          "default" : false
+        },
+        "isDeprecated" : {
+          "type" : "boolean",
+          "description" : "isDeprecated",
+          "default" : false
+        },
+        "isPrivate" : {
+          "type" : "boolean",
+          "description" : "isPrivate",
+          "default" : false
+        },
+        "lastModifiedDate" : {
+          "type" : "string",
+          "format" : "date-time",
+          "description" : "lastModifiedDate"
+        },
+        "link" : {
+          "type" : "string",
+          "description" : "link"
+        },
+        "modifiedBy" : {
+          "type" : "string",
+          "description" : "modifiedBy"
+        },
+        "size" : {
+          "type" : "integer",
+          "format" : "int64",
+          "description" : "size"
+        },
+        "sizeKB" : {
+          "type" : "number",
+          "format" : "double",
+          "description" : "sizeKB"
+        },
+        "accountNumber" : {
+          "type" : "string",
+          "description" : "accountNumber"
+        },
+        "downloadRestricted" : {
+          "type" : "boolean",
+          "description" : "downloadRestricted",
+          "default" : false
+        }
+      },
+      "description" : "Case Attachment Model"
+    },
+    "SftpLoginCredentialsRep" : {
+      "type" : "object",
+      "properties" : {
+        "username" : {
+          "type" : "string"
+        },
+        "token" : {
+          "type" : "string"
+        },
+        "expiryDate" : {
+          "type" : "string"
+        }
+      },
+      "description" : "Sftp Login Credentials Request"
+    },
+    "SftpAttachmentStatusRequest" : {
+      "type" : "object",
+      "properties" : {
+        "username" : {
+          "type" : "string",
+          "example" : "rhn-support-xxx",
+          "description" : "Username of the user who uploaded files"
+        },
+        "fileName" : {
+          "type" : "string",
+          "example" : "testFile.txt",
+          "description" : "file name"
+        }
+      },
+      "description" : "Sftp Attachment Status Request"
+    },
+    "SftpAttachmentStatusRep" : {
+      "type" : "object",
+      "properties" : {
+        "totalItems" : {
+          "type" : "integer",
+          "format" : "int32"
+        },
+        "sftpAttachments" : {
+          "type" : "array",
+          "items" : {
+            "$ref" : "#/definitions/SftpAttachment"
+          }
+        }
+      },
+      "description" : "Sftp Attachment Status Response"
+    },
+    "SftpTokenRequest" : {
+      "type" : "object",
+      "required" : [ "expiryInDays" ],
+      "properties" : {
+        "isAnonymous" : {
+          "type" : "boolean",
+          "example" : true,
+          "description" : "isAnonymous",
+          "default" : false
+        },
+        "isOneTime" : {
+          "type" : "boolean",
+          "example" : true,
+          "description" : "isOneTime",
+          "default" : false
+        },
+        "expiryInDays" : {
+          "type" : "integer",
+          "format" : "int32",
+          "example" : 60,
+          "description" : "expiryInDays",
+          "minimum" : 1.0,
+          "maximum" : 90.0
+        }
+      },
+      "description" : "Sftp Token Request"
+    },
+    "SftpAttachment" : {
+      "type" : "object",
+      "properties" : {
+        "attachmentId" : {
+          "type" : "string"
+        },
+        "caseNumber" : {
+          "type" : "string"
+        },
+        "status" : {
+          "type" : "string"
+        },
+        "uploadReqBy" : {
+          "type" : "string"
+        },
+        "uploadedReqAt" : {
+          "type" : "string",
+          "format" : "date-time"
+        },
+        "fileName" : {
+          "type" : "string"
+        },
+        "error" : {
+          "type" : "string"
+        },
+        "description" : {
+          "type" : "string"
+        },
+        "isPrivate" : {
+          "type" : "boolean",
+          "default" : false
+        }
+      },
+      "description" : "Sftp Attachment"
+    }
+  }
+}

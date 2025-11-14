@@ -1,9 +1,34 @@
 ---
-# Test playbook for must-gather upload functionality
-# This playbook creates mock archive files and tests only the upload portion
-# of the must_gather_log role, skipping the 45-50 minute must-gather collection
+# Test playbook for must-gather SFTP upload functionality
+# This playbook creates mock archive files and tests SFTP upload to Red Hat support
+# Uses SFTP with optional proxy for uploading archives to Red Hat support cases
+#
+# Red Hat SFTP Requirements (https://access.redhat.com/articles/5594481):
+# - Files must be named: CASEID_filename (e.g., 02436811_must-gather.tar.gz)
+# - Upload to root directory on sftp.access.redhat.com
+# - Files with correct naming auto-attach to cases within minutes
+# - Incorrectly named files are deleted after 30 days
+# - Successfully attached files are retained for 3 years
+#
+# Usage examples:
+#
+# Without proxy:
+#   ansible-playbook playbooks/test-must-gather-upload.yml \
+#     -e rh_case="02436811" \
+#     -e cluster_name="prod-cluster-01" \
+#     -e sftp_user="your-username" \
+#     -e sftp_token="your-sftp-token"
+#
+# With proxy:
+#   ansible-playbook playbooks/test-must-gather-upload.yml \
+#     -e rh_case="02436811" \
+#     -e cluster_name="prod-cluster-01" \
+#     -e sftp_user="your-username" \
+#     -e sftp_token="your-sftp-token" \
+#     -e proxy_host="proxy.example.com" \
+#     -e proxy_port="8080"
 
-- name: Test must-gather upload to Red Hat support
+- name: Test must-gather SFTP upload to Red Hat support
   hosts: localhost
   connection: local
   gather_facts: true
@@ -11,16 +36,25 @@
 
   vars:
     # Test configuration
-    test_archive_size_mb: 10  # Size of test archive in MB (use 1489 for multi-part testing)
-    test_create_split_archives: false  # Set to true to test multi-part upload
+    test_archive_size_mb: 10  # Size of test archive in MB
 
-    # Split configuration for large archives (100-500GB production use)
-    # Red Hat API has 1GB limit per file - use 800MB to stay safely under limit
-    split_size_mb: 800  # Size of each split part in MB (800MB recommended for production)
+    # SFTP configuration for Red Hat support
+    # See: https://access.redhat.com/articles/5594481
+    sftp_host: "sftp.access.redhat.com"  # Red Hat SFTP server (port 22 or 80)
 
-    # Upload retry configuration for 503 errors
-    rh_upload_max_retries: 5  # Increased from default 3 for 503 handling
-    rh_upload_retry_backoff: 5  # Increased from default 2 for longer delays
+    # Required runtime variables (must be provided via extra-vars or inventory):
+    # - rh_case: Red Hat support case number (e.g., "02436811")
+    # - cluster_name: Cluster identifier for archive naming
+    # - sftp_user: Red Hat Customer Portal username (e.g., "username")
+    # - sftp_token: SFTP authentication token (generate via Red Hat portal)
+    #
+    # Optional proxy configuration (if required in your environment):
+    # - proxy_host: HTTP proxy hostname for SFTP tunneling (e.g., "proxy.example.com")
+    # - proxy_port: HTTP proxy port (e.g., 8080)
+    #
+    # Token generation:
+    # Web UI: https://access.redhat.com/support/secure-ftp
+    # API: curl -X POST https://api.access.redhat.com/support/v2/sftp/token
 
   pre_tasks:
     - name: Setup Kubernetes environment for cluster context
@@ -38,10 +72,12 @@
     - name: Display setup completion status
       ansible.builtin.debug:
         msg: |
-          Test Mode: Upload functionality only
+          Test Mode: SFTP upload functionality only
           Cluster: {{ cluster_name | default('unknown-cluster') }}
           Kubeconfig: {{ kubeconfig_path | default('unset') }}
           Work directory: {{ WORK_DIR }}
+          SFTP Host: {{ sftp_host }}
+          Proxy: {{ proxy_host | default('none') }}:{{ proxy_port | default('N/A') }}
 
   tasks:
     - name: Test must-gather upload functionality
@@ -54,55 +90,22 @@
               - rh_case is defined
               - rh_case | string | length > 0
               - cluster_name is defined
+              - cluster_name | string | length > 0
+              - sftp_user is defined
+              - sftp_user | string | length > 0
+              - sftp_token is defined
+              - sftp_token | string | length > 0
             fail_msg: |
               Required variables for upload test:
-              - rh_case: Red Hat support case number
+              - rh_case: Red Hat support case number (e.g., "02436811")
               - cluster_name: Cluster name for test archive naming
-            success_msg: "Test variables validated: case={{ rh_case }}, cluster={{ cluster_name }}"
+              - sftp_user: Red Hat Customer Portal username
+              - sftp_token: Red Hat SFTP authentication token
 
-        - name: Setup Red Hat API credentials from Vault
-          ansible.builtin.set_fact:
-            rh_api_user: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/redhat')['user'] }}"
-            rh_api_pass: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/redhat')['password'] }}"
-            rh_offline_token: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/redhat').get('offline_token', '') }}"
-          no_log: true
-
-        - name: "** OAUTH TOKEN ** Exchange Red Hat offline token for access token"
-          ansible.builtin.uri:
-            url: "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token"
-            method: POST
-            body_format: form-urlencoded
-            body:
-              grant_type: "refresh_token"
-              client_id: "rhsm-api"
-              refresh_token: "{{ rh_offline_token }}"
-            headers:
-              Content-Type: "application/x-www-form-urlencoded"
-            return_content: true
-            status_code: [200, 400, 401]
-            validate_certs: true
-            timeout: 30
-            use_proxy: "{{ true if (proxy_http is defined or proxy_https is defined) else false }}"
-          environment:
-            http_proxy: "{{ proxy_http | default('') }}"
-            https_proxy: "{{ proxy_https | default('') }}"
-            no_proxy: "{{ proxy_no | default('') }}"
-          delegate_to: localhost
-          register: rh_oauth_response
-          no_log: false
-          when:
-            - rh_offline_token is defined
-            - rh_offline_token | length > 0
-
-        - name: Set Red Hat API access token from OAuth response
-          ansible.builtin.set_fact:
-            rh_api_token: "{{ rh_oauth_response.json.access_token }}"
-          no_log: true
-          when:
-            - rh_oauth_response is defined
-            - not rh_oauth_response.skipped | default(false)
-            - rh_oauth_response.status == 200
-            - rh_oauth_response.json.access_token is defined
+              Optional proxy variables:
+              - proxy_host: HTTP proxy hostname (if proxy required)
+              - proxy_port: HTTP proxy port (if proxy required)
+            success_msg: "Test variables validated: case={{ rh_case }}, cluster={{ cluster_name }}, user={{ sftp_user }}"
 
         - name: Create test working directory
           ansible.builtin.file:
@@ -173,315 +176,163 @@
             chdir: "{{ mustgather_output_dir }}"
           register: archive_result
           changed_when: archive_result.rc == 0
-          when: not test_create_split_archives
 
-        - name: Create split test archives (memory-efficient for 100-500GB production use)
-          ansible.builtin.shell:
-            cmd: |
-              set -euo pipefail
-              cd {{ mustgather_output_dir }}
-              # Memory-efficient streaming split: tar -> split -> compress each part independently
-              # This avoids loading entire archive in memory (critical for 100-500GB archives)
-              # Each part is compressed independently, allowing parallel decompression and resume capability
-              tar cf - {{ mustgather_collection_dir | basename }} | \
-                split -b {{ split_size_mb }}M \
-                      -d -a 3 \
-                      --filter='gzip -9 > "$FILE.tar.gz"' \
-                      - must-gather.part
-            executable: /bin/bash
-          register: split_archive_result
-          changed_when: split_archive_result.rc == 0
-          when: test_create_split_archives
-
-        - name: List created test archive files
-          ansible.builtin.find:
-            paths: "{{ mustgather_output_dir }}"
-            patterns:
-              - "must-gather.tar.gz"  # Single archive pattern
-              - "must-gather.part*.tar.gz"  # Split archive pattern
-            file_type: file
-          register: archive_files
+        - name: Get archive file information
+          ansible.builtin.stat:
+            path: "{{ mustgather_output_dir }}/must-gather.tar.gz"
+          register: archive_stat
 
         - name: Display test archive information
           ansible.builtin.debug:
             msg: |
-              Test archives created:
-              Number of parts: {{ archive_files.matched }}
-              {% for file in archive_files.files %}
-              - {{ file.path | basename }}: {{ (file.size / 1024 / 1024) | round(2) }} MB
-              {% endfor %}
+              Test archive created:
+              - must-gather.tar.gz: {{ (archive_stat.stat.size / 1024 / 1024) | round(2) }} MB
 
-        - name: Create temporary directory on controller for archive transfer
-          ansible.builtin.tempfile:
-            state: directory
-            prefix: "mustgather_test_"
-          delegate_to: localhost
-          register: controller_temp_dir
+        - name: Set archive filename with Red Hat naming convention
+          ansible.builtin.set_fact:
+            sftp_upload_filename: "{{ rh_case }}_must-gather-{{ cluster_name }}-{{ ansible_date_time.epoch }}.tar.gz"
+
+        - name: Build SFTP connection options
+          ansible.builtin.set_fact:
+            sftp_proxy_option: "{{ '-o \"ProxyCommand=nc --proxy ' + proxy_host + ':' + (proxy_port | string) + ' --proxy-type http %h %p\"' if (proxy_host is defined and proxy_port is defined) else '' }}"
+
+        - name: "** PRE-UPLOAD TEST ** Verify Red Hat SFTP connectivity"
+          ansible.builtin.shell: |
+            sshpass -p "{{ sftp_token }}" sftp \
+              {{ sftp_proxy_option }} \
+              -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=/dev/null \
+              {{ sftp_user }}@{{ sftp_host }} <<< "quit"
+          args:
+            executable: /bin/bash
+          register: sftp_test
           changed_when: false
-
-        - name: Fetch test archive files to controller
-          ansible.builtin.fetch:
-            src: "{{ item.path }}"
-            dest: "{{ controller_temp_dir.path }}/{{ item.path | basename }}"
-            flat: true
-          loop: "{{ archive_files.files }}"
-          loop_control:
-            label: "{{ item.path | basename }}"
+          failed_when: sftp_test.rc != 0
           no_log: true
 
-        - name: Set upload description for test
-          ansible.builtin.set_fact:
-            test_upload_description: "TEST UPLOAD - must-gather for {{ cluster_name }} - {{ ansible_date_time.iso8601 }}"
-
-        - name: "** PRE-UPLOAD TEST ** Verify Red Hat API connectivity - Get case details"
-          ansible.builtin.uri:
-            url: "https://api.access.redhat.com/support/v1/cases/{{ rh_case }}"
-            method: GET
-            url_username: "{{ rh_api_user }}"
-            url_password: "{{ rh_api_pass }}"
-            force_basic_auth: true
-            headers:
-              Accept: "application/json"
-            return_content: true
-            status_code: [200, 401, 403, 404]
-            validate_certs: true
-            timeout: 30
-            use_proxy: "{{ true if (proxy_http is defined or proxy_https is defined) else false }}"
-          environment:
-            http_proxy: "{{ proxy_http | default('') }}"
-            https_proxy: "{{ proxy_https | default('') }}"
-            no_proxy: "{{ proxy_no | default('') }}"
-          delegate_to: localhost
-          register: rh_case_info
-          no_log: false
-
-        - name: Display Red Hat case information
+        - name: Display SFTP connectivity test result
           ansible.builtin.debug:
             msg: |
               ===================================================================
-              RED HAT CASE API TEST
+              RED HAT SFTP CONNECTIVITY TEST
               ===================================================================
-              HTTP Status: {{ rh_case_info.status }}
-              {% if rh_case_info.status == 200 %}
-              Case Number: {{ rh_case_info.json.caseNumber | default('N/A') }}
-              Case Type: {{ rh_case_info.json.caseType | default('N/A') }}
-              Severity: {{ rh_case_info.json.severity | default('N/A') }}
-              Status: {{ rh_case_info.json.status | default('N/A') }}
-              Product: {{ rh_case_info.json.product | default('N/A') }}
-              Version: {{ rh_case_info.json.version | default('N/A') }}
-              Support Level: {{ rh_case_info.json.entitlementSla | default('N/A') }}
-              Owner: {{ rh_case_info.json.contactName | default('N/A') }}
-              Red Hat Owner: {{ rh_case_info.json.ownerId | default('N/A') }}
-              Group: {{ rh_case_info.json.groupNumber | default('N/A') }}
-              Opened: {{ rh_case_info.json.createdDate | default('N/A') }}
-              Last Updated: {{ rh_case_info.json.lastModifiedDate | default('N/A') }}
-              Summary: {{ rh_case_info.json.summary | default('N/A') }}
-              {% elif rh_case_info.status == 401 %}
-              ERROR: Authentication failed - check credentials
-              {% elif rh_case_info.status == 403 %}
-              ERROR: Access forbidden - check permissions
-              {% elif rh_case_info.status == 404 %}
-              ERROR: Case not found - verify case number
-              {% else %}
-              ERROR: Unexpected status code
-              {% endif %}
+              SFTP connection successful
+              Host: {{ sftp_host }}
+              User: {{ sftp_user }}
+              Proxy: {{ proxy_host | default('none') }}:{{ proxy_port | default('N/A') }}
+              Target file: {{ sftp_upload_filename }}
+              Note: File will auto-attach to case {{ rh_case }} with correct naming
               ===================================================================
 
-        - name: "** PRE-UPLOAD TEST ** Verify Red Hat API connectivity - List case attachments"
-          ansible.builtin.uri:
-            url: "https://api.access.redhat.com/support/v1/cases/{{ rh_case }}/attachments"
-            method: GET
-            url_username: "{{ rh_api_user }}"
-            url_password: "{{ rh_api_pass }}"
-            force_basic_auth: true
-            headers:
-              Accept: "application/json"
-            return_content: true
-            status_code: [200, 401, 403, 404]
-            validate_certs: true
-            timeout: 30
-            use_proxy: "{{ true if (proxy_http is defined or proxy_https is defined) else false }}"
-          environment:
-            http_proxy: "{{ proxy_http | default('') }}"
-            https_proxy: "{{ proxy_https | default('') }}"
-            no_proxy: "{{ proxy_no | default('') }}"
-          delegate_to: localhost
-          register: rh_case_attachments
-          no_log: false
+        - name: "** TESTING SFTP UPLOAD ** Upload test archive to Red Hat support via SFTP"
+          ansible.builtin.shell: |
+            sshpass -p "{{ sftp_token }}" sftp \
+              {{ sftp_proxy_option }} \
+              -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=/dev/null \
+              {{ sftp_user }}@{{ sftp_host }} <<EOF
+            put {{ mustgather_output_dir }}/must-gather.tar.gz {{ sftp_upload_filename }}
+            ls -la {{ sftp_upload_filename }}
+            quit
+            EOF
+          args:
+            executable: /bin/bash
+          register: sftp_upload
+          changed_when: sftp_upload.rc == 0
+          failed_when: sftp_upload.rc != 0
+          no_log: true
 
-        - name: Display Red Hat case attachments
-          ansible.builtin.debug:
-            msg: |
-              ===================================================================
-              RED HAT CASE ATTACHMENTS API TEST
-              ===================================================================
-              HTTP Status: {{ rh_case_attachments.status }}
-              {% if rh_case_attachments.status == 200 %}
-              Total Attachments: {{ rh_case_attachments.json | length }}
-              {% if rh_case_attachments.json | length > 0 %}
-
-              Existing Attachments:
-              {% for attachment in rh_case_attachments.json %}
-              - UUID: {{ attachment.uuid | default('N/A') }}
-                Filename: {{ attachment.fileName | default('N/A') }}
-                Size: {{ (attachment.length | default(0) / 1024 / 1024) | round(2) }} MB
-                Created: {{ attachment.createdDate | default('N/A') }}
-                Link: {{ attachment.link | default('N/A') }}
-              {% endfor %}
-              {% else %}
-              No attachments found for this case
-              {% endif %}
-              {% elif rh_case_attachments.status == 401 %}
-              ERROR: Authentication failed - check credentials
-              {% elif rh_case_attachments.status == 403 %}
-              ERROR: Access forbidden - check permissions
-              {% elif rh_case_attachments.status == 404 %}
-              ERROR: Case not found - verify case number
-              {% else %}
-              ERROR: Unexpected status code
-              {% endif %}
-              ===================================================================
-
-        - name: Verify Red Hat API connectivity before upload
-          ansible.builtin.assert:
-            that:
-              - rh_case_info.status == 200
-              - rh_case_attachments.status == 200
-            fail_msg: |
-              Red Hat API connectivity test failed:
-              - Case info status: {{ rh_case_info.status }}
-              - Attachments status: {{ rh_case_attachments.status }}
-
-              Cannot proceed with upload - API is not accessible or credentials are invalid.
-            success_msg: "Red Hat API connectivity verified successfully"
-
-        - name: "** TESTING UPLOAD MODULE ** Upload test archives to Red Hat support"
-          redhat_upload:
-            case_id: "{{ rh_case }}"
-            archive_pattern: "{{ controller_temp_dir.path }}/*must-gather*.tar.gz"
-            upload_description: "{{ test_upload_description }}"
-            api_token: "{{ rh_api_token | default(omit) }}"
-            api_user: "{{ rh_api_user | default(omit) }}"
-            api_pass: "{{ rh_api_pass | default(omit) }}"
-            proxy_http: "{{ proxy_http | default(omit) }}"
-            proxy_https: "{{ proxy_https | default(omit) }}"
-            proxy_no: "{{ proxy_no | default(omit) }}"
-            max_retry_attempts: "{{ rh_upload_max_retries | default(3) }}"
-            retry_backoff_base: "{{ rh_upload_retry_backoff | default(2) }}"
-            fail_on_partial: "{{ rh_upload_fail_on_partial | default(true) }}"
-            timeout: "{{ rh_upload_timeout | default(1800) }}"
-            log_dir: "{{ mustgather_upload_logs }}"
-          delegate_to: localhost
-          register: rh_upload_results
-          no_log: false
-
-        - name: Set upload status from module results
+        - name: Set upload status from SFTP results
           ansible.builtin.set_fact:
             upload_status:
-              status: "{{ rh_upload_results.status }}"
-              case_id: "{{ rh_upload_results.case_id }}"
-              total_parts: "{{ rh_upload_results.total_parts }}"
-              success_count: "{{ rh_upload_results.success_count }}"
-              failure_count: "{{ rh_upload_results.failure_count }}"
-              results: "{{ rh_upload_results.results }}"
+              status: "{{ 'success' if sftp_upload.rc == 0 else 'failed' }}"
+              case_id: "{{ rh_case }}"
+              filename: "{{ sftp_upload_filename }}"
+              size_mb: "{{ (archive_stat.stat.size / 1024 / 1024) | round(2) }}"
+              sftp_output: "{{ sftp_upload.stdout }}"
 
         - name: Display detailed upload test results
           ansible.builtin.debug:
             msg: |
               ===================================================================
-              UPLOAD TEST RESULTS
+              SFTP UPLOAD TEST RESULTS
               ===================================================================
               Status: {{ upload_status.status | upper }}
               Case ID: {{ upload_status.case_id }}
-              Total Parts: {{ upload_status.total_parts }}
-              Successful Uploads: {{ upload_status.success_count }}
-              Failed Uploads: {{ upload_status.failure_count }}
+              Filename: {{ upload_status.filename }}
+              Size: {{ upload_status.size_mb }} MB
+              SFTP Host: {{ sftp_host }}
 
-              Per-Part Upload Details:
-              {% for result in upload_status.results %}
-              Part {{ result.part }}: {{ result.file }}
-                Status: {{ result.status | upper }}
-                Attempts: {{ result.attempts }}
-              {% if result.status == 'failed' %}
-                Failure Reason: {{ result.reason }}
-                HTTP Code: {{ result.http_code | default('N/A') }}
-              {% elif result.status == 'success' %}
-                HTTP Code: {{ result.http_code }}
-              {% endif %}
-              {% endfor %}
+              SFTP Server Response:
+              {{ upload_status.sftp_output }}
               ===================================================================
 
-        - name: Display upload log file location
+        - name: Display test archive location
           ansible.builtin.debug:
             msg: |
               ===================================================================
-              UPLOAD LOG FILES
+              TEST ARCHIVE LOCATION
               ===================================================================
-              Detailed upload logs are available in: {{ mustgather_upload_logs }}
-
-              To view upload logs:
-                find {{ mustgather_upload_logs }} -name "redhat_upload_*.log" -type f
+              Local archive: {{ mustgather_output_dir }}/must-gather.tar.gz
+              Remote location: /{{ sftp_upload_filename }} (root directory)
+              SFTP server: {{ sftp_host }}
+              Auto-attach: File will automatically attach to case {{ rh_case }}
+              Attachment time: Within minutes of upload
               ===================================================================
 
         - name: Verify upload success
           ansible.builtin.assert:
             that:
               - upload_status.status == 'success'
-              - upload_status.failure_count | int == 0
-              - upload_status.success_count | int == upload_status.total_parts | int
-            success_msg: "Upload test PASSED: All {{ upload_status.total_parts }} part(s) uploaded successfully"
-            fail_msg: "Upload test FAILED: {{ upload_status.failure_count }} of {{ upload_status.total_parts }} parts failed"
+              - sftp_upload.rc == 0
+            success_msg: "Upload test PASSED: Archive uploaded successfully via SFTP"
+            fail_msg: "Upload test FAILED: SFTP upload returned error code {{ sftp_upload.rc }}"
 
       rescue:
         - name: Display upload test failure details
           ansible.builtin.debug:
             msg: |
               ===================================================================
-              UPLOAD TEST FAILED
+              SFTP UPLOAD TEST FAILED
               ===================================================================
-              {% if rh_upload_results is defined %}
-              Module execution failed:
-              {{ rh_upload_results | to_nice_json }}
+              {% if sftp_upload is defined %}
+              SFTP upload failed:
+              Return code: {{ sftp_upload.rc | default('N/A') }}
+              STDOUT: {{ sftp_upload.stdout | default('N/A') }}
+              STDERR: {{ sftp_upload.stderr | default('N/A') }}
               {% else %}
               Test setup or execution error
               {% endif %}
 
-              Test archives preserved at: {{ controller_temp_dir.path }}
+              Test archive preserved at: {{ mustgather_output_dir }}/must-gather.tar.gz
               ===================================================================
 
         - name: Fail test playbook with detailed error
           ansible.builtin.fail:
             msg: |
-              Upload test failed for case {{ rh_case }}.
+              SFTP upload test failed for case {{ rh_case }}.
               Review error details above.
-              Test archives preserved at: {{ controller_temp_dir.path }}
+              Test archive preserved at: {{ mustgather_output_dir }}/must-gather.tar.gz
 
       always:
-        - name: Clean up test working directory on managed host
+        - name: Clean up test working directory on managed host on success
           ansible.builtin.file:
             path: "{{ test_work_dir.path }}"
             state: absent
-          when: test_work_dir is defined
-
-        - name: Clean up controller temporary directory on success
-          ansible.builtin.file:
-            path: "{{ controller_temp_dir.path }}"
-            state: absent
-          delegate_to: localhost
           when:
-            - controller_temp_dir is defined
+            - test_work_dir is defined
             - upload_status is defined
             - upload_status.status == 'success'
 
-        - name: Preserve controller temporary directory on failure
+        - name: Preserve test working directory on failure
           ansible.builtin.debug:
             msg: |
-              Test archives preserved for review at:
-              {{ controller_temp_dir.path }}
+              Test archive preserved for review at:
+              {{ test_work_dir.path }}/must-gather.tar.gz
 
               Manual cleanup required after investigation.
           when:
-            - controller_temp_dir is defined
+            - test_work_dir is defined
             - upload_status is defined
             - upload_status.status != 'success'
 
@@ -491,10 +342,11 @@
               ===================================================================
               TEST EXECUTION COMPLETE
               ===================================================================
-              Test Type: Red Hat Upload Module (redhat_upload.py)
+              Test Type: Red Hat SFTP Upload
               Case ID: {{ rh_case }}
               Cluster: {{ cluster_name }}
               Archive Size: {{ test_archive_size_mb }}MB
-              Split Archives: {{ test_create_split_archives }}
+              Upload Method: SFTP via proxy
+              SFTP Server: {{ sftp_host }}
               Result: {{ upload_status.status | default('UNKNOWN') | upper }}
               ===================================================================

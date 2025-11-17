@@ -42,15 +42,27 @@
     # See: https://access.redhat.com/articles/5594481
     sftp_host: "sftp.access.redhat.com"  # Red Hat SFTP server (port 22 or 80)
 
+    # Proxy configuration (if required in your environment)
+    # Example: proxy_http: "http://proxy.example.com:8080"
+    # proxy_http: "http://proxy.com:9090"
+    # proxy_no: "localhost,127.0.0.1"
+
+    # Extract proxy host and port from proxy_http URL
+    # Note: regex_search returns a list, so we extract the first element with [0]
+    proxy_host: "{{ (proxy_http | regex_search('http://([^:/]+)', '\\1'))[0] if proxy_http is defined else omit }}"
+    proxy_port: "{{ (proxy_http | regex_search('http://[^:/]+:(\\d+)', '\\1'))[0] if proxy_http is defined else omit }}"
+
     # Required runtime variables (must be provided via extra-vars or inventory):
     # - rh_case: Red Hat support case number (e.g., "02436811")
     # - cluster_name: Cluster identifier for archive naming
     # - sftp_user: Red Hat Customer Portal username (e.g., "username")
     # - sftp_token: SFTP authentication token (generate via Red Hat portal)
     #
-    # Optional proxy configuration (if required in your environment):
-    # - proxy_host: HTTP proxy hostname for SFTP tunneling (e.g., "proxy.example.com")
-    # - proxy_port: HTTP proxy port (e.g., 8080)
+    # Optional proxy configuration methods:
+    # Method 1: Define proxy_http and let it auto-extract host/port
+    #   -e proxy_http="http://proxy.example.com:8080"
+    # Method 2: Define proxy_host and proxy_port directly
+    #   -e proxy_host="proxy.example.com" -e proxy_port="8080"
     #
     # Token generation:
     # Web UI: https://access.redhat.com/support/secure-ftp
@@ -194,7 +206,12 @@
 
         - name: Build SFTP connection options
           ansible.builtin.set_fact:
-            sftp_proxy_option: "{{ '-o \"ProxyCommand=nc --proxy ' + proxy_host + ':' + (proxy_port | string) + ' --proxy-type http %h %p\"' if (proxy_host is defined and proxy_port is defined) else '' }}"
+            sftp_proxy_option: >-
+              {% if proxy_host is defined and proxy_port is defined %}
+              -o "ProxyCommand=nc --proxy {{ proxy_host }}:{{ proxy_port }} --proxy-type http %h %p"
+              {% else %}
+
+              {% endif %}
 
         - name: "** PRE-UPLOAD TEST ** Verify Red Hat SFTP connectivity"
           ansible.builtin.shell: |

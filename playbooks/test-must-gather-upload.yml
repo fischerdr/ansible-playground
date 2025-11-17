@@ -1,7 +1,7 @@
 ---
 # Test playbook for must-gather SFTP upload functionality
 # This playbook creates mock archive files and tests SFTP upload to Red Hat support
-# Uses SFTP with optional proxy for uploading archives to Red Hat support cases
+# Uses SFTP with HTTP proxy for uploading archives to Red Hat support cases
 #
 # Red Hat SFTP Requirements (https://access.redhat.com/articles/5594481):
 # - Files must be named: CASEID_filename (e.g., 02436811_must-gather.tar.gz)
@@ -10,23 +10,13 @@
 # - Incorrectly named files are deleted after 30 days
 # - Successfully attached files are retained for 3 years
 #
-# Usage examples:
-#
-# Without proxy:
-#   ansible-playbook playbooks/test-must-gather-upload.yml \
-#     -e rh_case="02436811" \
-#     -e cluster_name="prod-cluster-01" \
-#     -e sftp_user="your-username" \
-#     -e sftp_token="your-sftp-token"
-#
-# With proxy:
+# Usage:
 #   ansible-playbook playbooks/test-must-gather-upload.yml \
 #     -e rh_case="02436811" \
 #     -e cluster_name="prod-cluster-01" \
 #     -e sftp_user="your-username" \
 #     -e sftp_token="your-sftp-token" \
-#     -e proxy_host="proxy.example.com" \
-#     -e proxy_port="8080"
+#     -e proxy_http="http://proxy.example.com:8080"
 
 - name: Test must-gather SFTP upload to Red Hat support
   hosts: localhost
@@ -42,33 +32,23 @@
     # See: https://access.redhat.com/articles/5594481
     sftp_host: "sftp.access.redhat.com"  # Red Hat SFTP server (port 22 or 80)
 
-    # Proxy configuration (if required in your environment)
-    # Example: proxy_http: "http://proxy.example.com:8080"
-    # proxy_http: "http://proxy.com:9090"
-    # proxy_no: "localhost,127.0.0.1"
-
-    # Extract proxy host and port from proxy_http URL
-    # Note: regex_search returns a list, so we extract the first element with [0]
-    proxy_host: "{{ (proxy_http | regex_search('http://([^:/]+)', '\\1'))[0] if proxy_http is defined else omit }}"
-    proxy_port: "{{ (proxy_http | regex_search('http://[^:/]+:(\\d+)', '\\1'))[0] if proxy_http is defined else omit }}"
-
     # Required runtime variables (must be provided via extra-vars or inventory):
     # - rh_case: Red Hat support case number (e.g., "02436811")
     # - cluster_name: Cluster identifier for archive naming
     # - sftp_user: Red Hat Customer Portal username (e.g., "username")
     # - sftp_token: SFTP authentication token (generate via Red Hat portal)
-    #
-    # Optional proxy configuration methods:
-    # Method 1: Define proxy_http and let it auto-extract host/port
-    #   -e proxy_http="http://proxy.example.com:8080"
-    # Method 2: Define proxy_host and proxy_port directly
-    #   -e proxy_host="proxy.example.com" -e proxy_port="8080"
+    # - proxy_http: HTTP proxy URL (e.g., "http://proxy.example.com:8080")
     #
     # Token generation:
     # Web UI: https://access.redhat.com/support/secure-ftp
     # API: curl -X POST https://api.access.redhat.com/support/v2/sftp/token
 
   pre_tasks:
+    - name: Parse proxy_http URL into host and port
+      ansible.builtin.set_fact:
+        proxy_host: "{{ proxy_http | regex_search('http://([^:/]+)', '\\1') | first }}"
+        proxy_port: "{{ proxy_http | regex_search(':(\\d+)', '\\1') | first }}"
+
     - name: Setup Kubernetes environment for cluster context
       ansible.builtin.include_role:
         name: setup_env
@@ -107,17 +87,16 @@
               - sftp_user | string | length > 0
               - sftp_token is defined
               - sftp_token | string | length > 0
+              - proxy_http is defined
+              - proxy_http | string | length > 0
             fail_msg: |
               Required variables for upload test:
               - rh_case: Red Hat support case number (e.g., "02436811")
               - cluster_name: Cluster name for test archive naming
               - sftp_user: Red Hat Customer Portal username
               - sftp_token: Red Hat SFTP authentication token
-
-              Optional proxy variables:
-              - proxy_host: HTTP proxy hostname (if proxy required)
-              - proxy_port: HTTP proxy port (if proxy required)
-            success_msg: "Test variables validated: case={{ rh_case }}, cluster={{ cluster_name }}, user={{ sftp_user }}"
+              - proxy_http: HTTP proxy URL (e.g., "http://proxy.example.com:8080")
+            success_msg: "Test variables validated: case={{ rh_case }}, cluster={{ cluster_name }}, proxy={{ proxy_host }}:{{ proxy_port }}"
 
         - name: Create test working directory
           ansible.builtin.file:

@@ -61,30 +61,36 @@ mustgather_label_value: "true"
 skip_mustgather_deletion: false
 
 # ==============================================================================
-# Red Hat API Authentication (from HashiCorp Vault)
+# Red Hat SFTP Authentication (from HashiCorp Vault)
 # ==============================================================================
 
-# Red Hat API authentication (sourced from HashiCorp Vault via lookup)
-# These are passed as environment variables to the upload script
-# Prefer token authentication when available
+# Red Hat SFTP authentication (sourced from HashiCorp Vault via lookup)
+# Required for uploading must-gather archives to Red Hat support cases
 #
-# Example lookup patterns:
-#   rh_api_token: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:api_token') }}"
-#   rh_api_user: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:username') }}"
-rh_api_token: ""
-rh_api_user: ""
-rh_api_pass: ""
+# SFTP server details (per Red Hat documentation https://access.redhat.com/articles/5594481)
+rh_sftp_host: "sftp.access.redhat.com"  # Red Hat SFTP server (port 22 or 80)
+rh_sftp_user: ""  # Red Hat Customer Portal username
+rh_sftp_token: ""  # SFTP authentication token (generate via web UI or API)
+#
+# Example lookup patterns for HashiCorp Vault:
+#   rh_sftp_user: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:sftp_user') }}"
+#   rh_sftp_token: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:sftp_token') }}"
+#
+# Generate SFTP token:
+#   Web UI: https://access.redhat.com/support/secure-ftp
+#   API: curl -X POST https://api.access.redhat.com/support/v2/sftp/token
 
 # ==============================================================================
 # Networking and Proxy Configuration
 # ==============================================================================
 
 # Proxy settings (optional - sourced from HashiCorp Vault or inventory)
+# Used for SFTP connections via HTTP CONNECT proxy
 # Example lookup pattern:
 #   proxy_http: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/proxy:http_proxy') }}"
+#
+# Format: http://proxy.example.com:8080
 proxy_http: ""
-proxy_https: ""
-proxy_no: ""
 
 # ==============================================================================
 # Timeouts and Retry Configuration
@@ -95,27 +101,9 @@ command_retries: 1
 command_delay: 3
 timeout_seconds: 300
 
-# Red Hat upload retry configuration
-rh_upload_max_retries: 3  # Maximum retry attempts per archive part
-rh_upload_retry_backoff: 2  # Base backoff seconds (exponential: base * 2^attempt)
-rh_upload_fail_on_partial: true  # Fail playbook if any part fails (false = allow partial success)
-rh_upload_timeout: 1800  # Upload timeout in seconds (default: 1800s = 30 min for large files through proxies)
-
-# ==============================================================================
-# Archive Size Limits and Splitting Configuration
-# ==============================================================================
-
-# Maximum single archive size (1GB = Red Hat API limit)
-max_archive_size_bytes: 1073741824  # 1GB in bytes
-
-# Split threshold (90% of max to account for compression overhead)
-split_threshold_bytes: 966367641  # 900MB in bytes
-
-# Split size for large archives (100-500GB production use)
-# IMPORTANT: For 100-500GB archives, use memory-efficient streaming split
-# Red Hat API has 1GB limit per file - use 800MB to stay safely under limit
-# Each part will be compressed independently for resume capability
-mustgather_split_size_mb: 800  # Size of each split part in MB (recommended: 800MB)
+# SFTP upload behavior configuration
+# Note: SFTP has no file size limit - archives are created as single files
+rh_upload_fail_on_partial: false  # Not applicable for single file uploads (kept for compatibility)
 
 # ==============================================================================
 # Operational Notes
@@ -126,25 +114,21 @@ mustgather_split_size_mb: 800  # Size of each split part in MB (recommended: 800
 #   in your inventory or playbook vars. Examples:
 #
 #   # In group_vars/all/main.yml or playbook vars:
-#   rh_api_token: "{{ lookup('community.hashi_vault.hashi_vault',
-#                     'secret=secret/data/redhat:api_token') }}"
+#   rh_sftp_user: "{{ lookup('community.hashi_vault.hashi_vault',
+#                     'secret=secret/data/redhat:sftp_user') }}"
+#   rh_sftp_token: "{{ lookup('community.hashi_vault.hashi_vault',
+#                      'secret=secret/data/redhat:sftp_token') }}"
 #
-#   # OR for username/password authentication:
-#   rh_api_user: "{{ lookup('community.hashi_vault.hashi_vault',
-#                    'secret=secret/data/redhat:username') }}"
-#   rh_api_pass: "{{ lookup('community.hashi_vault.hashi_vault',
-#                    'secret=secret/data/redhat:password') }}"
-#
-#   The role passes these to the upload script as environment variables:
-#   - rh_api_token → RH_API_TOKEN
-#   - rh_api_user → RH_API_USER
-#   - rh_api_pass → RH_API_PASS
+#   Generate SFTP token:
+#   - Web UI: https://access.redhat.com/support/secure-ftp
+#   - API: curl -X POST https://api.access.redhat.com/support/v2/sftp/token
 #
 # Proxy Configuration (optional - from HashiCorp Vault or inventory):
 #   proxy_http: "{{ lookup('community.hashi_vault.hashi_vault',
 #               'secret=secret/data/proxy:http_proxy') }}"
-#   proxy_https: "{{ lookup('community.hashi_vault.hashi_vault',
-#                'secret=secret/data/proxy:https_proxy') }}"
+#
+#   Format: http://proxy.example.com:8080
+#   The proxy is used for SFTP connections via HTTP CONNECT tunnel
 #
 # HashiCorp Vault Authentication:
 #   The community.hashi_vault collection supports multiple auth methods:
@@ -159,18 +143,23 @@ mustgather_split_size_mb: 800  # Size of each split part in MB (recommended: 800
 #   - Should point to oc binary path in execution environment
 #   - Example: OC_BIN: "/usr/local/bin/oc"
 #
-# Archive handling:
-#   - Archives larger than 900MB are automatically split into parts
-#   - All parts are uploaded via upload_to_redhat_condense.sh script
-#   - Script handles per-part retry logic with exponential backoff
-#   - Each part upload is retried up to rh_upload_max_retries times
-#   - Script reports granular success/failure status per part
-#   - If rh_upload_fail_on_partial=true, playbook fails if any part fails
-#   - If rh_upload_fail_on_partial=false, allows partial success
-#   - Detailed JSON output provides per-part status for troubleshooting
+# Archive handling and upload:
+#   - Must-gather collection is compressed into a single tar.gz archive
+#   - Archive is uploaded via SFTP to sftp.access.redhat.com
+#   - Files are named with Red Hat convention: CASEID_filename
+#   - Files auto-attach to case within minutes of upload
+#   - SFTP has no file size limit (supports very large archives)
+#   - Uploads use sshpass for authentication and nc for proxy tunneling
+#   - Upload success/failure tracking with detailed error reporting
+#
+# System requirements:
+#   - sshpass: For non-interactive SFTP authentication
+#   - nc (netcat): For HTTP proxy tunneling (if proxy is used)
+#   - These should be installed in the execution environment
 #
 # Security:
 #   - Never hardcode credentials in playbook vars or group_vars
 #   - Always use HashiCorp Vault lookups for sensitive data
 #   - Configure Vault authentication via environment variables or AAP credentials
 #   - Use appropriate Vault policies to limit secret access
+#   - SFTP token is single-use and time-limited (generate new for each upload)

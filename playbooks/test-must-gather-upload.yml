@@ -194,11 +194,26 @@
 
         - name: "** PRE-UPLOAD TEST ** Verify Red Hat SFTP connectivity"
           ansible.builtin.shell: |
+            set -o pipefail
+            log_file="{{ mustgather_upload_logs }}/sftp-connectivity-test-{{ ansible_date_time.epoch }}.log"
+            echo "==================================================================" > "$log_file"
+            echo "SFTP Connectivity Test" >> "$log_file"
+            echo "Timestamp: {{ ansible_date_time.iso8601 }}" >> "$log_file"
+            echo "Host: {{ sftp_host }}" >> "$log_file"
+            echo "User: {{ sftp_user }}" >> "$log_file"
+            echo "==================================================================" >> "$log_file"
+            echo "" >> "$log_file"
+
             sshpass -p "{{ sftp_token }}" sftp \
               {{ sftp_proxy_option }} \
               -o StrictHostKeyChecking=no \
               -o UserKnownHostsFile=/dev/null \
-              {{ sftp_user }}@{{ sftp_host }} <<< "quit"
+              {{ sftp_user }}@{{ sftp_host }} <<< "quit" >> "$log_file" 2>&1
+            exit_code=$?
+
+            echo "" >> "$log_file"
+            echo "Exit code: $exit_code" >> "$log_file"
+            exit $exit_code
           args:
             executable: /bin/bash
           register: sftp_test
@@ -218,19 +233,46 @@
               Proxy: {{ proxy_host | default('none') }}:{{ proxy_port | default('N/A') }}
               Target file: {{ sftp_upload_filename }}
               Note: File will auto-attach to case {{ rh_case }} with correct naming
+              Log file: {{ mustgather_upload_logs }}/sftp-connectivity-test-{{ ansible_date_time.epoch }}.log
               ===================================================================
 
         - name: "** TESTING SFTP UPLOAD ** Upload test archive to Red Hat support via SFTP"
           ansible.builtin.shell: |
+            set -o pipefail
+            log_file="{{ mustgather_upload_logs }}/sftp-upload-{{ ansible_date_time.epoch }}.log"
+            echo "==================================================================" > "$log_file"
+            echo "SFTP Upload Log" >> "$log_file"
+            echo "Timestamp: {{ ansible_date_time.iso8601 }}" >> "$log_file"
+            echo "Case ID: {{ rh_case }}" >> "$log_file"
+            echo "Host: {{ sftp_host }}" >> "$log_file"
+            echo "User: {{ sftp_user }}" >> "$log_file"
+            echo "Local file: {{ mustgather_output_dir }}/must-gather.tar.gz" >> "$log_file"
+            echo "Remote file: {{ sftp_upload_filename }}" >> "$log_file"
+            echo "File size: {{ (archive_stat.stat.size / 1024 / 1024) | round(2) }} MB" >> "$log_file"
+            echo "==================================================================" >> "$log_file"
+            echo "" >> "$log_file"
+
             sshpass -p "{{ sftp_token }}" sftp \
               {{ sftp_proxy_option }} \
               -o StrictHostKeyChecking=no \
               -o UserKnownHostsFile=/dev/null \
-              {{ sftp_user }}@{{ sftp_host }} <<EOF
+              {{ sftp_user }}@{{ sftp_host }} <<EOF >> "$log_file" 2>&1
             put {{ mustgather_output_dir }}/must-gather.tar.gz {{ sftp_upload_filename }}
             ls -la {{ sftp_upload_filename }}
             quit
             EOF
+            exit_code=$?
+
+            echo "" >> "$log_file"
+            echo "Exit code: $exit_code" >> "$log_file"
+
+            if [ $exit_code -eq 0 ]; then
+              echo "Status: SUCCESS" >> "$log_file"
+            else
+              echo "Status: FAILED" >> "$log_file"
+            fi
+
+            exit $exit_code
           args:
             executable: /bin/bash
           register: sftp_upload
@@ -258,6 +300,7 @@
               Filename: {{ upload_status.filename }}
               Size: {{ upload_status.size_mb }} MB
               SFTP Host: {{ sftp_host }}
+              Upload log: {{ mustgather_upload_logs }}/sftp-upload-{{ ansible_date_time.epoch }}.log
 
               SFTP Server Response:
               {{ upload_status.sftp_output }}
@@ -274,6 +317,7 @@
               SFTP server: {{ sftp_host }}
               Auto-attach: File will automatically attach to case {{ rh_case }}
               Attachment time: Within minutes of upload
+              Upload logs: {{ mustgather_upload_logs }}
               ===================================================================
 
         - name: Verify upload success

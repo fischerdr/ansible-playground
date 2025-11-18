@@ -41,20 +41,25 @@
       register: oc_binary_stat
       failed_when: not oc_binary_stat.stat.exists or not oc_binary_stat.stat.executable
 
-    - name: "Validate Red Hat API authentication credentials from HashiCorp Vault"
+    - name: "Validate Red Hat SFTP authentication credentials from HashiCorp Vault"
       ansible.builtin.assert:
         that:
-          - (rh_api_token | length > 0) or (rh_api_user | length > 0 and rh_api_pass | length > 0)
+          - rh_sftp_user is defined
+          - rh_sftp_user | string | length > 0
+          - rh_sftp_token is defined
+          - rh_sftp_token | string | length > 0
         fail_msg: |
-          Red Hat API authentication not configured.
+          Red Hat SFTP authentication not configured.
           Required variables (populated from HashiCorp Vault lookup):
-          - rh_api_token (preferred)
-          OR
-          - rh_api_user AND rh_api_pass
+          - rh_sftp_user: Red Hat Customer Portal username
+          - rh_sftp_token: SFTP authentication token
 
           Example in group_vars or playbook:
-          rh_api_token: "{{ '{{' }} lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:api_token') {{ '}}' }}"
-        success_msg: "Red Hat API authentication validated"
+          rh_sftp_user: "{{ '{{' }} lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:sftp_user') {{ '}}' }}"
+          rh_sftp_token: "{{ '{{' }} lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:sftp_token') {{ '}}' }}"
+
+          Generate SFTP token at: https://access.redhat.com/support/secure-ftp
+        success_msg: "Red Hat SFTP authentication validated"
       when: mustgather_upload_enabled
 
   rescue:
@@ -64,9 +69,9 @@
           Pre-execution validation failed. Verify:
           - All required variables are defined in defaults/main.yml or extra_vars
           - OC_BIN points to valid oc binary in execution environment
-          - Red Hat API credentials populated from HashiCorp Vault:
-            * rh_api_token: "{{ '{{' }} lookup('community.hashi_vault.hashi_vault', ...) {{ '}}' }}"
-            * OR rh_api_user/rh_api_pass from Vault lookups
+          - Red Hat SFTP credentials populated from HashiCorp Vault:
+            * rh_sftp_user: Red Hat Customer Portal username
+            * rh_sftp_token: SFTP authentication token (generate at https://access.redhat.com/support/secure-ftp)
           - VAULT_TOKEN or other Vault auth configured in environment
 
     - name: "Fail after validation error"
@@ -188,15 +193,14 @@
       ansible.builtin.find:
         paths: "{{ WORK_DIR | default('/tmp') }}"
         patterns:
-          - "must-gather-*/must-gather.tar.gz"  # Single archives
-          - "must-gather-*/must-gather.part*.tar.gz"  # Split archives
+          - "must-gather-*/must-gather.tar.gz"
         file_type: file
       register: existing_archives
 
     - name: "Preserve existing archives before cleanup"
       ansible.builtin.copy:
         src: "{{ item.path }}"
-        dest: "{{ mustgather_archive_dir }}/{{ cluster_name | default('cluster') }}-case{{ rh_case }}-{{ item.path | basename }}-{{ ansible_date_time.iso8601 | replace(':', '-') }}"
+        dest: "{{ mustgather_archive_dir }}/{{ cluster_name | default('cluster') }}-case{{ rh_case | default('nocase') }}-{{ ansible_date_time.epoch }}-{{ item.path | basename }}"
         remote_src: true
         mode: '0644'
       loop: "{{ existing_archives.files }}"
@@ -346,7 +350,7 @@
         msg: "Must-gather collection failed. Review debug output above."
 
 # ==============================================================================
-# Archive Creation with Size Validation and Splitting
+# Archive Creation
 # ==============================================================================
 
 - name: "Create and validate must-gather archive"
@@ -362,66 +366,47 @@
     - name: "Set collection size fact"
       ansible.builtin.set_fact:
         collection_size_bytes: "{{ collection_size.stdout | int }}"
-        max_archive_size_bytes: "{{ 1024 * 1024 * 1024 }}"  # 1GB limit
 
     - name: "Display collection size"
       ansible.builtin.debug:
         msg: |
           Must-gather collection size: {{ (collection_size_bytes | int / 1024 / 1024) | round(2) }} MB
-          Maximum archive size: {{ (max_archive_size_bytes | int / 1024 / 1024) | round(2) }} MB
-          Splitting required: {{ 'Yes' if (collection_size_bytes | int > (max_archive_size_bytes | int * 0.9)) else 'No' }}
+          Creating compressed archive...
 
-    - name: "Create single compressed archive when size permits"
+    - name: "Create compressed archive"
       ansible.builtin.command:
         cmd: "tar czf must-gather.tar.gz -C {{ mustgather_output_dir }} {{ mustgather_collection_dir | basename }}"
       args:
         chdir: "{{ mustgather_output_dir }}"
       register: archive_result
       changed_when: archive_result.rc == 0
-      when: collection_size_bytes | int <= (max_archive_size_bytes | int * 0.9)
 
-    - name: "Create split archives when size exceeds limit (memory-efficient for 100-500GB)"
-      ansible.builtin.shell:
-        cmd: |
-          set -euo pipefail
-          cd {{ mustgather_output_dir }}
-          # Memory-efficient streaming split: tar -> split -> compress each part independently
-          # This avoids loading entire archive in memory (critical for 100-500GB archives)
-          # Each part is compressed independently, allowing parallel decompression and resume capability
-          tar cf - {{ mustgather_collection_dir | basename }} | \
-            split -b {{ mustgather_split_size_mb }}M \
-                  -d -a 3 \
-                  --filter='gzip -9 > "$FILE.tar.gz"' \
-                  - must-gather.part
-        executable: /bin/bash
-      register: split_archive_result
-      changed_when: split_archive_result.rc == 0
-      when: collection_size_bytes | int > (max_archive_size_bytes | int * 0.9)
+    - name: "Get archive file information"
+      ansible.builtin.stat:
+        path: "{{ mustgather_output_dir }}/must-gather.tar.gz"
+      register: archive_stat
 
-    - name: "List archive files created"
-      ansible.builtin.find:
-        paths: "{{ mustgather_output_dir }}"
-        patterns:
-          - "must-gather.tar.gz"  # Single archive pattern
-          - "must-gather.part*.tar.gz"  # Split archive pattern (memory-efficient)
-        file_type: file
-      register: archive_files
-
-    - name: "Validate archive files were created"
+    - name: "Validate archive was created"
       ansible.builtin.assert:
         that:
-          - archive_files.matched > 0
-          - archive_files.files | map(attribute='size') | list | min > 0
-        fail_msg: "Archive creation failed or produced empty files"
+          - archive_stat.stat.exists
+          - archive_stat.stat.size > 0
+        fail_msg: "Archive creation failed or produced empty file"
+
+    - name: "Set archive files fact for upload"
+      ansible.builtin.set_fact:
+        archive_files:
+          matched: 1
+          files:
+            - path: "{{ mustgather_output_dir }}/must-gather.tar.gz"
+              size: "{{ archive_stat.stat.size }}"
 
     - name: "Display archive information"
       ansible.builtin.debug:
         msg: |
           Archive creation completed:
-          Number of archive parts: {{ archive_files.matched }}
-          {% for file in archive_files.files %}
-          - {{ file.path | basename }}: {{ (file.size / 1024 / 1024) | round(2) }} MB
-          {% endfor %}
+          - must-gather.tar.gz: {{ (archive_stat.stat.size / 1024 / 1024) | round(2) }} MB
+          - Compression ratio: {{ ((1 - (archive_stat.stat.size / collection_size_bytes | int)) * 100) | round(1) }}%
 
   rescue:
     - name: "Log archiving failure details"
@@ -449,239 +434,249 @@
       ansible.builtin.debug:
         msg: |
           ===================================================================
-          Must-Gather Archives Created (No Upload)
+          Must-Gather Archive Created (No Upload)
           ===================================================================
-          Archives preserved at: {{ mustgather_output_dir }}
-          Number of archive parts: {{ archive_files.matched }}
-          {% for file in archive_files.files %}
-          - {{ file.path | basename }}: {{ (file.size / 1024 / 1024) | round(2) }} MB
-          {% endfor %}
+          Archive preserved at: {{ mustgather_output_dir }}
+          - must-gather.tar.gz: {{ (archive_files.files[0].size / 1024 / 1024) | round(2) }} MB
 
           Reason: No Red Hat case number provided (rh_case variable not set)
 
-          To upload these archives later:
+          To upload this archive later:
           1. Provide rh_case variable when running the playbook
-          2. Or manually upload to Red Hat support portal
+          2. Or manually upload to Red Hat support portal via SFTP
+             sftp {{ rh_sftp_user | default('username') }}@sftp.access.redhat.com
+             Filename format: CASEID_must-gather.tar.gz
           ===================================================================
 
 # ==============================================================================
 # Upload Archive(s) to Red Hat Support
 # ==============================================================================
 
-- name: "Transfer and upload must-gather archives to Red Hat support"
+- name: "Transfer and upload must-gather archives to Red Hat support via SFTP"
   tags: [upload]
   when: mustgather_upload_enabled
   block:
-    - name: "Create temporary directory on controller for archive transfer"
-      ansible.builtin.tempfile:
-        state: directory
-        prefix: "mustgather_"
-      delegate_to: localhost
-      register: controller_temp_dir
-      changed_when: false
+    - name: "Parse proxy_http URL into host and port for SFTP ProxyCommand"
+      ansible.builtin.set_fact:
+        proxy_host: "{{ proxy_http | regex_search('http://([^:/]+)', '\\1') | first }}"
+        proxy_port: "{{ proxy_http | regex_search(':(\\d+)', '\\1') | first }}"
+      when: proxy_http is defined and proxy_http | string | length > 0
 
-    - name: "Fetch archive files to controller execution environment"
-      ansible.builtin.fetch:
-        src: "{{ item.path }}"
-        dest: "{{ controller_temp_dir.path }}/{{ item.path | basename }}"
-        flat: true
+    - name: "Build SFTP proxy connection options"
+      ansible.builtin.set_fact:
+        sftp_proxy_option: >-
+          {% if proxy_host is defined and proxy_port is defined %}
+          -o "ProxyCommand=nc --proxy {{ proxy_host }}:{{ proxy_port }} --proxy-type http %h %p"
+          {% else %}
+
+          {% endif %}
+
+    - name: "Verify Red Hat SFTP connectivity before upload"
+      ansible.builtin.shell: |
+        set -o pipefail
+        log_file="{{ mustgather_upload_logs }}/sftp-connectivity-test-{{ ansible_date_time.epoch }}.log"
+        echo "==================================================================" > "$log_file"
+        echo "SFTP Connectivity Test" >> "$log_file"
+        echo "Timestamp: {{ ansible_date_time.iso8601 }}" >> "$log_file"
+        echo "Host: {{ rh_sftp_host }}" >> "$log_file"
+        echo "User: {{ rh_sftp_user }}" >> "$log_file"
+        echo "==================================================================" >> "$log_file"
+        echo "" >> "$log_file"
+
+        sshpass -p "{{ rh_sftp_token }}" sftp \
+          {{ sftp_proxy_option }} \
+          -o StrictHostKeyChecking=no \
+          -o UserKnownHostsFile=/dev/null \
+          {{ rh_sftp_user }}@{{ rh_sftp_host }} <<< "quit" >> "$log_file" 2>&1
+        exit_code=$?
+
+        echo "" >> "$log_file"
+        echo "Exit code: $exit_code" >> "$log_file"
+        exit $exit_code
+      args:
+        executable: /bin/bash
+      register: sftp_test
+      changed_when: false
+      failed_when: sftp_test.rc != 0
+      no_log: true
+
+    - name: "Initialize upload tracking variables"
+      ansible.builtin.set_fact:
+        upload_results: []
+        success_count: 0
+        failure_count: 0
+
+    - name: "Upload archive files to Red Hat support via SFTP"
+      ansible.builtin.shell: |
+        set -o pipefail
+        remote_filename="{{ rh_case }}_{{ cluster_name | default('cluster') }}-{{ item.path | basename }}"
+        log_file="{{ mustgather_upload_logs }}/sftp-upload-{{ ansible_date_time.epoch }}-part{{ upload_index }}.log"
+
+        echo "==================================================================" > "$log_file"
+        echo "SFTP Upload Log" >> "$log_file"
+        echo "Timestamp: {{ ansible_date_time.iso8601 }}" >> "$log_file"
+        echo "Case ID: {{ rh_case }}" >> "$log_file"
+        echo "Host: {{ rh_sftp_host }}" >> "$log_file"
+        echo "User: {{ rh_sftp_user }}" >> "$log_file"
+        echo "Local file: {{ item.path }}" >> "$log_file"
+        echo "Remote file: $remote_filename" >> "$log_file"
+        echo "File size: {{ (item.size / 1024 / 1024) | round(2) }} MB" >> "$log_file"
+        echo "==================================================================" >> "$log_file"
+        echo "" >> "$log_file"
+
+        sshpass -p "{{ rh_sftp_token }}" sftp \
+          {{ sftp_proxy_option }} \
+          -o StrictHostKeyChecking=no \
+          -o UserKnownHostsFile=/dev/null \
+          {{ rh_sftp_user }}@{{ rh_sftp_host }} <<EOF >> "$log_file" 2>&1
+        put {{ item.path }} $remote_filename
+        ls -la $remote_filename
+        quit
+        EOF
+        exit_code=$?
+
+        echo "" >> "$log_file"
+        echo "Exit code: $exit_code" >> "$log_file"
+
+        if [ $exit_code -eq 0 ]; then
+          echo "Status: SUCCESS" >> "$log_file"
+        else
+          echo "Status: FAILED" >> "$log_file"
+        fi
+
+        exit $exit_code
+      args:
+        executable: /bin/bash
       loop: "{{ archive_files.files }}"
       loop_control:
         label: "{{ item.path | basename }}"
+        index_var: upload_index
+      register: sftp_upload_results
+      changed_when: sftp_upload_results.rc == 0
+      failed_when: false
       no_log: true
 
-    - name: "Set upload description"
+    - name: "Process upload results and count successes/failures"
       ansible.builtin.set_fact:
-        computed_upload_description: "{{ rh_upload_description | default('must-gather for ' ~ inventory_hostname ~ ' (' ~ cluster_name | default('unknown') ~ ')') }}"
+        success_count: "{{ sftp_upload_results.results | selectattr('rc', 'equalto', 0) | list | length }}"
+        failure_count: "{{ sftp_upload_results.results | rejectattr('rc', 'equalto', 0) | list | length }}"
+        upload_results: "{{ sftp_upload_results.results }}"
 
-    - name: "Upload all archive parts to Red Hat support case with retry handling"
-      redhat_upload:
-        case_id: "{{ rh_case }}"
-        archive_pattern: "{{ controller_temp_dir.path }}/*must-gather*.tar.gz"
-        upload_description: "{{ computed_upload_description }}"
-        api_token: "{{ rh_api_token | default(omit) }}"
-        api_user: "{{ rh_api_user | default(omit) }}"
-        api_pass: "{{ rh_api_pass | default(omit) }}"
-        proxy_http: "{{ proxy_http | default(omit) }}"
-        proxy_https: "{{ proxy_https | default(omit) }}"
-        proxy_no: "{{ proxy_no | default(omit) }}"
-        max_retry_attempts: "{{ rh_upload_max_retries | default(3) }}"
-        retry_backoff_base: "{{ rh_upload_retry_backoff | default(2) }}"
-        fail_on_partial: "{{ rh_upload_fail_on_partial | default(true) }}"
-        timeout: "{{ rh_upload_timeout | default(1800) }}"
-        log_dir: "{{ mustgather_upload_logs | default(omit) }}"
-      delegate_to: localhost
-      register: rh_upload_results
-      no_log: true
-
-    - name: "Set upload status from module results"
+    - name: "Set upload status from SFTP results"
       ansible.builtin.set_fact:
         upload_status:
-          status: "{{ rh_upload_results.status }}"
-          case_id: "{{ rh_upload_results.case_id }}"
-          total_parts: "{{ rh_upload_results.total_parts }}"
-          success_count: "{{ rh_upload_results.success_count }}"
-          failure_count: "{{ rh_upload_results.failure_count }}"
-          results: "{{ rh_upload_results.results }}"
-      when: rh_upload_results is defined
+          status: "{{ 'success' if failure_count | int == 0 else ('partial' if success_count | int > 0 else 'failed') }}"
+          case_id: "{{ rh_case }}"
+          total_parts: "{{ archive_files.matched }}"
+          success_count: "{{ success_count }}"
+          failure_count: "{{ failure_count }}"
+          results: "{{ upload_results }}"
 
-    - name: "Display detailed upload status per part"
+    - name: "Display upload status"
       ansible.builtin.debug:
         msg: |
-          Upload Operation Summary:
+          ===================================================================
+          SFTP Upload Operation Summary
+          ===================================================================
           Status: {{ upload_status.status | upper }}
           Case ID: {{ upload_status.case_id }}
-          Total Parts: {{ upload_status.total_parts }}
-          Successful Uploads: {{ upload_status.success_count }}
-          Failed Uploads: {{ upload_status.failure_count }}
-
-          Per-Part Upload Details:
-          {% for result in upload_status.results %}
-          Part {{ result.part }}: {{ result.file }}
-            Status: {{ result.status | upper }}
-            Attempts: {{ result.attempts }}
-          {% if result.status == 'failed' %}
-            Failure Reason: {{ result.reason }}
-            HTTP Code: {{ result.http_code | default('N/A') }}
-          {% elif result.status == 'success' %}
-            HTTP Code: {{ result.http_code }}
+          SFTP Server: {{ rh_sftp_host }}
+          Archive: must-gather.tar.gz
+          File Status: {{ 'SUCCESS' if upload_status.results[0].rc == 0 else 'FAILED' }}
+          {% if upload_status.results[0].rc != 0 %}
+          Error: {{ upload_status.results[0].stderr | default('Unknown error') }}
           {% endif %}
-          {% endfor %}
+          ===================================================================
       when: upload_status is defined
 
     - name: "Log successful upload completion"
       ansible.builtin.debug:
         msg: |
-          All must-gather archive parts uploaded successfully to Red Hat case {{ rh_case }}
-          Total parts: {{ upload_status.total_parts }}
-          Upload description: {{ computed_upload_description }}
+          Must-gather archive uploaded successfully to Red Hat case {{ rh_case }} via SFTP
+          SFTP Server: {{ rh_sftp_host }}
+          File will auto-attach to case within minutes
+          Upload logs available at: {{ mustgather_upload_logs }}
       when:
         - upload_status is defined
         - upload_status.status == 'success'
 
-    - name: "Log partial upload completion with warning"
-      ansible.builtin.debug:
+    - name: "Fail on upload errors"
+      ansible.builtin.fail:
         msg: |
-          Partial upload completion for Red Hat case {{ rh_case }}
-          Successful: {{ upload_status.success_count }}/{{ upload_status.total_parts }} parts
-          Failed: {{ upload_status.failure_count }}/{{ upload_status.total_parts }} parts
-          Archives preserved at: {{ controller_temp_dir.path }}
-          Review detailed status above for failure reasons.
+          SFTP upload failed for Red Hat case {{ rh_case }}
+          Archive preserved at: {{ mustgather_output_dir }}
+          Review detailed status above for error details
       when:
         - upload_status is defined
-        - upload_status.status == 'partial'
+        - upload_status.status != 'success'
 
   rescue:
-    - name: "Parse upload results from failed execution if available"
-      ansible.builtin.set_fact:
-        upload_status: "{{ rh_upload_results.stdout | from_json }}"
-      when:
-        - rh_upload_results is defined
-        - rh_upload_results.stdout is defined
-        - rh_upload_results.stdout | length > 0
-      failed_when: false
-
-    - name: "Display detailed failure information if JSON available"
+    - name: "Display SFTP upload failure details"
       ansible.builtin.debug:
         msg: |
-          Upload Operation Failed:
-          Status: {{ upload_status.status | default('UNKNOWN') | upper }}
-          Case ID: {{ upload_status.case_id | default(rh_case) }}
-          Total Parts: {{ upload_status.total_parts | default('unknown') }}
-          Successful: {{ upload_status.success_count | default(0) }}
-          Failed: {{ upload_status.failure_count | default('unknown') }}
+          ===================================================================
+          SFTP Upload Operation Failed
+          ===================================================================
+          Case ID: {{ rh_case }}
+          SFTP Server: {{ rh_sftp_host }}
+          Archive: must-gather.tar.gz
+          Status: FAILED
 
-          Per-Part Failure Details:
-          {% if upload_status is defined and upload_status.results is defined %}
-          {% for result in upload_status.results %}
-          {% if result.status == 'failed' %}
-          Part {{ result.part }}: {{ result.file }}
-            Reason: {{ result.reason }}
-            HTTP Code: {{ result.http_code | default('N/A') }}
-            Attempts: {{ result.attempts }}
-            {% if result.response is defined %}
-            Response: {{ result.response[:200] }}...
-            {% endif %}
+          {% if sftp_test is defined and sftp_test.rc != 0 %}
+          SFTP Connectivity Test Failed:
+          {{ sftp_test.stderr | default('Unknown error') }}
           {% endif %}
-          {% endfor %}
-          {% else %}
-          Unable to parse detailed results. Check script output above.
-          {% endif %}
-      when: upload_status is defined
-
-    - name: "Log upload failure with troubleshooting guidance"
-      ansible.builtin.debug:
-        msg: |
-          Must-gather upload to Red Hat case {{ rh_case }} failed.
 
           Troubleshooting Steps:
-          1. Verify RH_API_TOKEN is valid and not expired
+          1. Verify rh_sftp_token is valid and not expired
+             Generate new token: https://access.redhat.com/support/secure-ftp
           2. Confirm Red Hat case {{ rh_case }} exists and is accessible
-          3. Check network connectivity to api.access.redhat.com
+          3. Check network connectivity to {{ rh_sftp_host }}
           4. If using proxy, verify proxy configuration:
-             HTTP_PROXY: {{ proxy_http | default('not set') }}
-             HTTPS_PROXY: {{ proxy_https | default('not set') }}
-             NO_PROXY: {{ proxy_no | default('not set') }}
-          5. Review detailed failure information above
-          6. Check upload script logs for additional context
+             proxy_http: {{ proxy_http | default('not set') }}
+          5. Verify sshpass and nc (netcat) are installed
+          6. Review detailed failure information above
+          7. Check SFTP logs in: {{ mustgather_upload_logs }}
 
-          Archives preserved at: {{ controller_temp_dir.path }}
+          Archive preserved at: {{ mustgather_output_dir }}/must-gather.tar.gz
 
-          Manual Upload Instructions:
-          1. Access the preserved archives at the path above
-          2. Visit https://access.redhat.com/support/cases/{{ rh_case }}
-          3. Manually attach the archive files to the case
+          Manual Upload Instructions (SFTP):
+          1. Generate SFTP token: https://access.redhat.com/support/secure-ftp
+          2. Use sftp client to connect:
+             sftp {{ rh_sftp_user }}@{{ rh_sftp_host }}
+          3. Upload file with naming: {{ rh_case }}_must-gather.tar.gz
+          4. File will auto-attach to case {{ rh_case }} within minutes
+
+          Manual Upload Instructions (Web Portal):
+          1. Visit https://access.redhat.com/support/cases/{{ rh_case }}
+          2. Manually attach the archive from {{ mustgather_output_dir }}
+          ===================================================================
 
     - name: "Set upload failure flag and preserve path"
       ansible.builtin.set_fact:
         upload_failed: true
-        preserved_archive_path: "{{ controller_temp_dir.path }}"
+        preserved_archive_path: "{{ mustgather_output_dir }}"
         upload_failure_details: "{{ upload_status | default({}) }}"
 
-    - name: "Fail playbook after upload error with detailed context"
+    - name: "Fail playbook after SFTP upload error"
       ansible.builtin.fail:
         msg: |
-          Must-gather upload failed for Red Hat case {{ rh_case }}.
+          Must-gather SFTP upload failed for Red Hat case {{ rh_case }}.
 
-          Failure Summary:
-          {% if upload_status is defined %}
-          - Total Parts: {{ upload_status.total_parts }}
-          - Successful: {{ upload_status.success_count | default(0) }}
-          - Failed: {{ upload_status.failure_count }}
-          - Status: {{ upload_status.status | upper }}
-          {% else %}
-          - Upload script execution failed
-          - Exit Code: {{ rh_upload_results.rc | default('unknown') }}
-          {% endif %}
-
-          Archives preserved for manual upload at:
-          {{ preserved_archive_path }}
+          Archive preserved for manual upload at:
+          {{ preserved_archive_path }}/must-gather.tar.gz
 
           Review troubleshooting guidance above for resolution steps.
 
   always:
-    - name: "Clean up controller temporary directory on complete success"
-      ansible.builtin.file:
-        path: "{{ controller_temp_dir.path }}"
-        state: absent
-      delegate_to: localhost
-      when:
-        - controller_temp_dir is defined
-        - not (upload_failed | default(false))
-        - upload_status is defined
-        - upload_status.status == 'success'
-
-    - name: "Preserve temporary directory on failure or partial success"
+    - name: "Log SFTP upload completion"
       ansible.builtin.debug:
         msg: |
-          Temporary archive directory preserved for manual recovery:
-          {{ controller_temp_dir.path }}
-
-          This directory contains the fetched archive parts and will NOT be
-          automatically cleaned up. Manual cleanup required after resolution.
-      when:
-        - controller_temp_dir is defined
-        - upload_failed | default(false) or (upload_status is defined and upload_status.status != 'success')
+          SFTP upload process completed for Red Hat case {{ rh_case }}
+          Status: {{ upload_status.status | default('UNKNOWN') | upper }}
+          Archive location: {{ mustgather_output_dir }}/must-gather.tar.gz
+          Upload logs: {{ mustgather_upload_logs }}
+      when: upload_status is defined
 
 # ==============================================================================
 # Cleanup and Operational Logging
@@ -700,7 +695,7 @@
       ansible.builtin.lineinfile:
         path: "/var/log/ansible-must-gather.log"
         line: |
-          {{ ansible_date_time.iso8601 }} | Host: {{ inventory_hostname }} | Cluster: {{ cluster_name | default('unknown') }} | Status: {{ 'FAILED' if upload_failed | default(false) else 'SUCCESS' }} | Case: {{ rh_case | default('N/A') }} | Parts: {{ archive_files.matched | default(0) }} | Archive: {{ 'LOCAL_ONLY' if not mustgather_upload_enabled else ('PRESERVED' if upload_failed | default(false) else 'UPLOADED') }}
+          {{ ansible_date_time.iso8601 }} | Host: {{ inventory_hostname }} | Cluster: {{ cluster_name | default('unknown') }} | Status: {{ 'FAILED' if upload_failed | default(false) else 'SUCCESS' }} | Case: {{ rh_case | default('N/A') }} | Archive: {{ 'LOCAL_ONLY' if not mustgather_upload_enabled else ('PRESERVED' if upload_failed | default(false) else 'UPLOADED') }}
         create: true
         mode: '0644'
       delegate_to: localhost
@@ -711,8 +706,7 @@
       ansible.builtin.find:
         paths: "{{ mustgather_archive_dir }}"
         patterns:
-          - "{{ cluster_name | default('cluster') }}-case{{ rh_case | default('nocase') }}-must-gather.tar.gz"
-          - "{{ cluster_name | default('cluster') }}-case{{ rh_case | default('nocase') }}-must-gather.part*.tar.gz"
+          - "{{ cluster_name | default('cluster') }}-case{{ rh_case | default('nocase') }}-*-must-gather.tar.gz"
         file_type: file
       register: preserved_archives_count
       failed_when: false
@@ -729,16 +723,17 @@
           Operation Mode: {{ 'COLLECT AND UPLOAD' if mustgather_upload_enabled else 'COLLECT ONLY' }}
           Red Hat Case: {{ rh_case | default('Not provided') }}
           Status: {{ 'FAILED' if upload_failed | default(false) else 'SUCCESS' }}
-          Archive Parts: {{ archive_files.matched | default(0) }}
+          Archive: must-gather.tar.gz
           Collection Size: {{ (collection_size_bytes | default(0) | int / 1024 / 1024) | round(2) }} MB
+          Archive Size: {{ (archive_files.files[0].size | default(0) | int / 1024 / 1024) | round(2) }} MB
           Node Used: {{ candidate_node | default('unknown') }}
-          Archive Location: {{ mustgather_output_dir }}
+          Archive Location: {{ mustgather_output_dir }}/must-gather.tar.gz
           Cleanup Performed: {{ 'No (skip_mustgather_deletion=true)' if (skip_mustgather_deletion | default(false) | bool) else 'Yes' }}
           {% if mustgather_upload_enabled %}
           Preserved Archives: {{ preserved_archives_count.matched | default(0) }} in {{ mustgather_archive_dir }}
           Retention Policy: {{ mustgather_archive_retention_days }}d / {{ mustgather_archive_retention_count }} count
           {% if upload_failed | default(false) %}
-          Failed Upload Archives: {{ preserved_archive_path }}
+          Failed Upload Archive: {{ preserved_archive_path }}/must-gather.tar.gz
           {% endif %}
           {% else %}
           Upload: Skipped (no Red Hat case provided)

@@ -1,6 +1,54 @@
 ---
+# Ansible Lint Configuration
+# Supports structured multi-line Jinja2 expressions and enterprise standards
+
 skip_list:
-  - yaml[line-length]
-  - var-naming[no-role-prefix]  # Allow variables to be prefixed with role names
-  - var-naming[pattern]
-  - command-instead-of-module
+  # YAML Formatting
+  - yaml[line-length]              # Allow long lines in multi-line blocks (>-)
+  - yaml[octal-values]             # Allow '0755' notation for file modes
+
+  # Variable Naming
+  - var-naming[no-role-prefix]     # Allow role-prefixed variables
+  - var-naming[pattern]            # Allow flexible variable naming patterns
+
+  # Module Usage
+  - command-instead-of-module      # Allow shell/command when necessary
+
+  # Jinja2 Templates
+  - name[template]                 # Allow Jinja2 in task names
+  - jinja[spacing]                 # Allow flexible spacing in complex Jinja2 expressions
+
+# Enable strict mode for better error detection
+# strict: true
+
+# Optionally enable offline mode if you don't want to check for updates
+# offline: true
+
+# Exclude certain paths from linting
+exclude_paths:
+  - .cache/
+  - .tox/
+  - .venv/
+  - tmp/
+  - collections/
+  - Build-EE/
+
+# Enable specific rules (these support our formatting standards)
+enable_list:
+  - fqcn                          # Enforce FQCN (ansible.builtin.*)
+  - yaml[truthy]                  # Enforce lowercase true/false
+  - no-log-password               # Enforce no_log for sensitive data
+  - yaml[indentation]             # Consistent indentation
+
+# Set warnings for rules that should be followed but aren't critical
+warn_list:
+  - experimental                  # Warn about experimental features
+  - role-name                     # Warn about role naming conventions
+
+# Configure specific rules (if needed)
+# Note: Most rule configuration is handled via skip_list and enable_list above
+# Uncomment and adjust as needed for your project
+#
+# rules:
+#   yaml[line-length]:
+#     max: 160

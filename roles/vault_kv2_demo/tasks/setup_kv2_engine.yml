@@ -1,0 +1,106 @@
+---
+# tasks/setup_kv2_engine.yml - KV2 secret engine setup
+#
+# Purpose:
+#   Configures Vault KV version 2 secret engine including:
+#   - Enabling the KV2 engine at specified mount path
+#   - Configuring engine settings (max versions, CAS, etc.)
+
+- name: Enable KV2 secret engine
+  block:
+    - name: Check if KV2 engine is already enabled at {{ vault_kv2_demo_kv2_mount_path }}
+      community.hashi_vault.vault_read:
+        url: "{{ vault_kv2_demo_vault_addr }}"
+        path: "sys/mounts/{{ vault_kv2_demo_kv2_mount_path }}"
+        auth_method: token
+        token: "{{ vault_kv2_demo_root_token }}"
+        namespace: "{{ vault_kv2_demo_vault_namespace if vault_kv2_demo_vault_namespace | length > 0 else omit }}"
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_cert: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+      register: kv2_engine_check
+      no_log: true
+      changed_when: false
+      failed_when: false
+
+    - name: Enable KV2 secret engine at {{ vault_kv2_demo_kv2_mount_path }}
+      community.hashi_vault.vault_write:
+        url: "{{ vault_kv2_demo_vault_addr }}"
+        path: "sys/mounts/{{ vault_kv2_demo_kv2_mount_path }}"
+        data:
+          type: kv
+          options:
+            version: "2"
+          description: "KV2 secret engine for demo purposes"
+          config:
+            max_lease_ttl: "87600h"
+            default_lease_ttl: "87600h"
+        auth_method: token
+        token: "{{ vault_kv2_demo_root_token }}"
+        namespace: "{{ vault_kv2_demo_vault_namespace if vault_kv2_demo_vault_namespace | length > 0 else omit }}"
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_cert: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+      register: enable_kv2_engine
+      when: kv2_engine_check.failed | default(false)
+      no_log: true
+      retries: "{{ vault_kv2_demo_retries }}"
+      delay: "{{ vault_kv2_demo_retry_delay }}"
+
+    - name: Display KV2 engine status
+      ansible.builtin.debug:
+        msg: "KV2 secret engine {{ 'enabled' if kv2_engine_check.failed | default(false) else 'already enabled' }} at mount path: {{ vault_kv2_demo_kv2_mount_path }}"
+
+  rescue:
+    - name: Handle KV2 engine enable failure
+      ansible.builtin.fail:
+        msg: |
+          Failed to enable KV2 secret engine.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+          Verify Vault token has sys/mounts/* permissions.
+
+- name: Configure KV2 engine settings
+  block:
+    - name: Configure KV2 engine with custom settings
+      community.hashi_vault.vault_write:
+        url: "{{ vault_kv2_demo_vault_addr }}"
+        path: "{{ vault_kv2_demo_kv2_mount_path }}/config"
+        data:
+          max_versions: "{{ vault_kv2_demo_kv2_max_versions }}"
+          cas_required: "{{ vault_kv2_demo_kv2_cas_required }}"
+          delete_version_after: "{{ vault_kv2_demo_kv2_delete_version_after }}"
+        auth_method: token
+        token: "{{ vault_kv2_demo_root_token }}"
+        namespace: "{{ vault_kv2_demo_vault_namespace if vault_kv2_demo_vault_namespace | length > 0 else omit }}"
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_cert: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+      register: configure_kv2_engine
+      no_log: true
+      retries: "{{ vault_kv2_demo_retries }}"
+      delay: "{{ vault_kv2_demo_retry_delay }}"
+
+    - name: Display KV2 configuration status
+      ansible.builtin.debug:
+        msg: |
+          KV2 engine configured:
+          - Max versions: {{ vault_kv2_demo_kv2_max_versions }}
+          - CAS required: {{ vault_kv2_demo_kv2_cas_required }}
+          - Delete after: {{ vault_kv2_demo_kv2_delete_version_after }}
+
+  rescue:
+    - name: Handle KV2 configuration failure
+      ansible.builtin.fail:
+        msg: |
+          Failed to configure KV2 secret engine.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+          Verify configuration parameters are valid.
+
+- name: Display KV2 engine setup summary
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      KV2 Secret Engine Setup Complete
+      ========================================
+      Mount Path: {{ vault_kv2_demo_kv2_mount_path }}
+      Max Versions: {{ vault_kv2_demo_kv2_max_versions }}
+      CAS Required: {{ vault_kv2_demo_kv2_cas_required }}
+      Delete After: {{ vault_kv2_demo_kv2_delete_version_after }}
+      ========================================

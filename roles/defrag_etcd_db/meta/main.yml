@@ -1,0 +1,35 @@
+---
+galaxy_info:
+  role_name: defrag_etcd_db
+  author: Enterprise Automation Team
+  description: Defragment etcd databases in OpenShift clusters via AAP
+  company: Enterprise Organization
+  license: Apache-2.0
+  min_ansible_version: '2.15'
+  platforms:
+    - name: EL
+      versions:
+        - '7'
+        - '8'
+        - '9'
+    - name: Ubuntu
+      versions:
+        - bionic   # 18.04
+        - focal    # 20.04
+        - jammy    # 22.04
+
+  galaxy_tags:
+    - openshift
+    - etcd
+    - database
+    - maintenance
+    - defragmentation
+    - aap
+    - ee
+
+dependencies:
+  - role: common
+    when: common_role_available | default(false)
+
+collections:
+  - kubernetes.core

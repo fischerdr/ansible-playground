@@ -1,0 +1,31 @@
+---
+# Main entry point for vault_fix_portworx role
+# This role configures HashiCorp Vault integration for Portworx clusters
+
+- name: "Validate required variables are defined"
+  ansible.builtin.assert:
+    that:
+      - cluster_user is defined
+      - cluster_env is defined
+      - cluster_tenant is defined
+      - cluster_datacenter is defined
+      - cluster_region is defined
+      - vault_address is defined
+      - vault_token is defined
+      - vault_vars is defined
+      - network is defined
+      - network.master is defined
+      - network.master.cname is defined
+    fail_msg: "Required variables are missing. Ensure cluster_*, vault_*, and network variables are defined."
+    success_msg: "All required variables are present"
+  tags: [always]
+
+# Use AAP (Ansible Automation Platform) version of tasks
+# These use proper community.hashi_vault collection modules
+- name: "Include Vault namespace setup tasks"
+  ansible.builtin.include_tasks: px_vault_ns_setup_aap.yml
+  tags: [vault, namespace]
+
+- name: "Include Vault and Kubernetes setup tasks"
+  ansible.builtin.include_tasks: px_vault_setup_aap.yml
+  tags: [vault, k8s]

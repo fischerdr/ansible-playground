@@ -1,0 +1,83 @@
+---
+# tasks/main.yml - Main task orchestration for vault_kv2_demo role
+#
+# Purpose:
+#   Demonstrates HashiCorp Vault integration with Kubernetes authentication
+#   and KV2 secret engine operations. This role performs:
+#   1. Input validation
+#   2. Kubernetes service account setup
+#   3. Vault namespace configuration
+#   4. Kubernetes authentication method setup
+#   5. KV2 secret engine setup and data operations
+#   6. Secret read-back and validation
+#   7. Optional cleanup
+#
+# Requirements:
+#   - Vault server accessible via network
+#   - Vault root/admin token for configuration
+#   - Kubernetes cluster with appropriate permissions
+#   - community.hashi_vault collection installed
+#   - kubernetes.core collection installed
+
+- name: Validate required variables
+  ansible.builtin.import_tasks: validate_inputs.yml
+  tags:
+    - always
+    - validation
+
+- name: Setup Kubernetes service account for Vault authentication
+  ansible.builtin.import_tasks: setup_k8s_serviceaccount.yml
+  tags:
+    - kubernetes
+    - serviceaccount
+
+- name: Configure Vault namespace
+  ansible.builtin.import_tasks: setup_vault_namespace.yml
+  when: vault_kv2_demo_vault_namespace | length > 0
+  tags:
+    - vault
+    - namespace
+
+- name: Setup Kubernetes authentication in Vault
+  ansible.builtin.import_tasks: setup_k8s_auth.yml
+  tags:
+    - vault
+    - auth
+    - kubernetes
+
+- name: Setup and configure KV2 secret engine
+  ansible.builtin.import_tasks: setup_kv2_engine.yml
+  tags:
+    - vault
+    - kv2
+    - secrets
+
+- name: Write example secrets to KV2 engine
+  ansible.builtin.import_tasks: write_kv2_secrets.yml
+  tags:
+    - vault
+    - kv2
+    - write
+
+- name: Read and validate KV2 secrets
+  ansible.builtin.import_tasks: read_kv2_secrets.yml
+  when: vault_kv2_demo_validate_secrets
+  tags:
+    - vault
+    - kv2
+    - read
+    - validate
+
+- name: Test Kubernetes authentication and secret access
+  ansible.builtin.import_tasks: test_k8s_auth.yml
+  tags:
+    - test
+    - kubernetes
+    - auth
+
+- name: Cleanup resources
+  ansible.builtin.import_tasks: cleanup.yml
+  when: vault_kv2_demo_cleanup
+  tags:
+    - cleanup
+    - never

@@ -1,0 +1,262 @@
+---
+- name: "Setup vault facts and grab latest token"
+  ansible.builtin.include_tasks: vault_login_aap.yml
+  tags: [vault, login]
+
+- name: "Vault -> K8s: read vault.crt from KVv2 secret"
+  community.hashi_vault.vault_kv2_get:
+    url: "{{ vault_addr | trim }}"
+    engine_mount_point: "{{ vault_vars.VAULT_KV_MOUNT | default('static_secrets') }}"
+    path: "{{ vault_vars.VAULT_SECRET_PATH | default('env') }}/{{ cluster_user }}/portworx"
+    token: "{{ vault_token }}"
+    namespace: "{{ vault_secret_namespace }}"
+    validate_certs: true
+  register: _vault_kv
+  no_log: false
+  changed_when: false
+  tags: [vault, read]
+
+- name: "Vault -> K8s: assert vault.crt is present in retrieved secret"
+  ansible.builtin.assert:
+    that:
+      - _vault_kv is defined
+      - _vault_kv.data is defined
+      - _vault_kv.data.data is defined
+      - "'vault.crt' in _vault_kv.data.data"
+    fail_msg: "vault.crt was not found in Vault at 'static_secrets/env/{{ cluster_user }}/portworx'"
+    success_msg: "vault.crt successfully retrieved from Vault"
+  no_log: false
+  tags: [vault, read]
+
+- name: "Set transient vault_crt fact from retrieved secret"
+  ansible.builtin.set_fact:
+    vault_crt: "{{ _vault_kv.data.data['vault.crt'] | trim }}"
+  no_log: false
+  changed_when: false
+  tags: [vault, read]
+
+- name: "K8s | Ensure px-vault-cert Secret (create/update)"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: px-vault-cert
+        namespace: "{{ px_namespace }}"
+      type: Opaque
+      data:
+        vault.crt: "{{ vault_crt | b64encode }}"
+  register: px_vault_cert_result
+  no_log: false
+  tags: [k8s, secret]
+
+- name: "K8s | Ensure px-vault Secret (config literals) exists"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: px-vault
+        namespace: "{{ px_namespace }}"
+      type: Opaque
+      stringData:
+        VAULT_ADDR: "{{ vault_addr | trim }}"
+        VAULT_AUTH_KUBERNETES_ROLE: "portworx"
+        VAULT_AUTH_METHOD: "kubernetes"
+        VAULT_AUTH_MOUNT_PATH: "{{ vault_vars.K8S_PATH }}"
+        VAULT_BACKEND: "kv-v2"
+        VAULT_BACKEND_PATH: "portworx"
+        VAULT_NAMESPACE: "{{ px_child_namespace }}"
+        VAULT_CACERT: "/etc/pwx/certs/vault.crt"
+  register: px_vault_config_result
+  no_log: false
+  tags: [k8s, secret]
+
+- name: "K8s | Ensure ServiceAccount px-vault-auth exists"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: px-vault-auth
+        namespace: "{{ px_namespace }}"
+  register: sa_result
+  no_log: false
+  tags: [k8s, sa]
+
+- name: "K8s | Ensure ClusterRoleBinding vault-tokenreview-binding exists"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: vault-tokenreview-binding
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: system:auth-delegator
+      subjects:
+        - kind: ServiceAccount
+          name: px-vault-auth
+          namespace: "{{ px_namespace }}"
+  register: crb_result
+  no_log: false
+  tags: [k8s, rbac]
+
+# Create Secret of type service-account-token
+- name: "K8s | Ensure px-vault-auth-token Secret (service-account-token) exists"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: px-vault-auth-token
+        namespace: "{{ px_namespace }}"
+        annotations:
+          kubernetes.io/service-account.name: "px-vault-auth"
+      type: kubernetes.io/service-account-token
+  register: sa_token_secret_create
+  no_log: false
+  tags: [k8s, token]
+
+# Wait until controller populates token and ca.crt
+- name: "K8s | Wait for px-vault-auth-token to be populated (token and ca.crt)"
+  vars:
+    token_present_expr: >-
+      (sa_token_info.resources | length > 0) and
+      (sa_token_info.resources[0].data is defined) and
+      ('token' in sa_token_info.resources[0].data)
+  block:
+    - name: "K8s | Fetch px-vault-auth-token Secret"
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        namespace: "{{ px_namespace }}"
+        name: px-vault-auth-token
+      register: sa_token_info
+      no_log: false
+      tags: [k8s, token]
+      retries: 10
+      delay: 3
+      until: token_present_expr
+
+    - name: "K8s | Extract token and ca.crt from px-vault-auth-token"
+      ansible.builtin.set_fact:
+        px_vault_auth_token_b64: "{{ sa_token_info.resources[0].data.token | default('') }}"
+        px_vault_auth_ca_b64: "{{ sa_token_info.resources[0].data['ca.crt'] | default('') }}"
+      no_log: false
+      changed_when: false
+      tags: [k8s, token]
+
+    - name: "K8s | Decode token and build CA cert chain (with environment-specific CAs)"
+      ansible.builtin.set_fact:
+        AUTH_TOKEN: "{{ (px_vault_auth_token_b64 | b64decode) if px_vault_auth_token_b64 | length > 0 else '' }}"
+        AUTH_CA_CERT: >-
+          {% if cluster_env == 'p' %}
+          {{ (px_vault_auth_ca_b64 | b64decode) if px_vault_auth_ca_b64 | length > 0 else '' }}
+          {{ prod_ca }}
+          {% else %}
+          {{ (px_vault_auth_ca_b64 | b64decode) if px_vault_auth_ca_b64 | length > 0 else '' }}
+          {{ non_prod_ca }}
+          {% endif %}
+      no_log: true
+      changed_when: false
+      tags: [k8s, token]
+
+  rescue:
+    - name: "K8s | Fail if px-vault-auth-token was not populated in time"
+      ansible.builtin.fail:
+        msg: >-
+          px-vault-auth-token secret in namespace '{{ px_namespace }}' was not populated
+          with a token. Confirm the ServiceAccount and controller are functioning correctly.
+      no_log: false
+      tags: [k8s, token, error]
+
+- name: "Vault | Configure Kubernetes auth backend (write to auth/{{ vault_vars.K8S_PATH }}/config)"
+  community.hashi_vault.vault_write:
+    url: "{{ vault_addr | trim }}"
+    path: "auth/{{ vault_vars.K8S_PATH }}/config"
+    token: "{{ vault_client_token }}"
+    namespace: "{{ px_child_namespace }}"
+    data:
+      disable_iss_validation: true
+      kubernetes_host: "https://{{ network.master.cname }}:6443"
+      kubernetes_ca_cert: "{{ AUTH_CA_CERT }}"
+      token_reviewer_jwt: "{{ AUTH_TOKEN }}"
+    validate_certs: true
+  register: k8s_auth_config_result
+  no_log: false
+  tags: [vault, auth]
+
+- name: "Vault | Create/update Kubernetes role for portworx in {{ child_namespace }}"
+  community.hashi_vault.vault_write:
+    url: "{{ vault_addr | trim }}"
+    path: "auth/{{ vault_vars.K8S_PATH }}/role/portworx"
+    token: "{{ vault_client_token }}"
+    namespace: "{{ child_namespace }}"
+    data: "{{ lookup('template', 'role-config.json.j2') | from_json }}"
+    validate_certs: true
+  register: vault_role_child
+  no_log: false
+  tags: [vault, role]
+
+- name: "Vault | Create/update Kubernetes role for portworx in {{ px_child_namespace }}"
+  community.hashi_vault.vault_write:
+    url: "{{ vault_addr | trim }}"
+    path: "auth/{{ vault_vars.K8S_PATH }}/role/portworx"
+    token: "{{ vault_client_token }}"
+    namespace: "{{ px_child_namespace }}"
+    data: "{{ lookup('template', 'role-config.json.j2') | from_json }}"
+    validate_certs: true
+  register: vault_role_px
+  no_log: false
+  tags: [vault, role]
+
+- name: "Vault | Write cluster policy for {{ child_namespace }}"
+  community.hashi_vault.vault_write:
+    url: "{{ vault_addr | trim }}"
+    path: "sys/policy/portworx"
+    token: "{{ vault_client_token }}"
+    namespace: "{{ child_namespace }}"
+    data:
+      policy: "{{ lookup('template', 'cluster-policy-template.hcl.j2') }}"
+    validate_certs: true
+  register: vault_policy_child
+  no_log: false
+  tags: [vault, policy]
+
+- name: "Vault | Write px policy for {{ px_child_namespace }}"
+  community.hashi_vault.vault_write:
+    url: "{{ vault_addr | trim }}"
+    path: "sys/policy/portworx"
+    token: "{{ vault_client_token }}"
+    namespace: "{{ px_child_namespace }}"
+    data:
+      policy: "{{ lookup('template', 'storage-policy-template.hcl.j2') }}"
+    validate_certs: true
+  register: vault_policy_px
+  no_log: false
+  tags: [vault, policy]
+
+# minimal failure handling: fail if any of the essential operations failed
+- name: "Fail if any critical Vault or K8s operation failed"
+  ansible.builtin.fail:
+    msg: >-
+      One or more critical operations failed during px_vault_setup. Review job log for details.
+  when: >
+    (px_vault_cert_result is failed) or
+    (px_vault_config_result is failed) or
+    (sa_result is failed) or
+    (crb_result is failed) or
+    (k8s_auth_config_result is failed) or
+    (vault_role_child is failed) or
+    (vault_role_px is failed) or
+    (vault_policy_child is failed) or
+    (vault_policy_px is failed)
+  no_log: false
+  tags: [error, postcheck]

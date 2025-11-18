@@ -1,0 +1,214 @@
+---
+# playbooks/vault_kv2_demo.yml
+#
+# Purpose:
+#   Demonstrates HashiCorp Vault integration with Kubernetes authentication
+#   and KV2 secret engine operations using the vault_kv2_demo role.
+#
+# Usage:
+#   Basic execution:
+#     ansible-playbook playbooks/vault_kv2_demo.yml
+#
+#   With custom variables:
+#     ansible-playbook playbooks/vault_kv2_demo.yml -e @vault_vars.yml
+#
+#   With specific tags:
+#     ansible-playbook playbooks/vault_kv2_demo.yml --tags kv2,write
+#
+#   With cleanup enabled:
+#     ansible-playbook playbooks/vault_kv2_demo.yml -e vault_kv2_demo_cleanup=true
+#
+# Requirements:
+#   - HashiCorp Vault server (OSS or Enterprise)
+#   - Kubernetes cluster with appropriate RBAC permissions
+#   - Vault root/admin token
+#   - Collections: community.hashi_vault, kubernetes.core
+
+- name: Demonstrate HashiCorp Vault KV2 integration with Kubernetes authentication
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    # ========================================
+    # Required Variables (MUST be customized)
+    # ========================================
+
+    # Vault server address
+    vault_kv2_demo_vault_addr: "https://vault.example.com:8200"
+
+    # Vault root/admin token (ENCRYPT THIS with ansible-vault in production)
+    # Example: ansible-vault encrypt_string 'hvs.XXXXX' --name 'vault_kv2_demo_root_token'
+    vault_kv2_demo_root_token: "hvs.CHANGE_ME"
+
+    # Kubernetes API server address (accessible from Vault)
+    vault_kv2_demo_k8s_host: "https://kubernetes.default.svc:443"
+
+    # ========================================
+    # Optional Variables (Can be customized)
+    # ========================================
+
+    # Vault namespace (Enterprise feature - leave empty for OSS)
+    vault_kv2_demo_vault_namespace: "demo"
+
+    # Kubernetes namespace where service account will be created
+    vault_kv2_demo_k8s_namespace: "default"
+
+    # Service account name for Vault authentication
+    vault_kv2_demo_service_account_name: "vault-auth-demo"
+
+    # KV2 secret engine mount path
+    vault_kv2_demo_kv2_mount_path: "demo-secrets"
+
+    # Vault role name for Kubernetes authentication
+    vault_kv2_demo_vault_role_name: "demo-role"
+
+    # SSL certificate validation
+    vault_kv2_demo_validate_certs: true
+
+    # Display secret data in output (use cautiously)
+    vault_kv2_demo_display_secrets: false
+
+    # Clean up all resources after completion (useful for testing)
+    vault_kv2_demo_cleanup: false
+
+    # ========================================
+    # Example Secrets (Customize as needed)
+    # ========================================
+
+    vault_kv2_demo_secrets:
+      - path: "applications/webapp"
+        data:
+          database_url: "postgresql://localhost:5432/webapp"
+          database_username: "webapp_user"
+          database_password: "changeme_webapp_password"
+          api_key: "demo-api-key-webapp-12345"
+          environment: "development"
+
+      - path: "applications/backend"
+        data:
+          redis_host: "redis.example.com"
+          redis_port: "6379"
+          redis_password: "changeme_redis_password"
+          jwt_secret: "demo-jwt-secret-backend-67890"
+          log_level: "debug"
+
+      - path: "infrastructure/database"
+        data:
+          admin_username: "dbadmin"
+          admin_password: "changeme_admin_password"
+          backup_location: "s3://backups/database"
+          backup_schedule: "0 2 * * *"
+          max_connections: "100"
+
+      - path: "infrastructure/monitoring"
+        data:
+          grafana_admin_password: "changeme_grafana_password"
+          prometheus_url: "http://prometheus.monitoring.svc:9090"
+          alert_email: "alerts@example.com"
+          slack_webhook: "https://hooks.slack.com/services/EXAMPLE/WEBHOOK"
+
+      - path: "certificates/tls"
+        data:
+          cert_pem: "-----BEGIN CERTIFICATE-----\nDEMO_CERTIFICATE_DATA\n-----END CERTIFICATE-----"
+          key_pem: "-----BEGIN PRIVATE KEY-----\nDEMO_KEY_DATA\n-----END PRIVATE KEY-----"
+          ca_pem: "-----BEGIN CERTIFICATE-----\nDEMO_CA_DATA\n-----END CERTIFICATE-----"
+          expiry_date: "2026-12-31"
+
+  pre_tasks:
+    - name: Display playbook information
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Vault KV2 Demo Playbook
+          ========================================
+          This playbook demonstrates:
+          1. Kubernetes service account setup
+          2. Vault namespace configuration (Enterprise)
+          3. Kubernetes authentication method setup
+          4. KV2 secret engine configuration
+          5. Writing secrets to Vault
+          6. Reading and validating secrets
+          7. Testing Kubernetes authentication
+          {% if vault_kv2_demo_cleanup %}
+          8. Cleanup of all resources
+          {% endif %}
+
+          Target Vault: {{ vault_kv2_demo_vault_addr }}
+          Vault Namespace: {{ vault_kv2_demo_vault_namespace if vault_kv2_demo_vault_namespace | length > 0 else '(root)' }}
+          K8s Namespace: {{ vault_kv2_demo_k8s_namespace }}
+          Secrets to create: {{ vault_kv2_demo_secrets | length }}
+          ========================================
+
+    - name: Verify required variables are set
+      ansible.builtin.assert:
+        that:
+          - vault_kv2_demo_vault_addr is defined
+          - vault_kv2_demo_vault_addr != "https://vault.example.com:8200"
+          - vault_kv2_demo_root_token is defined
+          - vault_kv2_demo_root_token != "hvs.CHANGE_ME"
+          - vault_kv2_demo_k8s_host is defined
+        fail_msg: |
+          Required variables are not properly configured!
+
+          Please customize the following variables:
+          - vault_kv2_demo_vault_addr: Your Vault server address
+          - vault_kv2_demo_root_token: Your Vault root/admin token (use ansible-vault to encrypt)
+          - vault_kv2_demo_k8s_host: Your Kubernetes API server address
+
+          You can provide these via:
+          1. Extra vars: -e vault_kv2_demo_vault_addr=https://your-vault.com:8200
+          2. Vars file: -e @vault_vars.yml
+          3. Inventory variables: group_vars/all/vault.yml
+        success_msg: "Required variables are configured"
+
+  roles:
+    - role: vault_kv2_demo
+
+  post_tasks:
+    - name: Display completion summary
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Vault KV2 Demo Completed Successfully!
+          ========================================
+
+          What was created:
+          ✓ Kubernetes ServiceAccount: {{ vault_kv2_demo_service_account_name }}
+          ✓ Kubernetes ClusterRoleBinding for token review
+          {% if vault_kv2_demo_vault_namespace | length > 0 %}
+          ✓ Vault namespace: {{ vault_kv2_demo_vault_namespace }}
+          {% endif %}
+          ✓ Vault Kubernetes auth method at: {{ vault_kv2_demo_k8s_auth_path | default('kubernetes') }}
+          ✓ Vault role: {{ vault_kv2_demo_vault_role_name }}
+          ✓ Vault policy: {{ vault_kv2_demo_vault_role_name }}-policy
+          ✓ KV2 secret engine at: {{ vault_kv2_demo_kv2_mount_path }}
+          ✓ {{ vault_kv2_demo_secrets | length }} secrets written and validated
+
+          Next steps:
+          1. Review the secrets in Vault UI or CLI:
+             vault kv list {{ vault_kv2_demo_kv2_mount_path }}
+             vault kv get {{ vault_kv2_demo_kv2_mount_path }}/{{ vault_kv2_demo_secrets[0].path }}
+
+          2. Test authentication from a pod in Kubernetes:
+             kubectl create serviceaccount {{ vault_kv2_demo_service_account_name }} -n {{ vault_kv2_demo_k8s_namespace }}
+             # Use the service account in your pod to authenticate to Vault
+
+          3. To clean up all resources, run:
+             ansible-playbook playbooks/vault_kv2_demo.yml -e vault_kv2_demo_cleanup=true --tags cleanup
+
+          4. Integrate this pattern into your applications:
+             - Use the demonstrated K8s auth flow
+             - Read secrets using community.hashi_vault.vault_kv2_get
+             - Implement proper error handling and retries
+
+          Documentation:
+          - Review roles/vault_kv2_demo/README.md for detailed information
+          - Check roles/vault_kv2_demo/defaults/main.yml for all available variables
+          - Examine individual task files in roles/vault_kv2_demo/tasks/ for implementation details
+
+          {% if vault_kv2_demo_cleanup %}
+          Cleanup completed - all resources have been removed.
+          {% else %}
+          Resources remain in place. Set vault_kv2_demo_cleanup=true to remove them.
+          {% endif %}
+          ========================================

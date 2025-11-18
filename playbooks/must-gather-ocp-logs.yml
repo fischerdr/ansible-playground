@@ -1,0 +1,58 @@
+---
+- name: Must gather OCP logs
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: false
+
+  pre_tasks:
+    - name: Setup Kubernetes environment for each cluster
+      ansible.builtin.include_role:
+        name: setup_env
+
+    - name: Set app paths (idempotent)
+      ansible.builtin.set_fact:
+        OC_BIN: "/usr/local/bin/oc"
+        KUBECTL_BIN: "/usr/local/bin/kubectl"
+        WORK_DIR: "/apps/persistence/clusters/{{ cluster_name | default('unknown-cluster') }}"
+        OCP_INSTALLDIR: "/apps/persistence/clustersinstall/{{ cluster_name | default('unknown-cluster') }}"
+      no_log: true
+
+    - name: Display setup completion status (masked)
+      ansible.builtin.debug:
+        msg: |
+          SUCCESS: Successfully configured Kubernetes environment for {{ cluster_name | default('unknown-cluster') }}
+          Kubeconfig location: {{ kubeconfig_path | default('unset') }}
+          SSH Key location: {{ ssh_key_path | default('unset') }}
+          OC bin path: {{ OC_BIN }}
+          kubectl bin path: {{ KUBECTL_BIN }}
+          workdir: {{ WORK_DIR }}
+          ocp cluster install dir: {{ OCP_INSTALLDIR }}
+      no_log: true
+
+  tasks:
+    - name: Must gather OCP logs
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG') | default('')) }}"
+      block:
+        - name: Setup must-gather rhuser and rh password
+          ansible.builtin.set_fact:
+            rh_api_user: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/redhat')['user'] }}"
+            rh_api_pass: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/redhat')['password'] }}"
+          no_log: true
+
+        - name: Running must gather log role
+          ansible.builtin.include_role:
+            name: must_gather_log
+          no_log: true
+
+      rescue:
+        - name: Gather failure summary and fail
+          ansible.builtin.debug:
+            msg: "Must-gather role failed for {{ cluster_name | default('unknown-cluster') }}"
+          no_log: true
+
+        - name: Fail play when must-gather fails
+          ansible.builtin.fail:
+            msg: "Failed to collect OCP logs for {{ cluster_name | default('unknown-cluster') }}"
+          no_log: true

@@ -1,0 +1,176 @@
+---
+# Playbook: Test Red Hat API Upload
+# Description: Test must-gather upload to Red Hat support case with comprehensive debugging
+#
+# This playbook tests both urllib and requests library implementations
+# to debug upload failures and connection issues.
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/test_redhat_upload.yml \
+#     -e "rh_case_id=04300286" \
+#     -e "rh_api_token=YOUR_TOKEN"
+
+- name: Test Red Hat API Upload
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    # Required variables (provide via -e or inventory)
+    rh_case_id: ""  # Red Hat case number
+    rh_api_token: ""  # Red Hat API token (preferred)
+    rh_api_user: ""  # Red Hat API username (alternative auth)
+    rh_api_pass: ""  # Red Hat API password (alternative auth)
+
+    # Optional proxy settings
+    proxy_http: ""
+    proxy_https: ""
+    proxy_no: ""
+
+    # Test configuration
+    test_log_dir: "/tmp/redhat_upload_test"
+    test_file_size_mb: 1  # Size of test file in MB
+    validate_ssl_certs: true
+    upload_timeout: 300
+
+  tasks:
+    - name: Validate required variables
+      ansible.builtin.assert:
+        that:
+          - rh_case_id is defined
+          - rh_case_id | length > 0
+          - (rh_api_token is defined and rh_api_token | length > 0) or
+            (rh_api_user is defined and rh_api_user | length > 0 and
+             rh_api_pass is defined and rh_api_pass | length > 0)
+        fail_msg: |
+          Required variables missing. Provide:
+          - rh_case_id: Red Hat case number
+          - rh_api_token: Red Hat API token OR
+          - rh_api_user + rh_api_pass: Red Hat API credentials
+
+    - name: Display test configuration
+      ansible.builtin.debug:
+        msg:
+          - "Red Hat Case ID: {{ rh_case_id }}"
+          - "Test log directory: {{ test_log_dir }}"
+          - "Test file size: {{ test_file_size_mb }} MB"
+          - "Upload timeout: {{ upload_timeout }}s"
+          - "Validate SSL certs: {{ validate_ssl_certs }}"
+          - "HTTP Proxy: {{ proxy_http | default('None') }}"
+          - "HTTPS Proxy: {{ proxy_https | default('None') }}"
+          - "Auth method: {{ 'Token' if (rh_api_token is defined and rh_api_token | length > 0) else 'Basic (user/pass)' }}"
+
+    - name: Create test log directory
+      ansible.builtin.file:
+        path: "{{ test_log_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Create test file ({{ test_file_size_mb }} MB)
+      ansible.builtin.command:
+        cmd: "dd if=/dev/urandom of={{ test_log_dir }}/test_upload.dat bs=1M count={{ test_file_size_mb }}"
+        creates: "{{ test_log_dir }}/test_upload.dat"
+      register: create_test_file
+
+    - name: Create test tarball
+      community.general.archive:
+        path: "{{ test_log_dir }}/test_upload.dat"
+        dest: "{{ test_log_dir }}/test_upload.tar.gz"
+        format: gz
+        force_archive: true
+        mode: '0644'
+      register: create_tarball
+
+    - name: Display test file info
+      ansible.builtin.stat:
+        path: "{{ test_log_dir }}/test_upload.tar.gz"
+      register: test_file_stat
+
+    - name: Show test file details
+      ansible.builtin.debug:
+        msg:
+          - "Test file: {{ test_log_dir }}/test_upload.tar.gz"
+          - "File size: {{ (test_file_stat.stat.size / (1024 * 1024)) | round(2) }} MB"
+          - "File exists: {{ test_file_stat.stat.exists }}"
+
+    # Test 1: Upload with urllib (standard library)
+    - name: "TEST 1: Upload with urllib (Python standard library)"
+      test_upload:
+        case_id: "{{ rh_case_id }}"
+        test_file: "{{ test_log_dir }}/test_upload.tar.gz"
+        upload_description: "Test upload - urllib - {{ ansible_date_time.iso8601 }}"
+        api_token: "{{ rh_api_token | default(omit) }}"
+        api_user: "{{ rh_api_user | default(omit) }}"
+        api_pass: "{{ rh_api_pass | default(omit) }}"
+        proxy_http: "{{ proxy_http | default(omit) }}"
+        proxy_https: "{{ proxy_https | default(omit) }}"
+        proxy_no: "{{ proxy_no | default(omit) }}"
+        validate_certs: "{{ validate_ssl_certs }}"
+        timeout: "{{ upload_timeout }}"
+        log_dir: "{{ test_log_dir }}"
+        use_requests: false
+      register: urllib_test_result
+      ignore_errors: true
+
+    - name: Display urllib test result
+      ansible.builtin.debug:
+        var: urllib_test_result
+
+    # Test 2: Upload with requests library (if available)
+    - name: "TEST 2: Upload with requests library"
+      test_upload:
+        case_id: "{{ rh_case_id }}"
+        test_file: "{{ test_log_dir }}/test_upload.tar.gz"
+        upload_description: "Test upload - requests - {{ ansible_date_time.iso8601 }}"
+        api_token: "{{ rh_api_token | default(omit) }}"
+        api_user: "{{ rh_api_user | default(omit) }}"
+        api_pass: "{{ rh_api_pass | default(omit) }}"
+        proxy_http: "{{ proxy_http | default(omit) }}"
+        proxy_https: "{{ proxy_https | default(omit) }}"
+        proxy_no: "{{ proxy_no | default(omit) }}"
+        validate_certs: "{{ validate_ssl_certs }}"
+        timeout: "{{ upload_timeout }}"
+        log_dir: "{{ test_log_dir }}"
+        use_requests: true
+      register: requests_test_result
+      ignore_errors: true
+
+    - name: Display requests library test result
+      ansible.builtin.debug:
+        var: requests_test_result
+
+    # Summary
+    - name: Test summary
+      ansible.builtin.debug:
+        msg:
+          - "==================== TEST SUMMARY ===================="
+          - "urllib test: {{ urllib_test_result.status | default('FAILED') }}"
+          - "  HTTP code: {{ urllib_test_result.http_code | default('N/A') }}"
+          - "  Error: {{ urllib_test_result.error | default('N/A') }}"
+          - ""
+          - "requests test: {{ requests_test_result.status | default('FAILED') }}"
+          - "  HTTP code: {{ requests_test_result.http_code | default('N/A') }}"
+          - "  Error: {{ requests_test_result.error | default('N/A') }}"
+          - ""
+          - "Detailed logs available in: {{ test_log_dir }}"
+          - "======================================================"
+
+    - name: List log files
+      ansible.builtin.find:
+        paths: "{{ test_log_dir }}"
+        patterns: "*.log"
+      register: log_files
+
+    - name: Show log file locations
+      ansible.builtin.debug:
+        msg: "{{ log_files.files | map(attribute='path') | list }}"
+      when: log_files.files | length > 0
+
+    # Optional: Cleanup test files
+    - name: Cleanup test files (optional)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ test_log_dir }}/test_upload.dat"
+        - "{{ test_log_dir }}/test_upload.tar.gz"
+      when: cleanup_test_files | default(false) | bool

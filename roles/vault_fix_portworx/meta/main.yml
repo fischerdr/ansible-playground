@@ -1,0 +1,29 @@
+---
+galaxy_info:
+  role_name: vault_fix_portworx
+  author: Enterprise AAP Team
+  description: Configures HashiCorp Vault integration for Portworx clusters
+  company: American Express
+
+  license: Proprietary
+
+  min_ansible_version: "2.18"
+
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+
+  galaxy_tags:
+    - vault
+    - portworx
+    - kubernetes
+    - openshift
+    - storage
+    - hashicorp
+
+dependencies: []
+
+collections:
+  - community.hashi_vault
+  - kubernetes.core

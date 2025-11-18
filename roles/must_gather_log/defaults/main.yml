@@ -1,0 +1,165 @@
+---
+# Must-gather collection and upload configuration
+
+# ==============================================================================
+# OpenShift Version and Image Configuration
+# ==============================================================================
+
+# Must-gather version (e.g. "4.12", "4.14") - set via Vault/EE when needed
+must_gather_version: "4.14"
+
+# Dynamic mirror endpoint selection based on cloud provider
+# Configure per-environment in inventory or group_vars
+amex_mirror_endpoint: ""
+
+# ==============================================================================
+# Directory Configuration (Managed Host)
+# ==============================================================================
+
+# Top-level output directory for must-gather artifacts
+mustgather_output_dir: "{{ WORK_DIR | default('/tmp') }}/must-gather-{{ ansible_date_time.epoch }}"
+
+# Subdirectory where must-gather actually writes collected data
+# This is the directory that gets archived
+mustgather_collection_dir: "{{ mustgather_output_dir }}/{{ cluster_name | default('cluster') }}-{{ ansible_date_time.epoch }}"
+
+# Archive preservation directory for historical reference
+mustgather_archive_dir: "{{ WORK_DIR | default('/tmp') }}/must-gather-archives"
+
+# Upload logging directory for detailed upload logs
+mustgather_upload_logs: "{{ WORK_DIR | default('/tmp') }}/must-gather-upload-logs"
+
+# Archive retention policy
+mustgather_archive_retention_days: 30  # Keep archives for 30 days (0 = keep forever)
+mustgather_archive_retention_count: 10  # Keep last N archives (0 = unlimited)
+
+# ==============================================================================
+# Red Hat Case Configuration
+# ==============================================================================
+
+# Red Hat case ID (OPTIONAL - if not provided, archives will only be collected locally without upload)
+# When rh_case is provided: must-gather is collected AND uploaded to Red Hat support
+# When rh_case is not provided: must-gather is collected ONLY and preserved locally
+rh_case: ""
+
+# Upload description (customize as needed)
+rh_upload_description: "must-gather for {{ inventory_hostname }}"
+
+# ==============================================================================
+# Node Selection Configuration
+# ==============================================================================
+
+# Label selector for must-gather node identification
+mustgather_label_selector: "must_gather"
+mustgather_label_value: "true"
+
+# ==============================================================================
+# Cleanup and Operational Controls
+# ==============================================================================
+
+# Set to true to preserve must-gather directories after execution
+skip_mustgather_deletion: false
+
+# ==============================================================================
+# Red Hat SFTP Authentication (from HashiCorp Vault)
+# ==============================================================================
+
+# Red Hat SFTP authentication (sourced from HashiCorp Vault via lookup)
+# Required for uploading must-gather archives to Red Hat support cases
+#
+# SFTP server details (per Red Hat documentation https://access.redhat.com/articles/5594481)
+rh_sftp_host: "sftp.access.redhat.com"  # Red Hat SFTP server (port 22 or 80)
+rh_sftp_user: ""  # Red Hat Customer Portal username
+rh_sftp_token: ""  # SFTP authentication token (generate via web UI or API)
+#
+# Example lookup patterns for HashiCorp Vault:
+#   rh_sftp_user: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:sftp_user') }}"
+#   rh_sftp_token: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:sftp_token') }}"
+#
+# Generate SFTP token:
+#   Web UI: https://access.redhat.com/support/secure-ftp
+#   API: curl -X POST https://api.access.redhat.com/support/v2/sftp/token
+
+# ==============================================================================
+# Networking and Proxy Configuration
+# ==============================================================================
+
+# Proxy settings (optional - sourced from HashiCorp Vault or inventory)
+# Used for SFTP connections via HTTP CONNECT proxy
+# Example lookup pattern:
+#   proxy_http: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/proxy:http_proxy') }}"
+#
+# Format: http://proxy.example.com:8080
+proxy_http: ""
+
+# ==============================================================================
+# Timeouts and Retry Configuration
+# ==============================================================================
+
+# Conservative defaults - tune from EE or role vars as appropriate
+command_retries: 1
+command_delay: 3
+timeout_seconds: 300
+
+# SFTP upload behavior configuration
+# Note: SFTP has no file size limit - archives are created as single files
+rh_upload_fail_on_partial: false  # Not applicable for single file uploads (kept for compatibility)
+
+# ==============================================================================
+# Operational Notes
+# ==============================================================================
+
+# Authentication (REQUIRED - sourced from HashiCorp Vault):
+#   These variables should be populated using community.hashi_vault lookups
+#   in your inventory or playbook vars. Examples:
+#
+#   # In group_vars/all/main.yml or playbook vars:
+#   rh_sftp_user: "{{ lookup('community.hashi_vault.hashi_vault',
+#                     'secret=secret/data/redhat:sftp_user') }}"
+#   rh_sftp_token: "{{ lookup('community.hashi_vault.hashi_vault',
+#                      'secret=secret/data/redhat:sftp_token') }}"
+#
+#   Generate SFTP token:
+#   - Web UI: https://access.redhat.com/support/secure-ftp
+#   - API: curl -X POST https://api.access.redhat.com/support/v2/sftp/token
+#
+# Proxy Configuration (optional - from HashiCorp Vault or inventory):
+#   proxy_http: "{{ lookup('community.hashi_vault.hashi_vault',
+#               'secret=secret/data/proxy:http_proxy') }}"
+#
+#   Format: http://proxy.example.com:8080
+#   The proxy is used for SFTP connections via HTTP CONNECT tunnel
+#
+# HashiCorp Vault Authentication:
+#   The community.hashi_vault collection supports multiple auth methods:
+#   - Token (VAULT_TOKEN environment variable)
+#   - AppRole (role_id/secret_id)
+#   - Kubernetes (service account)
+#   - AWS IAM
+#   - See: https://docs.ansible.com/ansible/latest/collections/community/hashi_vault/
+#
+# OC_BIN variable:
+#   - Must be defined in calling playbook
+#   - Should point to oc binary path in execution environment
+#   - Example: OC_BIN: "/usr/local/bin/oc"
+#
+# Archive handling and upload:
+#   - Must-gather collection is compressed into a single tar.gz archive
+#   - Archive is uploaded via SFTP to sftp.access.redhat.com
+#   - Files are named with Red Hat convention: CASEID_filename
+#   - Files auto-attach to case within minutes of upload
+#   - SFTP has no file size limit (supports very large archives)
+#   - Uploads use sshpass for authentication and nc for proxy tunneling
+#   - Upload success/failure tracking with detailed error reporting
+#
+# System requirements:
+#   - sshpass: For non-interactive SFTP authentication
+#   - nc (netcat): For HTTP proxy tunneling (if proxy is used)
+#   - These should be installed in the execution environment
+#
+# Security:
+#   - Never hardcode credentials in playbook vars or group_vars
+#   - Always use HashiCorp Vault lookups for sensitive data
+#   - Configure Vault authentication via environment variables or AAP credentials
+#   - Use appropriate Vault policies to limit secret access
+#   - SFTP token is single-use and time-limited (generate new for each upload)

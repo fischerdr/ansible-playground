@@ -1,0 +1,161 @@
+---
+# defaults/main.yml - Default variables for vault_kv2_demo role
+#
+# This role demonstrates HashiCorp Vault integration with:
+# - Namespace configuration
+# - Kubernetes authentication setup
+# - KV2 secret engine operations (write and read)
+#
+# All variables can be overridden in playbook vars, group_vars, or host_vars
+
+# ============================================================================
+# Vault Connection Settings
+# ============================================================================
+
+# Vault server address (HTTPS endpoint)
+vault_kv2_demo_vault_addr: "https://vault.example.com:8200"
+
+# Root Vault token for administrative operations (use Ansible Vault to encrypt)
+# In production, retrieve this from a secure location or use LDAP auth
+vault_kv2_demo_root_token: ""
+
+# Vault namespace to use (empty string for root namespace)
+# Enterprise feature: creates/uses a child namespace for isolation
+vault_kv2_demo_vault_namespace: "demo"
+
+# SSL certificate validation
+vault_kv2_demo_validate_certs: true
+
+# Optional: Path to custom CA certificate for Vault server validation
+vault_kv2_demo_ca_cert: ""
+
+# ============================================================================
+# Kubernetes Integration Settings
+# ============================================================================
+
+# Kubernetes namespace where service account will be created
+vault_kv2_demo_k8s_namespace: "default"
+
+# Service account name for Vault authentication
+vault_kv2_demo_service_account_name: "vault-auth-demo"
+
+# Service account token secret name
+vault_kv2_demo_sa_token_secret_name: "vault-auth-demo-token"
+
+# Kubeconfig file path (optional - omit to use default/in-cluster config)
+vault_kv2_demo_kubeconfig: ""
+
+# Kubernetes API server address (required for Vault K8s auth backend)
+# Example: "https://kubernetes.default.svc:443"
+vault_kv2_demo_k8s_host: ""
+
+# Kubernetes SSL verification settings
+vault_kv2_demo_k8s_verify_ssl: true
+vault_kv2_demo_k8s_ssl_ca_cert: ""
+
+# ============================================================================
+# Vault Kubernetes Auth Configuration
+# ============================================================================
+
+# Kubernetes auth mount path in Vault
+vault_kv2_demo_k8s_auth_path: "kubernetes"
+
+# Vault role name for Kubernetes authentication
+vault_kv2_demo_vault_role_name: "demo-role"
+
+# Kubernetes service account for token review (typically the same as above)
+vault_kv2_demo_token_reviewer_sa: "{{ vault_kv2_demo_service_account_name }}"
+
+# Token TTL and policies for the Vault role
+vault_kv2_demo_vault_role_ttl: "1h"
+vault_kv2_demo_vault_role_max_ttl: "24h"
+vault_kv2_demo_vault_role_policies:
+  - default
+  - demo-policy
+
+# ============================================================================
+# KV2 Secret Engine Configuration
+# ============================================================================
+
+# KV2 secret engine mount path
+vault_kv2_demo_kv2_mount_path: "demo-secrets"
+
+# KV2 engine configuration
+vault_kv2_demo_kv2_max_versions: 10
+vault_kv2_demo_kv2_cas_required: false
+vault_kv2_demo_kv2_delete_version_after: "0s"
+
+# ============================================================================
+# Example Secret Paths and Data
+# ============================================================================
+
+# List of secret paths to create with example data
+# Each item should have 'path' and 'data' keys
+vault_kv2_demo_secrets:
+  - path: "applications/webapp"
+    data:
+      database_url: "postgresql://localhost:5432/webapp"
+      database_username: "webapp_user"
+      database_password: "changeme_webapp_password"
+      api_key: "demo-api-key-webapp-12345"
+      environment: "development"
+
+  - path: "applications/backend"
+    data:
+      redis_host: "redis.example.com"
+      redis_port: "6379"
+      redis_password: "changeme_redis_password"
+      jwt_secret: "demo-jwt-secret-backend-67890"
+      log_level: "debug"
+
+  - path: "infrastructure/database"
+    data:
+      admin_username: "dbadmin"
+      admin_password: "changeme_admin_password"
+      backup_location: "s3://backups/database"
+      backup_schedule: "0 2 * * *"
+      max_connections: "100"
+
+  - path: "infrastructure/monitoring"
+    data:
+      grafana_admin_password: "changeme_grafana_password"
+      prometheus_url: "http://prometheus.monitoring.svc:9090"
+      alert_email: "alerts@example.com"
+      slack_webhook: "https://hooks.slack.com/services/EXAMPLE/WEBHOOK"
+
+  - path: "certificates/tls"
+    data:
+      cert_pem: "-----BEGIN CERTIFICATE-----\nDEMO_CERTIFICATE_DATA\n-----END CERTIFICATE-----"
+      key_pem: "-----BEGIN PRIVATE KEY-----\nDEMO_KEY_DATA\n-----END PRIVATE KEY-----"
+      ca_pem: "-----BEGIN CERTIFICATE-----\nDEMO_CA_DATA\n-----END CERTIFICATE-----"
+      expiry_date: "2026-12-31"
+
+# ============================================================================
+# Read Operation Settings
+# ============================================================================
+
+# Whether to read back and validate the secrets after writing
+vault_kv2_demo_validate_secrets: true
+
+# Display secret data in output (use with caution in production)
+vault_kv2_demo_display_secrets: false
+
+# ============================================================================
+# Cleanup Settings
+# ============================================================================
+
+# Whether to clean up resources at the end (useful for testing)
+vault_kv2_demo_cleanup: false
+
+# ============================================================================
+# Retry and Timeout Settings
+# ============================================================================
+
+# Number of retries for Vault API operations
+vault_kv2_demo_retries: 3
+
+# Delay between retries (seconds)
+vault_kv2_demo_retry_delay: 5
+
+# HTTP request timeout (seconds)
+vault_kv2_demo_request_timeout: 30

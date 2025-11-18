@@ -1,0 +1,14 @@
+# Non-Production storage engine policy for cluster namespace
+# For namespace: {{ cluster_base_namespace }}
+
+path "{{ cluster_base_namespace }}/portworx/*" {
+  capabilities = ["read", "list"]
+}
+
+path "{{ storage_base_namespace }}/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+path "auth/{{ vault_vars.K8S_PATH }}/role/portworx" {
+  capabilities = ["read"]
+}

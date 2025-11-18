@@ -1,0 +1,185 @@
+---
+# tasks/setup_k8s_auth.yml - Kubernetes authentication method setup in Vault
+#
+# Purpose:
+#   Configures Vault Kubernetes authentication method including:
+#   - Enabling the kubernetes auth method
+#   - Configuring the auth backend with K8s cluster details
+#   - Creating a Vault role for K8s service account authentication
+#   - Creating a policy for secret access
+
+- name: Enable Kubernetes authentication method
+  block:
+    - name: Check if Kubernetes auth method is already enabled
+      community.hashi_vault.vault_read:
+        url: "{{ vault_kv2_demo_vault_addr }}"
+        path: "sys/auth/{{ vault_kv2_demo_k8s_auth_path }}"
+        auth_method: token
+        token: "{{ vault_kv2_demo_root_token }}"
+        namespace: "{{ vault_kv2_demo_vault_namespace if vault_kv2_demo_vault_namespace | length > 0 else omit }}"
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_cert: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+      register: k8s_auth_check
+      no_log: true
+      changed_when: false
+      failed_when: false
+
+    - name: Enable Kubernetes auth method at {{ vault_kv2_demo_k8s_auth_path }}
+      community.hashi_vault.vault_write:
+        url: "{{ vault_kv2_demo_vault_addr }}"
+        path: "sys/auth/{{ vault_kv2_demo_k8s_auth_path }}"
+        data:
+          type: kubernetes
+          description: "Kubernetes authentication for demo namespace"
+        auth_method: token
+        token: "{{ vault_kv2_demo_root_token }}"
+        namespace: "{{ vault_kv2_demo_vault_namespace if vault_kv2_demo_vault_namespace | length > 0 else omit }}"
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_cert: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+      register: enable_k8s_auth
+      when: k8s_auth_check.failed | default(false)
+      no_log: true
+      retries: "{{ vault_kv2_demo_retries }}"
+      delay: "{{ vault_kv2_demo_retry_delay }}"
+      failed_when: false
+
+    - name: Display auth method status
+      ansible.builtin.debug:
+        msg: "Kubernetes auth method {{ 'enabled' if k8s_auth_check.failed | default(false) else 'already enabled' }} at path: {{ vault_kv2_demo_k8s_auth_path }}"
+
+  rescue:
+    - name: Handle Kubernetes auth method enable failure
+      ansible.builtin.fail:
+        msg: |
+          Failed to enable Kubernetes authentication method.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+          Verify Vault token has sys/auth/* permissions.
+
+- name: Configure Kubernetes authentication backend
+  block:
+    - name: Configure Kubernetes auth backend with cluster details
+      community.hashi_vault.vault_write:
+        url: "{{ vault_kv2_demo_vault_addr }}"
+        path: "auth/{{ vault_kv2_demo_k8s_auth_path }}/config"
+        data:
+          kubernetes_host: "{{ vault_kv2_demo_k8s_host }}"
+          kubernetes_ca_cert: "{{ vault_kv2_demo_sa_ca_cert }}"
+          token_reviewer_jwt: "{{ vault_kv2_demo_sa_jwt_token }}"
+        auth_method: token
+        token: "{{ vault_kv2_demo_root_token }}"
+        namespace: "{{ vault_kv2_demo_vault_namespace if vault_kv2_demo_vault_namespace | length > 0 else omit }}"
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_cert: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+      register: configure_k8s_auth
+      no_log: true
+      retries: "{{ vault_kv2_demo_retries }}"
+      delay: "{{ vault_kv2_demo_retry_delay }}"
+
+    - name: Display Kubernetes auth configuration status
+      ansible.builtin.debug:
+        msg: "Kubernetes auth backend configured with K8s cluster at {{ vault_kv2_demo_k8s_host }}"
+
+  rescue:
+    - name: Handle Kubernetes auth configuration failure
+      ansible.builtin.fail:
+        msg: |
+          Failed to configure Kubernetes authentication backend.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+          Verify K8s host URL and service account token are valid.
+
+- name: Create Vault policy for demo access
+  block:
+    - name: Define policy for KV2 secret access
+      ansible.builtin.set_fact:
+        vault_kv2_demo_policy_content: |
+          # Policy for demo KV2 secret access
+          path "{{ vault_kv2_demo_kv2_mount_path }}/data/*" {
+            capabilities = ["create", "read", "update", "delete", "list"]
+          }
+
+          path "{{ vault_kv2_demo_kv2_mount_path }}/metadata/*" {
+            capabilities = ["read", "list", "delete"]
+          }
+
+          path "{{ vault_kv2_demo_kv2_mount_path }}/*" {
+            capabilities = ["list"]
+          }
+      changed_when: false
+
+    - name: Create Vault policy {{ vault_kv2_demo_vault_role_name }}-policy
+      community.hashi_vault.vault_write:
+        url: "{{ vault_kv2_demo_vault_addr }}"
+        path: "sys/policy/{{ vault_kv2_demo_vault_role_name }}-policy"
+        data:
+          policy: "{{ vault_kv2_demo_policy_content }}"
+        auth_method: token
+        token: "{{ vault_kv2_demo_root_token }}"
+        namespace: "{{ vault_kv2_demo_vault_namespace if vault_kv2_demo_vault_namespace | length > 0 else omit }}"
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_cert: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+      register: create_policy
+      no_log: true
+
+    - name: Display policy creation status
+      ansible.builtin.debug:
+        msg: "Vault policy {{ vault_kv2_demo_vault_role_name }}-policy created successfully"
+
+  rescue:
+    - name: Handle policy creation failure
+      ansible.builtin.fail:
+        msg: |
+          Failed to create Vault policy.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+          Verify policy syntax and token permissions.
+
+- name: Create Kubernetes auth role in Vault
+  block:
+    - name: Create Vault role {{ vault_kv2_demo_vault_role_name }} for K8s authentication
+      community.hashi_vault.vault_write:
+        url: "{{ vault_kv2_demo_vault_addr }}"
+        path: "auth/{{ vault_kv2_demo_k8s_auth_path }}/role/{{ vault_kv2_demo_vault_role_name }}"
+        data:
+          bound_service_account_names: "{{ vault_kv2_demo_service_account_name }}"
+          bound_service_account_namespaces: "{{ vault_kv2_demo_k8s_namespace }}"
+          policies: "{{ [vault_kv2_demo_vault_role_name + '-policy'] + vault_kv2_demo_vault_role_policies }}"
+          ttl: "{{ vault_kv2_demo_vault_role_ttl }}"
+          max_ttl: "{{ vault_kv2_demo_vault_role_max_ttl }}"
+        auth_method: token
+        token: "{{ vault_kv2_demo_root_token }}"
+        namespace: "{{ vault_kv2_demo_vault_namespace if vault_kv2_demo_vault_namespace | length > 0 else omit }}"
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_cert: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+      register: create_k8s_role
+      no_log: true
+      retries: "{{ vault_kv2_demo_retries }}"
+      delay: "{{ vault_kv2_demo_retry_delay }}"
+
+    - name: Display Kubernetes role creation status
+      ansible.builtin.debug:
+        msg: |
+          Vault role created: {{ vault_kv2_demo_vault_role_name }}
+          Bound to ServiceAccount: {{ vault_kv2_demo_service_account_name }}
+          Namespace: {{ vault_kv2_demo_k8s_namespace }}
+          TTL: {{ vault_kv2_demo_vault_role_ttl }}
+
+  rescue:
+    - name: Handle Kubernetes role creation failure
+      ansible.builtin.fail:
+        msg: |
+          Failed to create Kubernetes auth role in Vault.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+          Verify role configuration and token permissions.
+
+- name: Display Kubernetes authentication setup summary
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      Kubernetes Authentication Setup Complete
+      ========================================
+      Auth Method Path: {{ vault_kv2_demo_k8s_auth_path }}
+      Vault Role: {{ vault_kv2_demo_vault_role_name }}
+      Policy: {{ vault_kv2_demo_vault_role_name }}-policy
+      K8s ServiceAccount: {{ vault_kv2_demo_service_account_name }}
+      K8s Namespace: {{ vault_kv2_demo_k8s_namespace }}
+      Token TTL: {{ vault_kv2_demo_vault_role_ttl }}
+      ========================================

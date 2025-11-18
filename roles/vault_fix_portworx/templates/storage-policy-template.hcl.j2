@@ -1,0 +1,22 @@
+# Portworx policy for {{ px_child_namespace }}
+# Allows Portworx engine to read/write secrets
+
+path "portworx/data/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+path "portworx/metadata/*" {
+  capabilities = ["read", "list"]
+}
+
+path "portworx/delete/*" {
+  capabilities = ["update"]
+}
+
+path "portworx/undelete/*" {
+  capabilities = ["update"]
+}
+
+path "portworx/destroy/*" {
+  capabilities = ["update"]
+}

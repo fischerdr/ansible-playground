@@ -1,0 +1,323 @@
+---
+# Cleanup playbook for test-must-gather-upload.yml
+# Removes test upload attachments from Red Hat support case via API
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/cleanup-test-must-gather-upload.yml \
+#     -e rh_case=01234567 \
+#     -e cleanup_pattern="TEST UPLOAD"
+#
+# This playbook:
+# 1. Authenticates to Red Hat API
+# 2. Lists all attachments for the case
+# 3. Filters attachments matching cleanup_pattern (default: "TEST UPLOAD")
+# 4. Deletes matching attachments via DELETE requests
+# 5. Verifies deletion by listing remaining attachments
+
+- name: Cleanup test must-gather uploads from Red Hat support case
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: false
+
+  vars:
+    # Pattern to match test upload descriptions (case-sensitive substring match)
+    cleanup_pattern: "TEST UPLOAD"
+
+    # Safety limit: max number of attachments to delete in single run
+    max_deletions: 50
+
+    # Dry run mode: list files that would be deleted without actually deleting
+    dry_run: false
+
+  tasks:
+    - name: Cleanup test uploads from Red Hat support case
+      block:
+        - name: Validate required variables
+          ansible.builtin.assert:
+            that:
+              - rh_case is defined
+              - rh_case | string | length > 0
+              - cleanup_pattern is defined
+              - cleanup_pattern | string | length > 0
+            fail_msg: |
+              Required variables:
+              - rh_case: Red Hat support case number
+              - cleanup_pattern: Pattern to match in attachment descriptions (default: "TEST UPLOAD")
+            success_msg: "Variables validated: case={{ rh_case }}, pattern='{{ cleanup_pattern }}'"
+
+        - name: Setup Red Hat API credentials from Vault
+          ansible.builtin.set_fact:
+            rh_api_user: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/redhat')['user'] }}"
+            rh_api_pass: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/redhat')['password'] }}"
+            rh_offline_token: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/redhat').get('offline_token', '') }}"
+          no_log: true
+
+        - name: Exchange Red Hat offline token for access token
+          ansible.builtin.uri:
+            url: "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token"
+            method: POST
+            body_format: form-urlencoded
+            body:
+              grant_type: "refresh_token"
+              client_id: "rhsm-api"
+              refresh_token: "{{ rh_offline_token }}"
+            headers:
+              Content-Type: "application/x-www-form-urlencoded"
+            return_content: true
+            status_code: [200, 400, 401]
+            validate_certs: true
+            timeout: 30
+            use_proxy: "{{ true if (proxy_http is defined or proxy_https is defined) else false }}"
+          environment:
+            http_proxy: "{{ proxy_http | default('') }}"
+            https_proxy: "{{ proxy_https | default('') }}"
+            no_proxy: "{{ proxy_no | default('') }}"
+          register: rh_oauth_response
+          no_log: false
+          when:
+            - rh_offline_token is defined
+            - rh_offline_token | length > 0
+
+        - name: Set Red Hat API access token from OAuth response
+          ansible.builtin.set_fact:
+            rh_api_token: "{{ rh_oauth_response.json.access_token }}"
+          no_log: true
+          when:
+            - rh_oauth_response is defined
+            - not rh_oauth_response.skipped | default(false)
+            - rh_oauth_response.status == 200
+            - rh_oauth_response.json.access_token is defined
+
+        - name: List all attachments for case
+          ansible.builtin.uri:
+            url: "https://api.access.redhat.com/support/v1/cases/{{ rh_case }}/attachments"
+            method: GET
+            url_username: "{{ rh_api_user }}"
+            url_password: "{{ rh_api_pass }}"
+            force_basic_auth: true
+            headers:
+              Accept: "application/json"
+            return_content: true
+            status_code: [200, 401, 403, 404]
+            validate_certs: true
+            timeout: 30
+            use_proxy: "{{ true if (proxy_http is defined or proxy_https is defined) else false }}"
+          environment:
+            http_proxy: "{{ proxy_http | default('') }}"
+            https_proxy: "{{ proxy_https | default('') }}"
+            no_proxy: "{{ proxy_no | default('') }}"
+          register: all_attachments
+          no_log: false
+
+        - name: Verify API access before cleanup
+          ansible.builtin.assert:
+            that:
+              - all_attachments.status == 200
+            fail_msg: |
+              Red Hat API access failed:
+              - Status: {{ all_attachments.status }}
+              - Cannot proceed with cleanup
+            success_msg: "Red Hat API access verified"
+
+        - name: Display current attachments summary
+          ansible.builtin.debug:
+            msg: |
+              ===================================================================
+              CURRENT CASE ATTACHMENTS
+              ===================================================================
+              Case: {{ rh_case }}
+              Total Attachments: {{ all_attachments.json | length }}
+              Cleanup Pattern: "{{ cleanup_pattern }}"
+              Dry Run: {{ dry_run }}
+              ===================================================================
+
+        - name: Filter attachments matching cleanup pattern
+          ansible.builtin.set_fact:
+            attachments_to_delete: "{{ all_attachments.json | selectattr('description', 'defined') | selectattr('description', 'search', cleanup_pattern) | list }}"
+
+        - name: Display attachments targeted for deletion
+          ansible.builtin.debug:
+            msg: |
+              ===================================================================
+              ATTACHMENTS MATCHING PATTERN "{{ cleanup_pattern }}"
+              ===================================================================
+              Found: {{ attachments_to_delete | length }} matching attachment(s)
+              {% if attachments_to_delete | length > 0 %}
+
+              {% for attachment in attachments_to_delete %}
+              {{ loop.index }}. UUID: {{ attachment.uuid }}
+                 Filename: {{ attachment.fileName }}
+                 Size: {{ (attachment.length | default(0) / 1024 / 1024) | round(2) }} MB
+                 Created: {{ attachment.createdDate }}
+                 Description: {{ attachment.description | default('N/A') }}
+              {% endfor %}
+              {% else %}
+              No attachments match the cleanup pattern.
+              {% endif %}
+              ===================================================================
+
+        - name: Verify deletion count is within safety limit
+          ansible.builtin.assert:
+            that:
+              - (attachments_to_delete | length) <= max_deletions
+            fail_msg: |
+              SAFETY CHECK FAILED:
+              Found {{ attachments_to_delete | length }} attachments to delete
+              Maximum allowed per run: {{ max_deletions }}
+
+              To proceed, increase max_deletions variable or run multiple times.
+            success_msg: "Deletion count {{ attachments_to_delete | length }} within safety limit {{ max_deletions }}"
+          when: attachments_to_delete | length > 0
+
+        - name: Confirm deletion (dry run mode)
+          ansible.builtin.debug:
+            msg: |
+              ===================================================================
+              DRY RUN MODE - NO DELETIONS PERFORMED
+              ===================================================================
+              Would delete {{ attachments_to_delete | length }} attachment(s)
+              To actually delete, run with: -e dry_run=false
+              ===================================================================
+          when:
+            - dry_run | bool
+            - attachments_to_delete | length > 0
+
+        - name: Delete matching attachments via Red Hat API
+          ansible.builtin.uri:
+            url: "https://api.access.redhat.com/support/v1/cases/{{ rh_case }}/attachments/{{ item.uuid }}"
+            method: DELETE
+            url_username: "{{ rh_api_user }}"
+            url_password: "{{ rh_api_pass }}"
+            force_basic_auth: true
+            headers:
+              Accept: "application/json"
+            status_code: [204, 200, 404]
+            validate_certs: true
+            timeout: 30
+            use_proxy: "{{ true if (proxy_http is defined or proxy_https is defined) else false }}"
+          environment:
+            http_proxy: "{{ proxy_http | default('') }}"
+            https_proxy: "{{ proxy_https | default('') }}"
+            no_proxy: "{{ proxy_no | default('') }}"
+          loop: "{{ attachments_to_delete }}"
+          loop_control:
+            label: "{{ item.fileName }} ({{ item.uuid }})"
+          register: deletion_results
+          no_log: true
+          when:
+            - not dry_run | bool
+            - attachments_to_delete | length > 0
+
+        - name: Display deletion results
+          ansible.builtin.debug:
+            msg: |
+              ===================================================================
+              DELETION RESULTS
+              ===================================================================
+              {% if deletion_results.skipped | default(false) %}
+              No deletions performed (dry run or no matches)
+              {% else %}
+              Total attempted: {{ deletion_results.results | length }}
+              {% for result in deletion_results.results %}
+              {{ loop.index }}. {{ result.item.fileName }}
+                 Status: {% if result.status in [200, 204] %}✓ DELETED{% elif result.status == 404 %}⚠ ALREADY DELETED{% else %}✗ FAILED (HTTP {{ result.status }}){% endif %}
+
+                 UUID: {{ result.item.uuid }}
+              {% endfor %}
+              {% endif %}
+              ===================================================================
+          when:
+            - not dry_run | bool
+            - attachments_to_delete | length > 0
+
+        - name: Verify deletions by listing remaining attachments
+          ansible.builtin.uri:
+            url: "https://api.access.redhat.com/support/v1/cases/{{ rh_case }}/attachments"
+            method: GET
+            url_username: "{{ rh_api_user }}"
+            url_password: "{{ rh_api_pass }}"
+            force_basic_auth: true
+            headers:
+              Accept: "application/json"
+            return_content: true
+            status_code: [200]
+            validate_certs: true
+            timeout: 30
+            use_proxy: "{{ true if (proxy_http is defined or proxy_https is defined) else false }}"
+          environment:
+            http_proxy: "{{ proxy_http | default('') }}"
+            https_proxy: "{{ proxy_https | default('') }}"
+            no_proxy: "{{ proxy_no | default('') }}"
+          register: remaining_attachments
+          when:
+            - not dry_run | bool
+            - attachments_to_delete | length > 0
+
+        - name: Display final attachment count
+          ansible.builtin.debug:
+            msg: |
+              ===================================================================
+              CLEANUP VERIFICATION
+              ===================================================================
+              Before cleanup: {{ all_attachments.json | length }} attachment(s)
+              After cleanup: {{ remaining_attachments.json | length }} attachment(s)
+              Deleted: {{ all_attachments.json | length - remaining_attachments.json | length }}
+
+              {% if remaining_attachments.json | length > 0 %}
+              Remaining Attachments:
+              {% for attachment in remaining_attachments.json %}
+              - {{ attachment.fileName }}: {{ (attachment.length / 1024 / 1024) | round(2) }} MB
+                Description: {{ attachment.description | default('N/A') }}
+              {% endfor %}
+              {% else %}
+              Case has no attachments remaining.
+              {% endif %}
+              ===================================================================
+          when:
+            - not dry_run | bool
+            - attachments_to_delete | length > 0
+            - remaining_attachments is defined
+
+        - name: Display no-op message
+          ansible.builtin.debug:
+            msg: |
+              ===================================================================
+              NO CLEANUP REQUIRED
+              ===================================================================
+              No attachments matched pattern "{{ cleanup_pattern }}"
+              Case {{ rh_case }} cleanup complete
+              ===================================================================
+          when: attachments_to_delete | length == 0
+
+      rescue:
+        - name: Display cleanup failure details
+          ansible.builtin.debug:
+            msg: |
+              ===================================================================
+              CLEANUP FAILED
+              ===================================================================
+              Case: {{ rh_case }}
+              Pattern: {{ cleanup_pattern }}
+
+              Review error details above
+              ===================================================================
+
+        - name: Fail cleanup playbook with error
+          ansible.builtin.fail:
+            msg: |
+              Cleanup failed for case {{ rh_case }}.
+              Review error details above.
+
+      always:
+        - name: Display cleanup completion summary
+          ansible.builtin.debug:
+            msg: |
+              ===================================================================
+              CLEANUP EXECUTION COMPLETE
+              ===================================================================
+              Case ID: {{ rh_case }}
+              Cleanup Pattern: {{ cleanup_pattern }}
+              Dry Run: {{ dry_run }}
+              Result: {{ 'DRY RUN' if dry_run else ('SUCCESS' if attachments_to_delete | length == 0 or deletion_results is defined else 'FAILED') }}
+              ===================================================================

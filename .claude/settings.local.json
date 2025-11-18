@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ansible-lint:*)",
+      "Bash(.venv/bin/black:*)",
+      "Bash(.venv/bin/isort:*)",
+      "Bash(.venv/bin/flake8:*)",
+      "Bash(.venv/bin/ansible-lint:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

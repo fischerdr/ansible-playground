@@ -1,0 +1,289 @@
+---
+# Process single cluster from extra_clusters list
+# Purpose: Retrieve and store credentials for a single cluster with comprehensive error handling
+
+- name: "Process cluster {{ extra_cluster_name }}"
+  block:
+    - name: "Initialize cluster processing variables for {{ extra_cluster_name }}"
+      ansible.builtin.set_fact:
+        current_cluster_name: "{{ extra_cluster_name }}"
+        current_cluster_status: "processing"
+        current_cluster_error: ""
+      no_log: true
+      tags:
+        - extra_clusters
+        - variables
+
+    - name: "Validate cluster name format for {{ extra_cluster_name }}"
+      ansible.builtin.assert:
+        that:
+          - extra_cluster_name is match(cluster_name_with_zone_pattern) or extra_cluster_name is match(cluster_name_without_zone_pattern)
+        fail_msg: |
+          Invalid cluster name format for {{ extra_cluster_name }}. Expected formats:
+          - With zone: <cluster_user>-<platform>-<env>-<region><zone>-<id>
+          - Without zone: <cluster_user>-<platform>-<env>-<region>-<id>
+        success_msg: "Cluster name format is valid for {{ extra_cluster_name }}"
+      tags:
+        - extra_clusters
+        - validation
+
+    - name: "Parse cluster name components for {{ extra_cluster_name }}"
+      ansible.builtin.set_fact:
+        current_cluster_name_parts: "{{ extra_cluster_name.split('-') }}"
+      no_log: true
+      tags:
+        - extra_clusters
+        - variables
+
+    - name: "Extract basic cluster components for {{ extra_cluster_name }}"
+      ansible.builtin.set_fact:
+        current_cluster_user: "{{ current_cluster_name_parts[0] }}"
+        current_platform: "{{ current_cluster_name_parts[1] }}"
+        current_cluster_has_zone: "{{ extra_cluster_name is match(cluster_name_with_zone_pattern) }}"
+      no_log: true
+      tags:
+        - extra_clusters
+        - variables
+
+    - name: "Parse environment from cluster name for {{ extra_cluster_name }}"
+      ansible.builtin.set_fact:
+        current_cluster_envfull: "{{ cluster_env_mapping[current_cluster_name_parts[2]] | default(current_cluster_name_parts[2]) }}"
+      no_log: true
+      tags:
+        - extra_clusters
+        - variables
+
+    - name: "Parse region and zone information (with zone)"
+      ansible.builtin.set_fact:
+        current_region_zone: "{{ current_cluster_name_parts[3] }}"
+        current_region: "{{ current_cluster_name_parts[3] | regex_replace('[abc]$', '') }}"
+        current_zone: "{{ 'zone-' + (current_cluster_name_parts[3] | regex_search('[abc]$') | default('')) }}"
+        current_cluster_id: "{{ current_cluster_name_parts[4] }}"
+      when: current_cluster_has_zone | bool
+      no_log: true
+      tags:
+        - extra_clusters
+        - variables
+
+    - name: "Parse region and zone information (without zone)"
+      ansible.builtin.set_fact:
+        current_region: "{{ current_cluster_name_parts[3] }}"
+        current_zone: "all-zones"
+        current_cluster_id: "{{ current_cluster_name_parts[4] }}"
+      when: not (current_cluster_has_zone | bool)
+      no_log: true
+      tags:
+        - extra_clusters
+        - variables
+
+    - name: "Configure Vault address for {{ extra_cluster_name }}"
+      ansible.builtin.set_fact:
+        current_vault_address: "{{ vault_prod_address if current_cluster_envfull == 'prod' else vault_test_address if current_cluster_envfull == 'test' else vault_eng_address if current_cluster_envfull == 'dev' and current_cluster_user == 'eng' else vault_dev_address }}"
+        current_vault_default_path: "{{ current_cluster_user }}/{{ extra_cluster_name }}"
+      no_log: true
+      tags:
+        - extra_clusters
+        - vault
+
+    - name: "Setup vault token for {{ extra_cluster_name }}"
+      ansible.builtin.set_fact:
+        current_vault_token: "{% if current_cluster_user == 'eng' %}{{ vault_token_eng }}{% elif current_cluster_envfull == 'test' %}{{ vault_token_e2 }}{% elif current_cluster_envfull == 'prod' %}{{ vault_token_e3 }}{% elif current_cluster_envfull == 'dev' %}{{ vault_token_e1 }}{% endif %}"
+      no_log: true
+      tags:
+        - extra_clusters
+        - vault
+
+    - name: "Validate Vault token is available for {{ extra_cluster_name }}"
+      ansible.builtin.assert:
+        that:
+          - current_vault_token | length > 0
+        fail_msg: "Could not determine Vault token for cluster {{ extra_cluster_name }}"
+        success_msg: "Vault token found for {{ extra_cluster_name }}"
+      tags:
+        - extra_clusters
+        - vault
+
+    - name: "Retrieve secrets from Vault for {{ extra_cluster_name }}"
+      community.hashi_vault.vault_kv2_get:
+        url: "{{ current_vault_address }}"
+        path: "{{ current_vault_default_path }}"
+        engine_mount_point: "{{ vault_mount_point }}"
+        auth_method: token
+        token: "{{ current_vault_token }}"
+        namespace: "{{ vault_namespace }}"
+        validate_certs: "{{ validate_certs }}"
+        ca_cert: "{{ ca_cert_path if validate_certs else omit }}"
+      register: current_vault_secrets_response
+      no_log: true
+      tags:
+        - extra_clusters
+        - vault
+
+    - name: "Verify kubeconfig content exists in Vault response for {{ extra_cluster_name }}"
+      ansible.builtin.assert:
+        that:
+          - current_vault_secrets_response.data is defined
+          - current_vault_secrets_response.data.data is defined
+          - current_vault_secrets_response.data.data.kubeconfig is defined
+          - current_vault_secrets_response.data.data.kubeconfig | length > 0
+        fail_msg: "Kubeconfig not found or empty in Vault response for {{ extra_cluster_name }}"
+        success_msg: "Kubeconfig found in Vault response for {{ extra_cluster_name }}"
+      tags:
+        - extra_clusters
+        - validation
+
+    - name: "Verify SSH private key content exists in Vault response for {{ extra_cluster_name }}"
+      ansible.builtin.assert:
+        that:
+          - current_vault_secrets_response.data is defined
+          - current_vault_secrets_response.data.data is defined
+          - current_vault_secrets_response.data.data['ssh.private.key'] is defined
+          - current_vault_secrets_response.data.data['ssh.private.key'] | length > 0
+        fail_msg: "SSH private key not found or empty in Vault response for {{ extra_cluster_name }}"
+        success_msg: "SSH private key found in Vault response for {{ extra_cluster_name }}"
+      tags:
+        - extra_clusters
+        - validation
+
+    - name: "Extract credential data for {{ extra_cluster_name }}"
+      ansible.builtin.set_fact:
+        current_kubeconfig_data: "{{ current_vault_secrets_response.data.data.kubeconfig }}"
+        current_ssh_private_key: "{{ current_vault_secrets_response.data.data['ssh.private.key'] }}"
+      no_log: true
+      tags:
+        - extra_clusters
+        - credentials
+
+    - name: "Set file paths for {{ extra_cluster_name }}"
+      ansible.builtin.set_fact:
+        current_kubeconfig_path: "{{ kubeconfig_dir }}/{{ extra_cluster_name }}.kubeconfig"
+        current_ssh_key_path: "{{ kubeconfig_dir }}/{{ extra_cluster_name }}.sshpriv"
+      tags:
+        - extra_clusters
+        - files
+
+    - name: "Write kubeconfig to file for {{ extra_cluster_name }}"
+      ansible.builtin.copy:
+        content: "{{ current_kubeconfig_data }}"
+        dest: "{{ current_kubeconfig_path }}"
+        mode: "{{ kubeconfig_file_mode }}"
+        backup: true
+      no_log: true
+      tags:
+        - extra_clusters
+        - files
+
+    - name: "Write SSH private key to file for {{ extra_cluster_name }}"
+      ansible.builtin.copy:
+        content: "{{ current_ssh_private_key }}"
+        dest: "{{ current_ssh_key_path }}"
+        mode: "{{ ssh_key_file_mode }}"
+        backup: true
+      no_log: true
+      tags:
+        - extra_clusters
+        - files
+
+    - name: "Test kubeconfig connection for {{ extra_cluster_name }}"
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+        kubeconfig: "{{ current_kubeconfig_path }}"
+        validate_certs: "{{ validate_certs }}"
+      register: current_node_test_result
+      ignore_errors: true
+      no_log: true
+      when: test_extra_clusters | bool
+      tags:
+        - extra_clusters
+        - testing
+
+    - name: "Log connection test result for {{ extra_cluster_name }}"
+      ansible.builtin.debug:
+        msg: |
+          Connection test for {{ extra_cluster_name }}: {{ 'SUCCESS' if current_node_test_result is not failed else 'SKIPPED (test_extra_clusters=false)' }}
+          {% if current_node_test_result is defined and current_node_test_result is not failed %}
+          Found {{ current_node_test_result.resources | length }} nodes in the cluster
+          {% endif %}
+      when: test_extra_clusters | bool
+      tags:
+        - extra_clusters
+        - testing
+
+    - name: "Update cluster status to success for {{ extra_cluster_name }}"
+      ansible.builtin.set_fact:
+        current_cluster_status: "success"
+      tags:
+        - extra_clusters
+        - completion
+
+  rescue:
+    - name: "Log failure details for {{ extra_cluster_name }}"
+      ansible.builtin.debug:
+        msg: |
+          Failed to process cluster {{ extra_cluster_name }}:
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+          Continuing with remaining clusters...
+      tags:
+        - extra_clusters
+        - error
+
+    - name: "Update cluster status to failed for {{ extra_cluster_name }}"
+      ansible.builtin.set_fact:
+        current_cluster_status: "failed"
+        current_cluster_error: "{{ ansible_failed_result.msg | default('Unknown error') }}"
+      tags:
+        - extra_clusters
+        - error
+
+    - name: "Set default file paths for failed cluster {{ extra_cluster_name }}"
+      ansible.builtin.set_fact:
+        current_kubeconfig_path: ""
+        current_ssh_key_path: ""
+      when: current_kubeconfig_path is not defined or current_ssh_key_path is not defined
+      tags:
+        - extra_clusters
+        - error
+
+  always:
+    - name: "Add cluster result to extra_clusters_fact for {{ extra_cluster_name }}"
+      ansible.builtin.set_fact:
+        extra_clusters_fact: "{{ extra_clusters_fact + [cluster_result] }}"
+      vars:
+        cluster_result:
+          cluster_name: "{{ extra_cluster_name }}"
+          kubeconfig_path: "{{ current_kubeconfig_path | default('') }}"
+          ssh_key_path: "{{ current_ssh_key_path | default('') }}"
+          status: "{{ current_cluster_status }}"
+          error: "{{ current_cluster_error | default('') }}"
+      tags:
+        - extra_clusters
+        - completion
+
+    - name: "Clean up temporary variables for {{ extra_cluster_name }}"
+      ansible.builtin.set_fact:
+        current_cluster_name: null
+        current_cluster_name_parts: null
+        current_cluster_user: null
+        current_platform: null
+        current_cluster_has_zone: null
+        current_cluster_envfull: null
+        current_region_zone: null
+        current_region: null
+        current_zone: null
+        current_cluster_id: null
+        current_vault_address: null
+        current_vault_default_path: null
+        current_vault_token: null
+        current_vault_secrets_response: null
+        current_kubeconfig_data: null
+        current_ssh_private_key: null
+        current_kubeconfig_path: null
+        current_ssh_key_path: null
+        current_cluster_status: null
+        current_cluster_error: null
+        current_node_test_result: null
+      no_log: true
+      tags:
+        - extra_clusters
+        - cleanup

@@ -1,0 +1,10 @@
+# Portworx cluster policy for {{ child_namespace }}
+# Allows Portworx to read secrets from the portworx KV path
+
+path "portworx/data/*" {
+  capabilities = ["read", "list"]
+}
+
+path "portworx/metadata/*" {
+  capabilities = ["read", "list"]
+}

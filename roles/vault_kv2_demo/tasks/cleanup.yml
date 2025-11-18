@@ -1,0 +1,289 @@
+---
+# tasks/cleanup.yml - Cleanup resources created by the role
+#
+# Purpose:
+#   Removes all resources created by this role for testing purposes.
+#   This task file is only executed when vault_kv2_demo_cleanup is set to true.
+#
+# Warning:
+#   This will delete all secrets and configuration. Use with caution!
+
+- name: Display cleanup warning
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      WARNING: Starting Cleanup Process
+      ========================================
+      This will remove all resources created by vault_kv2_demo role:
+      - KV2 secret engine and all secrets
+      - Kubernetes auth configuration
+      - Vault policies and roles
+      - Kubernetes service account and bindings
+      - Vault namespace (if applicable)
+      ========================================
+  when: vault_kv2_demo_cleanup
+
+- name: Delete secrets from KV2 engine
+  block:
+    - name: Delete secret metadata for {{ item.path }}
+      ansible.builtin.uri:
+        url: "{{ vault_kv2_demo_vault_addr }}/v1/{{ vault_kv2_demo_kv2_mount_path }}/metadata/{{ item.path }}"
+        method: DELETE
+        headers: >-
+          {{
+            {'X-Vault-Token': vault_kv2_demo_root_token}
+            | combine(vault_kv2_demo_namespace_header | default({}))
+          }}
+        status_code:
+          - 204
+          - 404
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_path: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+        timeout: "{{ vault_kv2_demo_request_timeout }}"
+      register: delete_secret_result
+      no_log: true
+      loop: "{{ vault_kv2_demo_secrets }}"
+      loop_control:
+        label: "{{ item.path }}"
+      failed_when: false
+
+    - name: Display secret deletion summary
+      ansible.builtin.debug:
+        msg: "Deleted {{ vault_kv2_demo_secrets | length }} secrets from KV2 engine"
+
+  rescue:
+    - name: Handle secret deletion failure
+      ansible.builtin.debug:
+        msg: |
+          Warning: Some secrets could not be deleted.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+
+- name: Disable KV2 secret engine
+  block:
+    - name: Disable KV2 engine at {{ vault_kv2_demo_kv2_mount_path }}
+      ansible.builtin.uri:
+        url: "{{ vault_kv2_demo_vault_addr }}/v1/sys/mounts/{{ vault_kv2_demo_kv2_mount_path }}"
+        method: DELETE
+        headers: >-
+          {{
+            {'X-Vault-Token': vault_kv2_demo_root_token}
+            | combine(vault_kv2_demo_namespace_header | default({}))
+          }}
+        status_code:
+          - 204
+          - 404
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_path: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+        timeout: "{{ vault_kv2_demo_request_timeout }}"
+      register: disable_kv2_result
+      no_log: true
+      failed_when: false
+
+    - name: Display KV2 engine deletion status
+      ansible.builtin.debug:
+        msg: "KV2 secret engine at {{ vault_kv2_demo_kv2_mount_path }} {{ 'disabled' if disable_kv2_result.status == 204 else 'not found or already disabled' }}"
+
+  rescue:
+    - name: Handle KV2 engine disable failure
+      ansible.builtin.debug:
+        msg: |
+          Warning: Could not disable KV2 engine.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+
+- name: Delete Kubernetes auth role
+  block:
+    - name: Delete Vault role {{ vault_kv2_demo_vault_role_name }}
+      ansible.builtin.uri:
+        url: "{{ vault_kv2_demo_vault_addr }}/v1/auth/{{ vault_kv2_demo_k8s_auth_path }}/role/{{ vault_kv2_demo_vault_role_name }}"
+        method: DELETE
+        headers: >-
+          {{
+            {'X-Vault-Token': vault_kv2_demo_root_token}
+            | combine(vault_kv2_demo_namespace_header | default({}))
+          }}
+        status_code:
+          - 204
+          - 404
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_path: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+        timeout: "{{ vault_kv2_demo_request_timeout }}"
+      register: delete_role_result
+      no_log: true
+      failed_when: false
+
+    - name: Display role deletion status
+      ansible.builtin.debug:
+        msg: "Kubernetes auth role {{ vault_kv2_demo_vault_role_name }} deleted"
+
+  rescue:
+    - name: Handle role deletion failure
+      ansible.builtin.debug:
+        msg: |
+          Warning: Could not delete Kubernetes auth role.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+
+- name: Delete Vault policy
+  block:
+    - name: Delete policy {{ vault_kv2_demo_vault_role_name }}-policy
+      ansible.builtin.uri:
+        url: "{{ vault_kv2_demo_vault_addr }}/v1/sys/policy/{{ vault_kv2_demo_vault_role_name }}-policy"
+        method: DELETE
+        headers: >-
+          {{
+            {'X-Vault-Token': vault_kv2_demo_root_token}
+            | combine(vault_kv2_demo_namespace_header | default({}))
+          }}
+        status_code:
+          - 204
+          - 404
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_path: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+        timeout: "{{ vault_kv2_demo_request_timeout }}"
+      register: delete_policy_result
+      no_log: true
+      failed_when: false
+
+    - name: Display policy deletion status
+      ansible.builtin.debug:
+        msg: "Vault policy {{ vault_kv2_demo_vault_role_name }}-policy deleted"
+
+  rescue:
+    - name: Handle policy deletion failure
+      ansible.builtin.debug:
+        msg: |
+          Warning: Could not delete Vault policy.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+
+- name: Disable Kubernetes authentication method
+  block:
+    - name: Disable K8s auth at {{ vault_kv2_demo_k8s_auth_path }}
+      ansible.builtin.uri:
+        url: "{{ vault_kv2_demo_vault_addr }}/v1/sys/auth/{{ vault_kv2_demo_k8s_auth_path }}"
+        method: DELETE
+        headers: >-
+          {{
+            {'X-Vault-Token': vault_kv2_demo_root_token}
+            | combine(vault_kv2_demo_namespace_header | default({}))
+          }}
+        status_code:
+          - 204
+          - 404
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_path: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+        timeout: "{{ vault_kv2_demo_request_timeout }}"
+      register: disable_k8s_auth_result
+      no_log: true
+      failed_when: false
+
+    - name: Display K8s auth deletion status
+      ansible.builtin.debug:
+        msg: "Kubernetes auth method at {{ vault_kv2_demo_k8s_auth_path }} disabled"
+
+  rescue:
+    - name: Handle K8s auth disable failure
+      ansible.builtin.debug:
+        msg: |
+          Warning: Could not disable Kubernetes auth method.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+
+- name: Delete Kubernetes resources
+  block:
+    - name: Delete ClusterRoleBinding
+      kubernetes.core.k8s:
+        state: absent
+        api_version: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        name: "vault-tokenreview-{{ vault_kv2_demo_service_account_name }}"
+        kubeconfig: "{{ vault_kv2_demo_kubeconfig if vault_kv2_demo_kubeconfig else omit }}"
+        verify_ssl: "{{ vault_kv2_demo_k8s_verify_ssl }}"
+        ca_cert: "{{ vault_kv2_demo_k8s_ssl_ca_cert if vault_kv2_demo_k8s_ssl_ca_cert else omit }}"
+      register: delete_crb_result
+      failed_when: false
+
+    - name: Delete service account token Secret
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: Secret
+        name: "{{ vault_kv2_demo_sa_token_secret_name }}"
+        namespace: "{{ vault_kv2_demo_k8s_namespace }}"
+        kubeconfig: "{{ vault_kv2_demo_kubeconfig if vault_kv2_demo_kubeconfig else omit }}"
+        verify_ssl: "{{ vault_kv2_demo_k8s_verify_ssl }}"
+        ca_cert: "{{ vault_kv2_demo_k8s_ssl_ca_cert if vault_kv2_demo_k8s_ssl_ca_cert else omit }}"
+      register: delete_secret_result
+      failed_when: false
+
+    - name: Delete ServiceAccount
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: ServiceAccount
+        name: "{{ vault_kv2_demo_service_account_name }}"
+        namespace: "{{ vault_kv2_demo_k8s_namespace }}"
+        kubeconfig: "{{ vault_kv2_demo_kubeconfig if vault_kv2_demo_kubeconfig else omit }}"
+        verify_ssl: "{{ vault_kv2_demo_k8s_verify_ssl }}"
+        ca_cert: "{{ vault_kv2_demo_k8s_ssl_ca_cert if vault_kv2_demo_k8s_ssl_ca_cert else omit }}"
+      register: delete_sa_result
+      failed_when: false
+
+    - name: Display Kubernetes resource deletion summary
+      ansible.builtin.debug:
+        msg: "Kubernetes resources (ServiceAccount, Secret, ClusterRoleBinding) deleted"
+
+  rescue:
+    - name: Handle Kubernetes resource deletion failure
+      ansible.builtin.debug:
+        msg: |
+          Warning: Some Kubernetes resources could not be deleted.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+
+- name: Delete Vault namespace
+  block:
+    - name: Delete namespace {{ vault_kv2_demo_vault_namespace }}
+      ansible.builtin.uri:
+        url: "{{ vault_kv2_demo_vault_addr }}/v1/sys/namespaces/{{ vault_kv2_demo_vault_namespace }}"
+        method: DELETE
+        headers:
+          X-Vault-Token: "{{ vault_kv2_demo_root_token }}"
+        status_code:
+          - 204
+          - 404
+        validate_certs: "{{ vault_kv2_demo_validate_certs }}"
+        ca_path: "{{ vault_kv2_demo_ca_cert if vault_kv2_demo_ca_cert else omit }}"
+        timeout: "{{ vault_kv2_demo_request_timeout }}"
+      register: delete_namespace_result
+      when: vault_kv2_demo_vault_namespace | length > 0
+      no_log: true
+      failed_when: false
+
+    - name: Display namespace deletion status
+      ansible.builtin.debug:
+        msg: "Vault namespace {{ vault_kv2_demo_vault_namespace }} {{ 'deleted' if delete_namespace_result.status == 204 else 'not found or already deleted' }}"
+      when: vault_kv2_demo_vault_namespace | length > 0
+
+  rescue:
+    - name: Handle namespace deletion failure
+      ansible.builtin.debug:
+        msg: |
+          Warning: Could not delete Vault namespace.
+          Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+          Note: Namespace deletion requires Vault Enterprise.
+
+- name: Display cleanup completion summary
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      Cleanup Complete
+      ========================================
+      The following resources have been removed:
+      ✓ {{ vault_kv2_demo_secrets | length }} secrets from KV2 engine
+      ✓ KV2 secret engine at {{ vault_kv2_demo_kv2_mount_path }}
+      ✓ Kubernetes auth role {{ vault_kv2_demo_vault_role_name }}
+      ✓ Vault policy {{ vault_kv2_demo_vault_role_name }}-policy
+      ✓ Kubernetes auth method at {{ vault_kv2_demo_k8s_auth_path }}
+      ✓ Kubernetes ServiceAccount {{ vault_kv2_demo_service_account_name }}
+      ✓ Kubernetes ClusterRoleBinding
+      {% if vault_kv2_demo_vault_namespace | length > 0 %}
+      ✓ Vault namespace {{ vault_kv2_demo_vault_namespace }}
+      {% endif %}
+      ========================================

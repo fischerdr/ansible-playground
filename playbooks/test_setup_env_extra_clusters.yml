@@ -1,0 +1,175 @@
+---
+# Test playbook for setup_env role with extra_clusters functionality
+# Purpose: Demonstrate and validate multi-cluster credential retrieval
+# Usage: ansible-playbook -i inventory/hosts.yml playbooks/test_setup_env_extra_clusters.yml
+
+- name: "Test setup_env role with multiple clusters"
+  hosts: localhost
+  gather_facts: true
+  become: false
+
+  vars:
+    # Primary cluster to configure
+    cluster_name: "eng-paas-d-eusw1a-4"
+
+    # Additional clusters to process
+    extra_clusters:
+      - "eng-paas-t-eusw1b-2"
+      - "eng-paas-p-usw1a-1"
+
+    # Enable connection testing for extra clusters
+    test_extra_clusters: false
+
+    # Output directory for all credential files
+    kubeconfig_dir: "{{ playbook_dir }}/tmp/multi_cluster_configs"
+
+    # Enable debug mode for detailed logging
+    debug_mode: true
+
+  pre_tasks:
+    - name: "Display test configuration"
+      ansible.builtin.debug:
+        msg: |
+          Multi-cluster setup test configuration:
+            Primary cluster: {{ cluster_name }}
+            Extra clusters: {{ extra_clusters | join(', ') }}
+            Output directory: {{ kubeconfig_dir }}
+            Test extra clusters: {{ test_extra_clusters }}
+            Debug mode: {{ debug_mode }}
+      tags:
+        - always
+
+  roles:
+    - role: setup_env
+      tags:
+        - setup_env
+
+  post_tasks:
+    - name: "Validate primary cluster credentials"
+      tags:
+        - validation
+        - primary_cluster
+      block:
+        - name: "Verify primary kubeconfig file exists"
+          ansible.builtin.stat:
+            path: "{{ kubeconfig_path }}"
+          register: primary_kubeconfig_stat
+
+        - name: "Verify primary SSH key file exists"
+          ansible.builtin.stat:
+            path: "{{ ssh_key_path }}"
+          register: primary_ssh_key_stat
+
+        - name: "Assert primary cluster files exist"
+          ansible.builtin.assert:
+            that:
+              - primary_kubeconfig_stat.stat.exists | bool
+              - primary_ssh_key_stat.stat.exists | bool
+              - primary_kubeconfig_stat.stat.mode == '0600'
+              - primary_ssh_key_stat.stat.mode == '0600'
+            fail_msg: "Primary cluster credential files validation failed"
+            success_msg: "Primary cluster credential files validated successfully"
+
+    - name: "Validate extra_clusters fact structure"
+      when: extra_clusters is defined
+      tags:
+        - validation
+        - extra_clusters
+      ansible.builtin.assert:
+        that:
+          - extra_clusters is defined
+          - extra_clusters is iterable
+          - extra_clusters | length > 0
+        fail_msg: "extra_clusters fact is not properly defined"
+        success_msg: "extra_clusters fact structure is valid"
+
+    - name: "Display extra_clusters fact contents"
+      ansible.builtin.debug:
+        msg: "{{ extra_clusters | to_nice_yaml }}"
+      when: extra_clusters is defined
+      tags:
+        - extra_clusters
+        - debug
+
+    - name: "Validate successful extra cluster credentials"
+      when: extra_clusters is defined
+      tags:
+        - validation
+        - extra_clusters
+      block:
+        - name: "Verify credential files exist for successful clusters"
+          ansible.builtin.stat:
+            path: "{{ item.kubeconfig_path }}"
+          register: extra_cluster_file_stats
+          loop: "{{ extra_clusters }}"
+          when:
+            - extra_clusters is defined
+            - item.status == 'success'
+          loop_control:
+            label: "{{ item.cluster_name }}"
+
+        - name: "Assert all successful cluster files exist"
+          ansible.builtin.assert:
+            that:
+              - item.stat.exists | bool
+              - item.stat.mode == '0600'
+            fail_msg: "Credential file validation failed for {{ item.item.cluster_name }}"
+            success_msg: "Credential files validated for {{ item.item.cluster_name }}"
+          loop: "{{ extra_cluster_file_stats.results }}"
+          when:
+            - extra_cluster_file_stats.results is defined
+            - not item.skipped | default(false)
+          loop_control:
+            label: "{{ item.item.cluster_name }}"
+
+    - name: "Generate summary report"
+      ansible.builtin.debug:
+        msg: |
+
+          ========================================
+          Multi-Cluster Setup Test Summary
+          ========================================
+
+          Primary Cluster: {{ cluster_name }}
+            Status: SUCCESS
+            Kubeconfig: {{ kubeconfig_path }}
+            SSH Key: {{ ssh_key_path }}
+
+          Extra Clusters Summary:
+            Total Requested: {{ extra_clusters | length }}
+            Successful: {{ extra_clusters | selectattr('status', 'equalto', 'success') | list | length }}
+            Failed: {{ extra_clusters | selectattr('status', 'equalto', 'failed') | list | length }}
+
+          {% for cluster in extra_clusters %}
+          Cluster: {{ cluster.cluster_name }}
+            Status: {{ cluster.status | upper }}
+          {% if cluster.status == 'success' %}
+            Kubeconfig: {{ cluster.kubeconfig_path }}
+            SSH Key: {{ cluster.ssh_key_path }}
+          {% else %}
+            Error: {{ cluster.error }}
+          {% endif %}
+
+          {% endfor %}
+          ========================================
+
+          Test completed successfully!
+          All credential files are stored in: {{ kubeconfig_dir }}
+
+          To use a specific cluster configuration:
+          export KUBECONFIG={{ kubeconfig_dir }}/<cluster_name>.kubeconfig
+
+          ========================================
+      when: extra_clusters is defined
+      tags:
+        - completion
+        - summary
+
+    - name: "Export extra_clusters fact for downstream usage"
+      ansible.builtin.set_fact:
+        test_extra_clusters_result: "{{ extra_clusters }}"
+        cacheable: true
+      when: extra_clusters is defined
+      tags:
+        - export
+        - extra_clusters

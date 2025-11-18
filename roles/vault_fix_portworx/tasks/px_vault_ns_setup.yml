@@ -1,0 +1,20 @@
+---
+# DEPRECATED: This file uses legacy uri module with direct Vault API calls
+# USE px_vault_ns_setup_aap.yml instead - it uses proper community.hashi_vault modules
+# This file is retained for backward compatibility only and will be removed in a future release
+
+- name: "DEPRECATED | Warn about legacy task file usage"
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: px_vault_ns_setup.yml is deprecated. This file uses direct URI calls
+      to Vault API with validate_certs: false instead of proper community.hashi_vault modules.
+      Please migrate to using px_vault_ns_setup_aap.yml which uses community.hashi_vault modules
+      with proper TLS validation. This file will be removed in a future release.
+
+- name: "DEPRECATED | Fail with deprecation message"
+  ansible.builtin.fail:
+    msg: >-
+      px_vault_ns_setup.yml is deprecated and should not be used.
+      Update your playbooks to use the main role entry point which includes px_vault_ns_setup_aap.yml.
+      If you must use this legacy file, set 'allow_deprecated_vault_tasks: true' in your playbook.
+  when: allow_deprecated_vault_tasks is not defined or not allow_deprecated_vault_tasks

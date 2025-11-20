@@ -194,6 +194,66 @@ The project uses Execution Environments (EEs) for isolation and reproducibility:
 - Avoid `shell` and `command` modules unless absolutely necessary
 - Prefer Ansible's built-in modules for specific tasks
 
+**Proper use of changed_when and failed_when:**
+
+When using `shell` or `command` modules, always define `changed_when` and `failed_when` to ensure proper idempotency and error handling:
+
+- **changed_when**: Controls when a task reports "changed" status
+  - For read-only operations (get, list, show): Use `changed_when: false` since these never modify state
+  - For operations with detectable state changes: Test the output to determine if changes occurred
+  - For operations that should report unusual conditions: Test for unexpected states (e.g., empty results when data is expected)
+
+- **failed_when**: Controls when a task reports failure
+  - Always consider all valid exit codes for the command
+  - For grep operations: Use `failed_when: result.rc not in [0, 1]` since grep returns 1 when no matches are found
+  - For operations with retry logic: Let `until` handle failures, use `failed_when` for unrecoverable errors
+  - Test both return code and output content when appropriate
+
+Examples:
+
+```yaml
+# Read-only operation - never changes state
+- name: Get list of pods
+  ansible.builtin.shell: kubectl get pods --no-headers
+  register: pod_list
+  changed_when: false
+  failed_when: pod_list.rc != 0
+
+# Grep operation - allow both success and no-match exit codes
+- name: Find worker machinesets
+  ansible.builtin.shell: |
+    set -o pipefail &&
+    oc get machineset --no-headers | grep worker
+  args:
+    executable: /bin/bash
+  register: machineset_list
+  changed_when: false
+  failed_when: machineset_list.rc not in [0, 1]
+
+# State-modifying operation - detect actual changes
+- name: Apply configuration
+  ansible.builtin.shell: kubectl apply -f config.yaml
+  register: apply_result
+  changed_when: "'configured' in apply_result.stdout or 'created' in apply_result.stdout"
+  failed_when: apply_result.rc != 0
+
+# Operation with expected output - report change if output is unusual
+- name: Verify cluster members exist
+  ansible.builtin.shell: etcdctl member list
+  register: member_list
+  changed_when: member_list.stdout_lines | length == 0
+  failed_when: member_list.rc != 0
+```
+
+Common patterns:
+
+- `changed_when: false` - For any read/query operation
+- `changed_when: result.stdout_lines | length == 0` - When empty results indicate an unexpected state
+- `changed_when: "'created' in result.stdout or 'updated' in result.stdout"` - When output indicates modification
+- `failed_when: result.rc != 0` - For commands with simple success/failure
+- `failed_when: result.rc not in [0, 1]` - For grep and similar tools
+- `failed_when: result.rc != 0 or 'error' in result.stderr | lower` - When checking both exit code and output
+
 ### Python Standards
 
 - Python 3.11+ syntax

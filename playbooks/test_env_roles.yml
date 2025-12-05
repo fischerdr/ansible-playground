@@ -1,0 +1,51 @@
+---
+- name: Test 1 - Block style environment syntax
+  hosts: localhost
+  gather_facts: false
+  vars:
+    kubeconfig_path: "/tmp/test-kubeconfig"
+    aws_access_key: "AKIATEST123"
+    aws_secret_key: "secret123"
+    aws_region: "us-east-1"
+  roles:
+    - role: test_env_role
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+        AWS_ACCESS_KEY_ID: "{{ aws_access_key }}"
+        AWS_SECRET_ACCESS_KEY: "{{ aws_secret_key }}"
+        AWS_REGION: "{{ aws_region }}"
+        UNDEFINED_VAR: "{{ _undefined_var | default('') }}"
+
+- name: Test 2 - Inline dictionary syntax
+  hosts: localhost
+  gather_facts: false
+  vars:
+    kubeconfig_path: "/tmp/test-kubeconfig-inline"
+    aws_access_key: "AKIATEST456"
+    aws_secret_key: "secret456"
+    aws_region: "us-west-2"
+
+  roles:
+    - {role: test_env_role, environment: {KUBECONFIG: "{{ kubeconfig_path }}", AWS_ACCESS_KEY_ID: "{{ aws_access_key }}", AWS_SECRET_ACCESS_KEY: "{{ aws_secret_key }}", AWS_REGION: "{{ aws_region }}", UNDEFINED_VAR: "{{ _undefined_var | default('') }}"}}
+
+- name: Test 3 - include_role with environment
+  hosts: localhost
+  gather_facts: false
+  vars:
+    kubeconfig_path: "/tmp/test-kubeconfig-include"
+    aws_access_key: "AKIATEST789"
+    aws_secret_key: "secret789"
+    aws_region: "eu-west-1"
+
+  tasks:
+    - name: Run test role with include_role in block
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+        AWS_ACCESS_KEY_ID: "{{ aws_access_key }}"
+        AWS_SECRET_ACCESS_KEY: "{{ aws_secret_key }}"
+        AWS_REGION: "{{ aws_region }}"
+        UNDEFINED_VAR: "{{ _undefined_var | default('') }}"
+      block:
+        - name: Include test role
+          ansible.builtin.include_role:
+            name: test_env_role

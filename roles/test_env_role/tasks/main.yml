@@ -1,0 +1,14 @@
+---
+- name: Display environment variables
+  ansible.builtin.shell: |
+    echo "KUBECONFIG=$KUBECONFIG"
+    echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID"
+    echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY"
+    echo "AWS_REGION=$AWS_REGION"
+    echo "UNDEFINED_VAR=$UNDEFINED_VAR"
+  register: env_output
+  changed_when: false
+
+- name: Show output
+  ansible.builtin.debug:
+    var: env_output.stdout_lines

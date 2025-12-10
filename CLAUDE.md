@@ -13,7 +13,32 @@ This is an enterprise Ansible Automation Platform (AAP) project for managing Kub
 - Kubernetes/OpenShift
 - HashiCorp Vault
 - Portworx Backup (via purepx.px_backup collection)
-- Docker container runtime (required)
+- Docker/Podman container runtime (required)
+
+## Current Project: Portworx Upgrade Role
+
+**Active Development:** Creating a new role `roles/portworx_upgrade/` for automated Portworx cluster upgrades on OpenShift 4.18.
+
+**Specification:** The complete specification is in `portworx-upgrade-role-final.md` at the repository root.
+
+**Key Implementation Notes:**
+
+- Operator-controlled rolling upgrade (role monitors, doesn't control)
+- Two timeout mechanisms: 35min global inactivity, 25min per pod
+- Monitor pod image field changes: `spec.containers[0].image`
+- Impatient mode ONLY for storageless nodes
+- STC updateStrategy validation required in preflight checks
+- autoUpdateComponents patch before STC image update
+
+**Implementation Order:**
+
+1. Role structure and variables (defaults/main.yml, vars/main.yml)
+2. Preflight validation tasks (nodes, pods, cluster status, STC config)
+3. Upgrade trigger tasks (operator, configmap, update_components, storagecluster)
+4. Monitoring tasks (automatic rolling upgrade, stuck detection, impatient mode)
+5. Validation and reporting tasks
+
+When working on this role, always reference the specification document for exact requirements.
 
 ## Development Commands
 
@@ -103,6 +128,22 @@ ansible-playbook -i inventory/<inventory-file> playbooks/<playbook-name>.yml --d
 ansible-playbook -i inventory/<inventory-file> playbooks/<playbook-name>.yml -vvv
 ```
 
+### Role Testing Workflow
+
+For new roles, follow this testing progression:
+
+1. **Syntax validation**: `ansible-playbook --syntax-check playbooks/<playbook>.yml`
+2. **Ansible-lint**: `.venv/bin/ansible-lint roles/<role-name>/`
+3. **Tag-based testing**: Test individual phases using `--tags`
+
+   ```bash
+   ansible-playbook playbooks/px_upgrade.yml --tags preflight --check
+   ```
+
+4. **Dry-run mode**: Use `--check` to validate without changes
+5. **Test environment**: Run against dev/test cluster first
+6. **Production validation**: Final testing in production-like environment
+
 ## Architecture
 
 ### Directory Structure
@@ -112,6 +153,7 @@ ansible-playbook -i inventory/<inventory-file> playbooks/<playbook-name>.yml -vv
   - `defrag_etcd_db/`: etcd database defragmentation for OpenShift
   - `deploy_px/`: Portworx deployment automation
   - `must_gather_log/`: Must-gather log collection and Red Hat case management
+  - `portworx_upgrade/`: **NEW** - Automated Portworx cluster upgrades with operator-controlled rolling updates
   - `pxbackup/`: Portworx backup operations
   - `setup_env/`: Environment setup and configuration
   - `upgrade_clusters/`: Cluster upgrade automation
@@ -137,9 +179,9 @@ The project includes custom Python modules embedded within roles:
 
 - **`roles/defrag_etcd_db/library/defrag_etcd.py`**: Defragments etcd databases in OpenShift by executing etcdctl commands inside etcd pods via `oc rsh`. Implements leader-aware ordering (defragments non-leader members first, leader last).
 
-- **`roles/must_gather_log/library/redhat_upload.py`**: Uploads must-gather archive parts to Red Hat support cases via HTTP API. Handles multi-part uploads with retry logic, exponential backoff, and comprehensive error tracking.
-
 - **`roles/pxbackup/filter_plugins/lookup_helpers.py`**: Custom Jinja2 filters for Portworx backup operations.
+
+- **`roles/portworx_upgrade/library/pxctl_status.py`**: Executes pxctl commands in Portworx pods with auth token handling and structured output parsing. Provides health status information for upgrade monitoring.
 
 All custom modules follow Ansible 2.18+ standards with proper argument specs, return values, and comprehensive documentation.
 
@@ -156,7 +198,9 @@ The project uses Execution Environments (EEs) for isolation and reproducibility:
 ### Key Collections Used
 
 - `purepx.px_backup`: Portworx backup API integration
-- `kubernetes.core`: Kubernetes cluster management
+- `kubernetes.core`: Kubernetes cluster management (v2.3.0+)
+  - Critical for StorageCluster CRD operations
+  - Required for pod exec operations (pxctl commands)
 - `community.hashi_vault`: HashiCorp Vault integration
 - `ansible.posix`, `ansible.scm`, `ansible.utils`: Standard utilities
 - Cloud collections: `amazon.aws`, `community.aws`, `google.cloud`, `community.vmware`
@@ -254,6 +298,27 @@ Common patterns:
 - `failed_when: result.rc not in [0, 1]` - For grep and similar tools
 - `failed_when: result.rc != 0 or 'error' in result.stderr | lower` - When checking both exit code and output
 
+### Portworx-Specific Standards
+
+**Storage Cluster Operations:**
+
+- Always validate STC updateStrategy before modifications
+- Monitor pod image changes via `spec.containers[0].image` field
+- Use `kubernetes.core.k8s_exec` for pxctl commands with proper auth token handling
+- Never rely solely on STC status fields (can be stale)
+
+**Timeout Handling:**
+
+- Implement dual timeout strategy: global inactivity + per-resource
+- Track "activity" as any state change (not just completion)
+- Provide diagnostic output on timeout failures
+
+**KVDB Operations:**
+
+- Treat KVDB pods as regular pods (no special version tracking)
+- Ensure 3 KVDB pods exist and are healthy
+- Verify KVDB health in safety checks but don't track separately during upgrades
+
 ### Python Standards
 
 - Python 3.11+ syntax
@@ -290,7 +355,7 @@ Common patterns:
 
 ### Execution Environment Requirements
 
-- Container runtime **must** be Docker (not Podman for production builds)
+- Container runtime **must** be Podman
 - EE isolation must be considered in all automation decisions
 - Python 3.11 is the only supported Python version
 - All dependencies must be declared in requirements files for reproducible builds
@@ -378,7 +443,7 @@ Bad example (DO NOT USE):
 ```text
 Add new feature
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+Generated with [Claude Code](https://claude.com/claude-code)
 
 Co-Authored-By: Claude <noreply@anthropic.com>
 ```

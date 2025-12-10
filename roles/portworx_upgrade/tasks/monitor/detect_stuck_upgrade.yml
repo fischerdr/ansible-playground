@@ -1,0 +1,78 @@
+---
+# Detect stuck upgrade conditions and timeout scenarios
+
+- name: Calculate time since last activity
+  ansible.builtin.set_fact:
+    portworx_inactivity_duration: "{{ (ansible_date_time.epoch | int) - (portworx_last_activity_time | int) }}"
+
+- name: Log inactivity duration
+  ansible.builtin.debug:
+    msg: "Time since last upgrade activity: {{ portworx_inactivity_duration }} seconds (timeout: {{ portworx_global_inactivity_timeout }})"
+  when:
+    - portworx_detailed_logging
+    - portworx_inactivity_duration | int > 300  # Log if over 5 minutes
+
+- name: Check for global inactivity timeout
+  when: portworx_inactivity_duration | int > portworx_global_inactivity_timeout | int
+  block:
+    - name: Get current pod states for diagnostics
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: "{{ portworx_namespace }}"
+        label_selectors:
+          - "{{ portworx_pod_selector }}"
+      register: portworx_stuck_pods
+
+    - name: Get StorageCluster status for diagnostics
+      kubernetes.core.k8s_info:
+        api_version: "{{ portworx_stc_api_version }}"
+        kind: "{{ portworx_stc_kind }}"
+        name: "{{ portworx_stc_name }}"
+        namespace: "{{ portworx_namespace }}"
+      register: portworx_stuck_stc
+
+    - name: Fail due to global inactivity timeout
+      ansible.builtin.fail:
+        msg: |
+          UPGRADE TIMEOUT: No upgrade activity detected for {{ portworx_inactivity_duration }} seconds
+
+          Global inactivity timeout: {{ portworx_global_inactivity_timeout }} seconds ({{ (portworx_global_inactivity_timeout | int / 60) | round(1) }} minutes)
+
+          Last activity time: {{ portworx_last_activity_time }}
+          Current time: {{ ansible_date_time.epoch }}
+
+          Current Status:
+          - Pods with new image (ready): {{ portworx_pods_with_new_image | length }}
+          - Pods with old image: {{ portworx_pods_with_old_image | length }}
+          - Pods actively upgrading: {{ portworx_pods_upgrading | length }}
+          - Pods new but not ready: {{ portworx_pods_new_not_ready | length }}
+
+          Pods still needing upgrade:
+          {% for pod in portworx_pods_with_old_image %}
+          - {{ pod.metadata.name }} (node: {{ pod.spec.nodeName }})
+          {% endfor %}
+
+          Pods in upgrading state:
+          {% for pod in portworx_pods_upgrading %}
+          - {{ pod.metadata.name }}: {{ pod.status.phase }}
+          {% endfor %}
+
+          StorageCluster Update Status:
+          {{ portworx_stuck_stc.resources[0].status.conditions | default([]) | selectattr('type', 'equalto', 'Update') | list }}
+
+          TROUBLESHOOTING:
+          1. Check operator logs: oc logs -n {{ portworx_namespace }} -l name=portworx-operator
+          2. Check StorageCluster events: oc describe stc {{ portworx_stc_name }} -n {{ portworx_namespace }}
+          3. Check if operator is running: oc get pods -n {{ portworx_namespace }} -l name=portworx-operator
+          4. Check for stuck pods: oc get pods -n {{ portworx_namespace }} -l {{ portworx_pod_selector }}
+          5. Review pxctl status from a running pod
+
+- name: Warning for pods upgrading longer than expected
+  ansible.builtin.debug:
+    msg: "WARNING: Pod {{ item.metadata.name }} has been in {{ item.status.phase }} state. Monitor closely."
+  loop: "{{ portworx_pods_upgrading }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+  when:
+    - portworx_inactivity_duration | int > 900  # 15 minutes
+    - portworx_detailed_logging

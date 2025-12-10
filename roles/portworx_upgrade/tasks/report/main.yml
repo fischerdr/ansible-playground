@@ -1,0 +1,5 @@
+---
+# Generate upgrade reports
+
+- name: Include summary generation
+  ansible.builtin.include_tasks: generate_summary.yml

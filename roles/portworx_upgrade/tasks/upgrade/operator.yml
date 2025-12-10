@@ -1,0 +1,112 @@
+---
+# Upgrade Portworx operator
+
+- name: Record operator upgrade start time
+  ansible.builtin.set_fact:
+    portworx_operator_start_time: "{{ ansible_date_time.epoch }}"
+
+- name: Get current operator subscription
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    name: "{{ portworx_operator_subscription }}"
+    namespace: "{{ portworx_operator_namespace }}"
+  register: portworx_subscription
+
+- name: Display current subscription status
+  ansible.builtin.debug:
+    msg:
+      - "Operator subscription: {{ portworx_operator_subscription }}"
+      - "Current channel: {{ portworx_subscription.resources[0].spec.channel | default('undefined') }}"
+      - "InstallPlan approval: {{ portworx_subscription.resources[0].spec.installPlanApproval | default('Automatic') }}"
+
+- name: Get unapproved install plans
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: InstallPlan
+    namespace: "{{ portworx_operator_namespace }}"
+  register: portworx_install_plans
+
+- name: Filter unapproved install plans for Portworx
+  ansible.builtin.set_fact:
+    portworx_unapproved_plans: >-
+      {{ portworx_install_plans.resources |
+         selectattr('spec.approved', 'equalto', false) |
+         selectattr('spec.clusterServiceVersionNames', 'defined') |
+         list }}
+
+- name: Display unapproved install plans
+  ansible.builtin.debug:
+    msg:
+      - "Unapproved install plans: {{ portworx_unapproved_plans | length }}"
+      - "Plans: {{ portworx_unapproved_plans | map(attribute='metadata.name') | list }}"
+  when: portworx_unapproved_plans | length > 0
+
+- name: Approve install plans
+  kubernetes.core.k8s:
+    state: patched
+    api_version: operators.coreos.com/v1alpha1
+    kind: InstallPlan
+    name: "{{ item.metadata.name }}"
+    namespace: "{{ portworx_operator_namespace }}"
+    definition:
+      spec:
+        approved: true
+  loop: "{{ portworx_unapproved_plans }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+  when:
+    - portworx_operator_auto_approve
+    - portworx_unapproved_plans | length > 0
+
+- name: Wait for operator CSV to be ready
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    namespace: "{{ portworx_operator_namespace }}"
+  register: portworx_csv_list
+  until:
+    - portworx_csv_list.resources | length > 0
+    - portworx_csv_list.resources | selectattr('status.phase', 'defined') | list | length > 0
+    - portworx_csv_list.resources | selectattr('status.phase', 'equalto', 'Succeeded') | list | length > 0
+  retries: "{{ (portworx_operator_update_timeout / 10) | int }}"
+  delay: 10
+
+- name: Get final operator CSV
+  ansible.builtin.set_fact:
+    portworx_final_operator_csv: "{{ portworx_csv_list.resources | selectattr('status.phase', 'equalto', 'Succeeded') | first }}"
+
+- name: Display operator version
+  ansible.builtin.debug:
+    msg:
+      - "Operator CSV: {{ portworx_final_operator_csv.metadata.name }}"
+      - "Operator version: {{ portworx_final_operator_csv.spec.version | default('unknown') }}"
+      - "Operator phase: {{ portworx_final_operator_csv.status.phase }}"
+
+- name: Re-verify cluster health after operator upgrade
+  kubernetes.core.k8s_exec:
+    namespace: "{{ portworx_namespace }}"
+    pod: "{{ portworx_pxctl_pod.metadata.name }}"
+    command: |
+      /bin/bash -c "
+      export PXCTL_AUTH_TOKEN='{{ portworx_auth_token }}' &&
+      /opt/pwx/bin/pxctl status | grep -q 'PX is operational' && echo 'operational' || echo 'degraded'
+      "
+  register: portworx_post_operator_status
+  changed_when: false
+  no_log: true
+
+- name: Assert cluster still operational after operator upgrade
+  ansible.builtin.assert:
+    that:
+      - portworx_post_operator_status.stdout | trim == 'operational'
+    fail_msg: "Cluster became degraded after operator upgrade"
+    success_msg: "Cluster remains operational after operator upgrade"
+
+- name: Record operator upgrade end time
+  ansible.builtin.set_fact:
+    portworx_operator_end_time: "{{ ansible_date_time.epoch }}"
+
+- name: Operator upgrade complete
+  ansible.builtin.debug:
+    msg: "Portworx operator upgrade completed successfully"

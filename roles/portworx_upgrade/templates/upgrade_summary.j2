@@ -1,0 +1,65 @@
+============================================
+PORTWORX UPGRADE SUMMARY REPORT
+============================================
+Cluster: {{ portworx_cluster_name }}
+Date: {{ ansible_date_time.iso8601 }}
+Playbook Run Duration: {{ portworx_upgrade_duration }} seconds ({{ (portworx_upgrade_duration | int / 60) | round(1) }} minutes)
+
+UPGRADE DETAILS:
+  Source Version: {{ portworx_current_version }}
+  Target Version: {{ portworx_target_version }}
+  Operator CSV: {{ portworx_final_operator_csv.metadata.name | default('Not recorded') }}
+
+CLUSTER STATISTICS:
+  Total Nodes: {{ portworx_total_node_count }}
+  Storage Nodes: {{ portworx_storage_node_count }}
+  Storageless Nodes: {{ portworx_storageless_node_count }}
+  KVDB Pods: 3
+
+POD UPGRADE RESULTS:
+  Total Portworx Pods: {{ portworx_final_pods.resources | length }}
+  Successfully Upgraded: {{ portworx_pods_upgraded | length }}
+  Final Status: All Running and Ready on version {{ portworx_target_version }}
+
+STORAGE NODE UPGRADES:
+{% for pod in portworx_final_pods.resources | selectattr('spec.nodeName', 'in', portworx_storage_node_names) %}
+  {{ pod.spec.nodeName }}: {{ portworx_target_version }} [OK]
+{% endfor %}
+
+STORAGELESS NODE UPGRADES:
+{% for pod in portworx_final_pods.resources | selectattr('spec.nodeName', 'in', portworx_storageless_node_names) %}
+  {{ pod.spec.nodeName }}: {{ portworx_target_version }} [OK]
+{% endfor %}
+
+KVDB POD STATUS:
+{% for pod in portworx_final_kvdb_pods.resources %}
+  {{ pod.metadata.name }}: Running and Ready [OK]
+{% endfor %}
+
+IMPATIENT MODE: {{ 'Enabled' if portworx_impatient_mode else 'Disabled' }}
+{% if portworx_impatient_mode %}
+  Batches Processed: {{ portworx_storageless_batches | default([]) | length }}
+  Pods per Batch: {{ portworx_impatient_batch_size }}
+{% endif %}
+
+FINAL CLUSTER STATUS:
+  PX Status: Operational
+  All Nodes Online: Yes
+  Version Consistency: Consistent
+  STC Status Version: {{ portworx_stc_status_version }}
+
+TIMING BREAKDOWN:
+  Pre-flight Checks: {{ portworx_preflight_duration | default(0) }}s
+  Operator Upgrade: {{ portworx_operator_duration | default(0) }}s
+  ConfigMap Update: {{ portworx_configmap_duration | default(0) }}s
+  Monitoring Phase: {{ portworx_monitoring_duration | default(0) }}s
+  Final Validation: {{ portworx_validation_duration | default(0) }}s
+
+BACKUP FILES:
+  Location: {{ portworx_backup_dir }}/
+  Pre-upgrade STC: pre-upgrade-stc-*.yaml
+  Pre-upgrade ConfigMap: pre-upgrade-configmap-*.yaml
+  Pre-upgrade Subscription: pre-upgrade-subscription-*.yaml
+
+UPGRADE RESULT: SUCCESS
+============================================

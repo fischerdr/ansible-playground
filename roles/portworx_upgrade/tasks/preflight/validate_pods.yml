@@ -1,0 +1,77 @@
+---
+# Validate pod health before upgrade
+
+- name: Get all Portworx pods
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ portworx_namespace }}"
+    label_selectors:
+      - "{{ portworx_pod_selector }}"
+  register: portworx_pods
+
+- name: Check for unhealthy pods
+  ansible.builtin.set_fact:
+    portworx_unhealthy_pods: "{{ portworx_pods.resources | rejectattr('status.phase', 'equalto', 'Running') | list }}"
+
+- name: Check for not-ready pods
+  ansible.builtin.set_fact:
+    portworx_not_ready_pods: >-
+      {{ portworx_pods.resources |
+         selectattr('status.conditions', 'defined') |
+         rejectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') |
+         list +
+         portworx_pods.resources |
+         selectattr('status.conditions', 'defined') |
+         selectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') |
+         rejectattr('status.conditions', 'selectattr', 'status', 'equalto', 'True') |
+         list }}
+
+- name: Display pod health summary
+  ansible.builtin.debug:
+    msg:
+      - "Total Portworx pods: {{ portworx_pods.resources | length }}"
+      - "Unhealthy pods: {{ portworx_unhealthy_pods | length }}"
+      - "Not ready pods: {{ portworx_not_ready_pods | length }}"
+
+- name: Fail if unhealthy pods found
+  ansible.builtin.fail:
+    msg: |
+      Found {{ portworx_unhealthy_pods | length }} unhealthy pods:
+      {% for pod in portworx_unhealthy_pods %}
+      - {{ pod.metadata.name }}: {{ pod.status.phase }}
+      {% endfor %}
+
+      Troubleshoot these pods before proceeding with upgrade.
+  when:
+    - portworx_fail_on_unhealthy_pods
+    - portworx_unhealthy_pods | length > 0
+
+- name: Get KVDB pods
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ portworx_namespace }}"
+    label_selectors:
+      - "{{ portworx_kvdb_selector }}"
+  register: portworx_kvdb_pods
+
+- name: Validate KVDB pod count
+  ansible.builtin.assert:
+    that:
+      - portworx_kvdb_pods.resources | length == 3
+    fail_msg: "Expected 3 KVDB pods, found {{ portworx_kvdb_pods.resources | length }}"
+    success_msg: "KVDB pod count validated: 3"
+
+- name: Validate KVDB pods are healthy
+  ansible.builtin.assert:
+    that:
+      - item.status.phase == "Running"
+      - item.status.conditions | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length > 0
+    fail_msg: "KVDB pod {{ item.metadata.name }} is not healthy"
+    success_msg: "KVDB pod {{ item.metadata.name }} is healthy"
+  loop: "{{ portworx_kvdb_pods.resources }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+
+- name: Pod health validation complete
+  ansible.builtin.debug:
+    msg: "All pods are healthy and ready for upgrade"

@@ -1,0 +1,116 @@
+---
+# Monitor the operator-controlled automatic rolling upgrade
+
+- name: Start automatic upgrade monitoring loop
+  ansible.builtin.debug:
+    msg: "Beginning automatic rolling upgrade monitoring..."
+
+- name: Monitor upgrade progress
+  until: portworx_upgrade_complete
+  retries: 1000  # Effectively unlimited, rely on timeout detection
+  delay: 0  # Delay handled by pause task
+  block:
+    - name: Get all Portworx pods
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: "{{ portworx_namespace }}"
+        label_selectors:
+          - "{{ portworx_pod_selector }}"
+      register: portworx_current_pods
+
+    - name: Analyze pod upgrade status
+      ansible.builtin.set_fact:
+        portworx_pods_with_new_image: >-
+          {{ portworx_current_pods.resources |
+             selectattr('spec.containers', 'defined') |
+             selectattr('spec.containers.0.image', 'search', portworx_target_version) |
+             selectattr('status.phase', 'equalto', 'Running') |
+             selectattr('status.conditions', 'defined') |
+             selectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') |
+             list }}
+
+        portworx_pods_with_old_image: >-
+          {{ portworx_current_pods.resources |
+             selectattr('spec.containers', 'defined') |
+             rejectattr('spec.containers.0.image', 'search', portworx_target_version) |
+             list }}
+
+        portworx_pods_upgrading: >-
+          {{ portworx_current_pods.resources |
+             selectattr('status.phase', 'in', portworx_active_upgrade_phases) |
+             list }}
+
+        portworx_pods_new_not_ready: >-
+          {{ portworx_current_pods.resources |
+             selectattr('spec.containers', 'defined') |
+             selectattr('spec.containers.0.image', 'search', portworx_target_version) |
+             rejectattr('status.phase', 'equalto', 'Running') |
+             list +
+             portworx_current_pods.resources |
+             selectattr('spec.containers', 'defined') |
+             selectattr('spec.containers.0.image', 'search', portworx_target_version) |
+             selectattr('status.phase', 'equalto', 'Running') |
+             rejectattr('status.conditions', 'defined') |
+             list }}
+
+    - name: Display current upgrade status
+      ansible.builtin.debug:
+        msg:
+          - "Upgrade Status:"
+          - "  Pods completed (new image + ready): {{ portworx_pods_with_new_image | length }}"
+          - "  Pods needing upgrade (old image): {{ portworx_pods_with_old_image | length }}"
+          - "  Pods actively upgrading: {{ portworx_pods_upgrading | length }}"
+          - "  Pods new but not ready: {{ portworx_pods_new_not_ready | length }}"
+      when: portworx_detailed_logging
+
+    - name: Check for upgrade activity
+      ansible.builtin.set_fact:
+        portworx_activity_detected: >-
+          {{ (portworx_pods_upgrading | length > 0) or
+             (portworx_pods_new_not_ready | length > 0) }}
+
+    - name: Update last activity time if activity detected
+      ansible.builtin.set_fact:
+        portworx_last_activity_time: "{{ ansible_date_time.epoch }}"
+      when: portworx_activity_detected
+
+    - name: Log newly completed pods
+      ansible.builtin.debug:
+        msg: "Pod {{ item.metadata.name }} upgraded successfully to {{ portworx_target_version }}"
+      loop: "{{ portworx_pods_with_new_image }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when:
+        - portworx_detailed_logging
+        - item.metadata.name not in (portworx_pods_upgraded | default([]))
+
+    - name: Update upgraded pods list
+      ansible.builtin.set_fact:
+        portworx_pods_upgraded: "{{ (portworx_pods_upgraded | default([])) + [item.metadata.name] }}"
+      loop: "{{ portworx_pods_with_new_image }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when: item.metadata.name not in (portworx_pods_upgraded | default([]))
+
+    - name: Update pods needing upgrade list
+      ansible.builtin.set_fact:
+        portworx_pods_needing_upgrade: "{{ portworx_pods_with_old_image }}"
+
+    - name: Check for timeout conditions
+      ansible.builtin.include_tasks: detect_stuck_upgrade.yml
+
+    - name: Check if upgrade complete
+      ansible.builtin.set_fact:
+        portworx_upgrade_complete: "{{ portworx_pods_with_old_image | length == 0 and portworx_pods_upgrading | length == 0 and portworx_pods_new_not_ready | length == 0 }}"
+
+    - name: Wait before next check
+      ansible.builtin.pause:
+        seconds: "{{ portworx_pod_check_interval }}"
+      when: not portworx_upgrade_complete
+
+  rescue:
+    - name: Upgrade monitoring failed
+      ansible.builtin.fail:
+        msg: |
+          Upgrade monitoring detected a failure condition.
+          Check logs above for specific timeout or error details.

@@ -1,0 +1,52 @@
+---
+# Internal variables (not meant to be overridden)
+
+# Collections required
+portworx_required_collections:
+  - kubernetes.core
+
+# Minimum versions
+portworx_min_ansible_version: "2.12"
+portworx_min_k8s_collection_version: "2.3.0"
+
+# Pod label selectors
+portworx_pod_selector: "name=portworx"
+portworx_kvdb_selector: "name=portworx-kvdb"
+
+# Node label keys
+portworx_node_type_label: "portworx.io/node-type"
+portworx_zone_label_px: "topology.portworx.io/zone"
+portworx_zone_label_k8s: "topology.kubernetes.io/zone"
+
+# Storage cluster resource
+portworx_stc_kind: "StorageCluster"
+portworx_stc_api_version: "core.libopenstorage.org/v1"
+
+# Operator resources
+portworx_operator_namespace: "portworx"
+portworx_operator_subscription: "portworx-certified"
+
+# Auth secret
+portworx_auth_secret: "px-admin-token"
+
+# Expected pod ready patterns (for different operator versions)
+portworx_pod_ready_patterns:
+  old_operator: "2/2"  # Operator < 23.10.3
+  new_operator: "1/1"  # Operator >= 23.10.3
+
+portworx_api_pod_ready_patterns:
+  old_operator: "1/1"
+  new_operator: "2/2"
+
+# Pod lifecycle phases that indicate "activity" (upgrade in progress)
+portworx_active_upgrade_phases:
+  - Terminating
+  - Pending
+  - ContainerCreating
+
+# Required STC updateStrategy configuration
+portworx_required_update_strategy:
+  type: "RollingUpdate"
+  rolling_update:
+    max_unavailable: 1
+    disruption_allow: true

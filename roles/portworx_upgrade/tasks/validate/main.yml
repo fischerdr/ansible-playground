@@ -1,0 +1,23 @@
+---
+# Final validation after upgrade
+
+- name: Record validation start time
+  ansible.builtin.set_fact:
+    portworx_validation_start_time: "{{ ansible_date_time.epoch }}"
+
+- name: Include final pod validation
+  ansible.builtin.include_tasks: final_pod_validation.yml
+
+- name: Include cluster health validation
+  ansible.builtin.include_tasks: cluster_health.yml
+
+- name: Include version consistency validation
+  ansible.builtin.include_tasks: version_consistency.yml
+
+- name: Record validation end time
+  ansible.builtin.set_fact:
+    portworx_validation_end_time: "{{ ansible_date_time.epoch }}"
+
+- name: Final validation complete
+  ansible.builtin.debug:
+    msg: "All final validations passed successfully"

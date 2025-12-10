@@ -1,0 +1,116 @@
+---
+# Process a single batch of storageless pods in impatient mode
+
+- name: Display batch information
+  ansible.builtin.debug:
+    msg:
+      - "Processing batch {{ portworx_batch_index + 1 }}/{{ portworx_storageless_batches | length }}"
+      - "Pods in this batch: {{ portworx_current_batch | length }}"
+      - "Pod names: {{ portworx_current_batch | map(attribute='metadata.name') | list }}"
+
+- name: Delete batch pods
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Pod
+    name: "{{ item.metadata.name }}"
+    namespace: "{{ portworx_namespace }}"
+    wait: false
+  loop: "{{ portworx_current_batch }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+
+- name: Wait for pods to terminate
+  ansible.builtin.pause:
+    seconds: 10
+    prompt: "Waiting for batch pods to terminate..."
+
+- name: Monitor batch pod recovery
+  until: portworx_batch_complete
+  retries: "{{ (portworx_impatient_wait_time / portworx_pod_check_interval) | int }}"
+  delay: 0
+  block:
+    - name: Check batch pod status
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: "{{ portworx_namespace }}"
+        label_selectors:
+          - "{{ portworx_pod_selector }}"
+      register: portworx_batch_check
+
+    - name: Filter batch pods
+      ansible.builtin.set_fact:
+        portworx_batch_pod_names: "{{ portworx_current_batch | map(attribute='metadata.name') | list }}"
+        portworx_batch_current_pods: >-
+          {{ portworx_batch_check.resources |
+             selectattr('spec.nodeName', 'in', portworx_current_batch | map(attribute='spec.nodeName') | list) |
+             list }}
+
+    - name: Check batch recovery status
+      ansible.builtin.set_fact:
+        portworx_batch_recovered: >-
+          {{ portworx_batch_current_pods |
+             selectattr('spec.containers', 'defined') |
+             selectattr('spec.containers.0.image', 'search', portworx_target_version) |
+             selectattr('status.phase', 'equalto', 'Running') |
+             selectattr('status.conditions', 'defined') |
+             selectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') |
+             list }}
+
+    - name: Display batch recovery status
+      ansible.builtin.debug:
+        msg:
+          - "Batch recovery status:"
+          - "  Pods in batch: {{ portworx_batch_current_pods | length }}"
+          - "  Pods recovered (new image + ready): {{ portworx_batch_recovered | length }}"
+          - "  Expected: {{ portworx_current_batch | length }}"
+      when: portworx_detailed_logging
+
+    - name: Check if batch fully recovered
+      ansible.builtin.set_fact:
+        portworx_batch_complete: "{{ portworx_batch_recovered | length == portworx_current_batch | length }}"
+
+    - name: Wait before next check
+      ansible.builtin.pause:
+        seconds: "{{ portworx_pod_check_interval }}"
+      when: not portworx_batch_complete
+
+  rescue:
+    - name: Batch recovery failed
+      ansible.builtin.fail:
+        msg: |
+          Batch {{ portworx_batch_index + 1 }} failed to recover properly
+          Switching to conservative mode for remaining pods
+
+- name: Perform post-batch safety check
+  when: portworx_impatient_safety_checks
+  block:
+    - name: Execute pxctl status after batch
+      kubernetes.core.k8s_exec:
+        namespace: "{{ portworx_namespace }}"
+        pod: "{{ portworx_pxctl_pod.metadata.name }}"
+        command: |
+          /bin/bash -c "
+          export PXCTL_AUTH_TOKEN='{{ portworx_auth_token }}' &&
+          /opt/pwx/bin/pxctl status | grep -q 'PX is operational' && echo 'operational' || echo 'degraded'
+          "
+      register: portworx_batch_pxctl_check
+      changed_when: false
+      no_log: true
+
+    - name: Verify cluster still operational
+      ansible.builtin.assert:
+        that:
+          - portworx_batch_pxctl_check.stdout | trim == 'operational'
+        fail_msg: "Cluster degraded after batch - stopping impatient mode"
+        success_msg: "Cluster still operational after batch"
+
+- name: Wait before next batch
+  ansible.builtin.pause:
+    seconds: "{{ portworx_impatient_batch_delay }}"
+    prompt: "Waiting {{ portworx_impatient_batch_delay }} seconds before next batch..."
+  when: portworx_batch_index < (portworx_storageless_batches | length - 1)
+
+- name: Batch processing complete
+  ansible.builtin.debug:
+    msg: "Batch {{ portworx_batch_index + 1 }} completed successfully"

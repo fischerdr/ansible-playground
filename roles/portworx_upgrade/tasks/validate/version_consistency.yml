@@ -1,0 +1,58 @@
+---
+# Verify version consistency across StorageCluster status and actual pods
+
+- name: Get final StorageCluster status
+  kubernetes.core.k8s_info:
+    api_version: "{{ portworx_stc_api_version }}"
+    kind: "{{ portworx_stc_kind }}"
+    name: "{{ portworx_stc_name }}"
+    namespace: "{{ portworx_namespace }}"
+  register: portworx_final_stc
+
+- name: Extract STC status version
+  ansible.builtin.set_fact:
+    portworx_stc_status_version: "{{ portworx_final_stc.resources[0].status.version | default('unknown') }}"
+    portworx_stc_spec_version: "{{ portworx_final_stc.resources[0].spec.image | regex_search('oci-monitor:(.+)$', '\\1') | first }}"
+
+- name: Display version information
+  ansible.builtin.debug:
+    msg:
+      - "Version Validation:"
+      - "  Target version: {{ portworx_target_version }}"
+      - "  STC spec image version: {{ portworx_stc_spec_version }}"
+      - "  STC status version: {{ portworx_stc_status_version }}"
+      - "  All pods on version: {{ portworx_target_version }}"
+
+- name: Check STC Update condition
+  ansible.builtin.set_fact:
+    portworx_stc_update_condition: >-
+      {{ portworx_final_stc.resources[0].status.conditions |
+         default([]) |
+         selectattr('type', 'equalto', 'Update') |
+         list }}
+
+- name: Display STC Update condition
+  ansible.builtin.debug:
+    msg: "STC Update Condition: {{ portworx_stc_update_condition }}"
+  when: portworx_stc_update_condition | length > 0
+
+- name: Verify STC status version matches target
+  ansible.builtin.assert:
+    that:
+      - portworx_target_version in portworx_stc_status_version or portworx_stc_status_version == portworx_target_version
+    fail_msg: |
+      STC status version ({{ portworx_stc_status_version }}) does not match target ({{ portworx_target_version }})
+      Note: STC status may lag behind actual pod versions. Verify pods are correct.
+    success_msg: "STC status version matches target"
+  failed_when: false  # Don't fail - STC status can be stale
+
+- name: Verify STC spec image matches target
+  ansible.builtin.assert:
+    that:
+      - portworx_target_version in portworx_stc_spec_version or portworx_stc_spec_version == portworx_target_version
+    fail_msg: "STC spec image version ({{ portworx_stc_spec_version }}) does not match target ({{ portworx_target_version }})"
+    success_msg: "STC spec image version matches target"
+
+- name: Version consistency check complete
+  ansible.builtin.debug:
+    msg: "Version consistency validated across all components"

@@ -1,0 +1,25 @@
+---
+galaxy_info:
+  author: "Enterprise Platform Team"
+  description: "Ansible role to upgrade Portworx clusters on OpenShift"
+  company: "Enterprise Organization"
+  license: "MIT"
+  min_ansible_version: "2.12"
+
+  platforms:
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+
+  galaxy_tags:
+    - portworx
+    - storage
+    - openshift
+    - kubernetes
+    - upgrade
+
+dependencies: []
+
+collections:
+  - kubernetes.core

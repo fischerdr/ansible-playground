@@ -1,0 +1,102 @@
+---
+# Accelerated upgrade for storageless nodes (impatient mode)
+
+- name: Display impatient mode warning
+  ansible.builtin.debug:
+    msg:
+      - "WARNING: IMPATIENT MODE ENABLED"
+      - "This will manually delete storageless pods in batches to accelerate upgrade"
+      - "Batch size: {{ portworx_impatient_batch_size }} pods"
+      - "Safety checks: {{ 'ENABLED' if portworx_impatient_safety_checks else 'DISABLED' }}"
+      - "USE WITH CAUTION"
+
+- name: Verify storage nodes are upgraded
+  ansible.builtin.set_fact:
+    portworx_storage_pods_to_check: >-
+      {{ portworx_pods_with_old_image |
+         selectattr('spec.nodeName', 'in', portworx_storage_node_names) |
+         list }}
+
+- name: Ensure storage nodes are upgraded before impatient mode
+  ansible.builtin.assert:
+    that:
+      - portworx_storage_pods_to_check | length == 0
+    fail_msg: |
+      Cannot enable impatient mode - storage nodes still upgrading!
+      Storage pods pending upgrade: {{ portworx_storage_pods_to_check | length }}
+    success_msg: "All storage nodes upgraded - safe to proceed with storageless acceleration"
+
+- name: Perform safety checks
+  when: portworx_impatient_safety_checks
+  block:
+    - name: Execute pxctl status for safety check
+      kubernetes.core.k8s_exec:
+        namespace: "{{ portworx_namespace }}"
+        pod: "{{ portworx_pxctl_pod.metadata.name }}"
+        command: |
+          /bin/bash -c "
+          export PXCTL_AUTH_TOKEN='{{ portworx_auth_token }}' &&
+          /opt/pwx/bin/pxctl status | grep -q 'PX is operational' && echo 'operational' || echo 'degraded'
+          "
+      register: portworx_impatient_pxctl_check
+      changed_when: false
+      no_log: true
+
+    - name: Verify cluster is operational
+      ansible.builtin.assert:
+        that:
+          - portworx_impatient_pxctl_check.stdout | trim == 'operational'
+        fail_msg: "Cluster not operational - cannot proceed with impatient mode"
+        success_msg: "Cluster operational - safe to proceed"
+
+    - name: Verify KVDB pods are healthy
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: "{{ portworx_namespace }}"
+        label_selectors:
+          - "{{ portworx_kvdb_selector }}"
+      register: portworx_kvdb_check
+
+    - name: Validate KVDB health
+      ansible.builtin.assert:
+        that:
+          - item.status.phase == "Running"
+          - item.status.conditions | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length > 0
+        fail_msg: "KVDB pod {{ item.metadata.name }} not healthy - cannot proceed"
+        success_msg: "KVDB pod {{ item.metadata.name }} healthy"
+      loop: "{{ portworx_kvdb_check.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
+- name: Identify storageless pods needing upgrade
+  ansible.builtin.set_fact:
+    portworx_storageless_pods_to_upgrade: >-
+      {{ portworx_pods_with_old_image |
+         selectattr('spec.nodeName', 'in', portworx_storageless_node_names) |
+         list }}
+
+- name: Display storageless upgrade plan
+  ansible.builtin.debug:
+    msg:
+      - "Storageless pods to upgrade: {{ portworx_storageless_pods_to_upgrade | length }}"
+      - "Batch size: {{ portworx_impatient_batch_size }}"
+      - "Estimated batches: {{ (portworx_storageless_pods_to_upgrade | length / portworx_impatient_batch_size | round(0, 'ceil')) | int }}"
+
+- name: Process storageless pods in batches
+  when: portworx_storageless_pods_to_upgrade | length > 0
+  block:
+    - name: Create batches
+      ansible.builtin.set_fact:
+        portworx_storageless_batches: "{{ portworx_storageless_pods_to_upgrade | batch(portworx_impatient_batch_size) | list }}"
+
+    - name: Process each batch
+      ansible.builtin.include_tasks: process_impatient_batch.yml
+      loop: "{{ portworx_storageless_batches }}"
+      loop_control:
+        loop_var: portworx_current_batch
+        index_var: portworx_batch_index
+        label: "Batch {{ portworx_batch_index + 1 }}/{{ portworx_storageless_batches | length }}"
+
+- name: Impatient mode complete
+  ansible.builtin.debug:
+    msg: "All storageless pods upgraded via impatient mode"

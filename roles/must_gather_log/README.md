@@ -126,7 +126,7 @@ vars:
 
 Red Hat SFTP tokens are time-limited and should be generated fresh for each upload:
 
-- **Web UI**: https://access.redhat.com/support/secure-ftp
+- **Web UI**: <https://access.redhat.com/support/secure-ftp>
 - **API**: `curl -X POST https://api.access.redhat.com/support/v2/sftp/token`
 
 **Note**: If authentication is not provided when `rh_case` is set, the role will fail with a clear error message during validation.
@@ -180,6 +180,7 @@ Red Hat SFTP tokens are time-limited and should be generated fresh for each uplo
 Create a custom credential type in Ansible Automation Platform:
 
 **Input Configuration**:
+
 ```yaml
 fields:
   - id: rh_sftp_user
@@ -192,6 +193,7 @@ fields:
 ```
 
 **Injector Configuration**:
+
 ```yaml
 extra_vars:
   rh_sftp_user: '{{ rh_sftp_user }}'
@@ -251,7 +253,7 @@ The role follows this workflow:
 
 ### Red Hat SFTP Requirements
 
-Per Red Hat documentation (https://access.redhat.com/articles/5594481):
+Per Red Hat documentation (<https://access.redhat.com/articles/5594481>):
 
 - **Server**: `sftp.access.redhat.com` (port 22 or 80)
 - **Naming Convention**: Files must be named `CASEID_filename` (e.g., `02436811_must-gather.tar.gz`)
@@ -269,6 +271,7 @@ All SFTP operations are logged to `mustgather_upload_logs` directory:
 - **Upload Operation**: `sftp-upload-<epoch>-part0.log`
 
 Logs include:
+
 - Timestamp and connection details
 - Complete SFTP session output (stdout and stderr)
 - Exit codes and status (SUCCESS/FAILED)
@@ -283,7 +286,8 @@ vars:
 ```
 
 This uses SSH `ProxyCommand` with netcat for HTTP tunneling:
-```
+
+```text
 -o "ProxyCommand=nc --proxy proxy.example.com:8080 --proxy-type http %h %p"
 ```
 
@@ -328,10 +332,11 @@ ansible-playbook playbooks/must-gather-ocp-logs.yml \
 **Debug Steps**:
 
 1. Verify SFTP token is not expired (tokens are time-limited)
-2. Generate fresh token: https://access.redhat.com/support/secure-ftp
+2. Generate fresh token: <https://access.redhat.com/support/secure-ftp>
 3. Verify credentials are correctly populated from Vault
 4. Check SFTP logs in `mustgather_upload_logs` directory
 5. Test manual connection:
+
    ```bash
    sftp username@sftp.access.redhat.com
    ```
@@ -345,9 +350,11 @@ ansible-playbook playbooks/must-gather-ocp-logs.yml \
 1. Verify `proxy_http` format: `http://proxy.example.com:8080`
 2. Verify `nc` (netcat) is installed in execution environment
 3. Test proxy connectivity:
+
    ```bash
    nc -v --proxy proxy.example.com:8080 --proxy-type http sftp.access.redhat.com 22
    ```
+
 4. Check SFTP connectivity log for detailed error messages
 
 ### Upload Skipped When Expected
@@ -390,6 +397,7 @@ ansible-playbook playbooks/must-gather-ocp-logs.yml \
 **Symptoms**: Concerned about directory/file overwrites on multiple runs
 
 **Verification**: All files and directories use epoch timestamps for uniqueness:
+
 - Working directories: `must-gather-<epoch>/`
 - Preserved archives: `cluster-case12345-<epoch>-must-gather.tar.gz`
 - Upload logs: `sftp-upload-<epoch>-part0.log`
@@ -411,11 +419,13 @@ The role automatically preserves old archives before cleanup:
 Two retention policies can be configured (both applied if set):
 
 **Age-based retention**:
+
 ```yaml
 mustgather_archive_retention_days: 30  # Keep archives for 30 days (0 = forever)
 ```
 
 **Count-based retention**:
+
 ```yaml
 mustgather_archive_retention_count: 10  # Keep last 10 archives (0 = unlimited)
 ```
@@ -457,6 +467,7 @@ Archives are deleted oldest-first when retention limits are exceeded.
 This role has been refactored from HTTP API upload to SFTP upload:
 
 **Key Changes**:
+
 - No file size limits (was 1GB with HTTP API)
 - No file splitting required
 - Simplified authentication (SFTP token instead of API token/user/pass)
@@ -464,12 +475,14 @@ This role has been refactored from HTTP API upload to SFTP upload:
 - Detailed operation logging
 
 **Removed Components**:
+
 - `redhat_upload.py` module (no longer used)
 - HTTP API authentication variables
 - File splitting logic
 - Multi-part upload tracking
 
 **Updated Variables**:
+
 | Old Variable | New Variable | Notes |
 |--------------|--------------|-------|
 | `rh_api_token` | `rh_sftp_token` | Different token type |
@@ -482,8 +495,8 @@ This role has been refactored from HTTP API upload to SFTP upload:
 For issues or questions:
 
 1. Review SFTP upload logs in `mustgather_upload_logs` directory
-2. Check Red Hat SFTP documentation: https://access.redhat.com/articles/5594481
-3. Verify SFTP token generation: https://access.redhat.com/support/secure-ftp
+2. Check Red Hat SFTP documentation: <https://access.redhat.com/articles/5594481>
+3. Verify SFTP token generation: <https://access.redhat.com/support/secure-ftp>
 
 ## License
 

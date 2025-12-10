@@ -1,0 +1,341 @@
+---
+- name: Get cluster hash
+  ansible.builtin.shell:
+    cmd: "set -o pipefail && {{ working_dir }}/oc get machine -n openshift-machine-api -l machine.openshift.io/cluster-api-machine-role=master -L machine.openshift.io/cluster-api-cluster -n openshift-machine-api --no-headers | awk '{print $NF}'"
+    executable: /bin/bash
+  register: result
+  until: result.stdout_lines | length > 0
+  retries: 100
+  delay: 30
+  changed_when: false
+  tags:
+    - machineset
+    - cluster_hash
+
+- name: Set cluster hash
+  ansible.builtin.set_fact:
+    cluster_hash: "{{ result.stdout_lines[0] }}"
+  tags:
+    - machineset
+    - cluster_hash
+
+- name: Get cpu count for worker
+  ansible.builtin.command: "{{ working_dir }}/oc get machineset {{ cluster_hash }}-worker -n openshift-machine-api -o=custom-columns=:.spec.template.spec.providerSpec.value.numCPUs --no-headers"
+  register: worker_cpu_result
+  changed_when: false
+  tags:
+    - machineset
+    - worker_cpu
+
+- name: Set node size fact
+  ansible.builtin.set_fact:
+    node_size: >-
+      {%- if  worker_cpu_result.stdout | int <= 32 -%}small
+      {%- elif worker_cpu_result.stdout | int <= 48 -%}medium
+      {%- elif worker_cpu_result.stdout | int <= 64 -%}large
+      {%- else -%}xlarge
+      {%- endif -%}
+  tags:
+    - machineset
+    - node_size
+
+- name: Get worker machinesets excluding storage
+  ansible.builtin.shell: >-
+    set -o pipefail &&
+    {{ working_dir }}/oc get machineset -n openshift-machine-api --no-headers
+    | grep worker
+    | grep -v 'worker-storage'
+    | awk '{print $1}'
+  args:
+    executable: /bin/bash
+  register: machineset_list
+  changed_when: machineset_list.stdout_lines | length == 0
+  failed_when: machineset_list.rc not in [0, 1]
+  tags:
+    - machineset
+    - list
+
+- name: Update machineset worker
+  ansible.builtin.shell: "{{ working_dir }}/oc patch machineset {{ ms_item1 }} -n openshift-machine-api -p '{\"spec\": {\"template\": {\"spec\":{\"metadata\":{\"labels\":{\"tier\": \"app\", \"portworx.io/node-type\": \"storageless\", \"topology.kubernetes.io/zone\": \"{{ cluster_name }}\", \"size\": \"{{ node_size }}\"}}}}}}' --type=merge"
+  loop: "{{ machineset_list.stdout_lines }}"
+  loop_control:
+    loop_var: ms_item1
+  register: patch_machineset_result
+  when: px_enabled | default(true) | bool and cluster_tenant != 'nemo' and cluster_tenant != 'pay'
+  changed_when: patch_machineset_result.results | selectattr('rc', 'equalto', 0) | list | length > 0
+  tags:
+    - machineset
+    - update
+    - portworx
+
+- name: Update machineset worker for GPN
+  ansible.builtin.shell: "{{ working_dir }}/oc patch machineset {{ ms_item1 }} -n openshift-machine-api -p '{\"spec\": {\"template\": {\"spec\":{\"metadata\":{\"labels\":{\"tier\": \"app\", \"px/enabled\": \"false\", \"topology.kubernetes.io/zone\": \"{{ cluster_name }}\", \"size\": \"{{ node_size }}\"}}}}}}' --type=merge"
+  loop: "{{ machineset_list.stdout_lines }}"
+  loop_control:
+    loop_var: ms_item1
+  register: patch_machineset_gpn_result
+  when: not px_enabled | default(true) | bool or cluster_tenant == 'nemo' or cluster_tenant == 'pay'
+  changed_when: patch_machineset_gpn_result.results | selectattr('rc', 'equalto', 0) | list | length > 0
+  tags:
+    - machineset
+    - update
+    - gpn
+
+# - name: Update worker machineset for authn
+#  ansible.builtin.shell: "{{ working_dir }}/oc patch machineset {{ ms_item2 }} -n openshift-machine-api -p '{\"spec\": {\"template\": {\"spec\":{\"metadata\":{\"labels\":{\"tier\": \"authn\", \"portworx.io/node-type\": \"storageless\"}}}}}}' --type=merge"
+#  loop: "{{ machineset_list.stdout_lines }}"
+#  loop_control:
+#    loop_var: ms_item2
+#  when: "cluster_tenant == 'ampz' and 'authn' in ms_item2"
+#  tags:
+#    - machineset
+#    - update
+#    - authn
+#
+# - name: Update worker machineset authz
+#  ansible.builtin.shell: "{{ working_dir }}/oc patch machineset {{ ms_item2 }} -n openshift-machine-api -p '{\"spec\": {\"template\": {\"spec\":{\"metadata\":{\"labels\":{\"tier\": \"authz\", \"portworx.io/node-type\": \"storageless\"}}}}}}' --type=merge"
+#  loop: "{{ machineset_list.stdout_lines }}"
+#  loop_control:
+#    loop_var: ms_item2
+#  when: "cluster_tenant == 'ampz' and 'authz' in ms_item2 and 'authz-gpu' not in ms_item2"
+#  tags:
+#    - machineset
+#    - update
+#    - authz
+#
+# - name: Update worker machineset for authz-gpu
+#  ansible.builtin.shell: "{{ working_dir }}/oc patch machineset {{ ms_item2 }} -n openshift-machine-api -p '{\"spec\": {\"template\": {\"spec\":{\"metadata\":{\"labels\":{\"tier\": \"authz_gpu\", \"portworx.io/node-type\": \"storageless\"}}}}}}' --type=merge"
+#  loop: "{{ machineset_list.stdout_lines }}"
+#  loop_control:
+#    loop_var: ms_item2
+#  when: "cluster_tenant == 'ampz' and 'authz-gpu' in ms_item2"
+#  tags:
+#    - machineset
+#    - update
+#    - authz_gpu
+
+- name: Update worker machineset for region us-west
+  ansible.builtin.shell: "{{ working_dir }}/oc patch machineset {{ ms_item3 }} -n openshift-machine-api -p '{\"spec\": {\"template\": {\"spec\":{\"metadata\":{\"labels\":{\"topology.kubernetes.io/region\": \"us-west\"}}}}}}' --type=merge"
+  loop: "{{ machineset_list.stdout_lines }}"
+  loop_control:
+    loop_var: ms_item3
+  register: patch_machineset_region_west_result
+  when: 'gloo_mesh_management is not defined and cluster_datacenter == "eusw1"'
+  changed_when: patch_machineset_region_west_result.results | selectattr('rc', 'equalto', 0) | list | length > 0
+  tags:
+    - machineset
+    - update
+    - region
+
+- name: Update worker machineset for region us-east
+  ansible.builtin.shell: "{{ working_dir }}/oc patch machineset {{ ms_item4 }} -n openshift-machine-api -p '{\"spec\": {\"template\": {\"spec\":{\"metadata\":{\"labels\":{\"topology.kubernetes.io/region\": \"us-east\"}}}}}}' --type=merge"
+  loop: "{{ machineset_list.stdout_lines }}"
+  loop_control:
+    loop_var: ms_item4
+  register: patch_machineset_region_east_result
+  when: 'gloo_mesh_management is not defined and cluster_datacenter == "euse1"'
+  changed_when: patch_machineset_region_east_result.results | selectattr('rc', 'equalto', 0) | list | length > 0
+  tags:
+    - machineset
+    - update
+    - region
+
+- name: Label worker machine
+  ansible.builtin.shell:
+    cmd: "set -o pipefail && {{ working_dir }}/oc get machine -n openshift-machine-api --no-headers | grep {{ cluster_hash }}-worker | grep -v 'worker-storage' | awk '{print $1}' | xargs {{ working_dir }}/oc patch machine -n openshift-machine-api -p '{\"spec\":{\"metadata\":{\"labels\":{\"tier\": \"app\", \"portworx.io/node-type\": \"storageless\", \"topology.kubernetes.io/zone\": \"{{ cluster_name }}\", \"size\": \"{{ node_size }}\"}}}}' --type=merge"
+    executable: /bin/bash
+  register: label_worker_result
+  until: label_worker_result.rc == 0
+  retries: "{{ retry_count | default(100) }}"
+  delay: 30
+  when: px_enabled | default(true) | bool and cluster_tenant != 'nemo' and cluster_tenant != 'pay'
+  changed_when: label_worker_result.rc == 0
+  tags:
+    - machineset
+    - label
+    - portworx
+
+- name: Label worker machine for non-portworx
+  ansible.builtin.shell:
+    cmd: "set -o pipefail && {{ working_dir }}/oc get machine -n openshift-machine-api --no-headers | grep {{ cluster_hash }}-worker | grep -v 'worker-storage' | awk '{print $1}' | xargs {{ working_dir }}/oc patch machine -n openshift-machine-api -p '{\"spec\":{\"metadata\":{\"labels\":{\"tier\": \"app\", \"px/enabled\": \"false\", \"topology.kubernetes.io/zone\": \"{{ cluster_name }}\", \"size\": \"{{ node_size }}\"}}}}' --type=merge"
+    executable: /bin/bash
+  register: label_worker_result
+  until: label_worker_result.rc == 0
+  retries: "{{ retry_count | default(100) }}"
+  delay: 30
+  when: not px_enabled | default(true) | bool or cluster_tenant == 'nemo' or cluster_tenant == 'pay'
+  changed_when: label_worker_result.rc == 0
+  tags:
+    - machineset
+    - label
+    - non_portworx
+
+# - name: Label worker machine for authn
+#  ansible.builtin.shell: "{{ working_dir }}/oc get machine -n openshift-machine-api --no-headers | grep {{ cluster_hash }}-worker | egrep -v 'worker-storage|authz' | awk '{print $1}' | xargs {{ working_dir }}/oc patch machine -n openshift-machine-api -p '{\"spec\":{\"metadata\":{\"labels\":{\"tier\": \"authn\", \"portworx.io/node-type\": \"storageless\"}}}}' --type=merge"
+#  register: label_worker_result_amp
+#  until: label_worker_result_amp.rc == 0
+#  retries: "{{ retry_count | default(100) }}"
+#  delay: 30
+#  when: cluster_tenant == 'ampz'
+#  tags:
+#    - machineset
+#    - label
+#    - authn
+#
+# - name: Label worker machine for authz
+#  ansible.builtin.shell: "{{ working_dir }}/oc get machine -n openshift-machine-api --no-headers | grep {{ cluster_hash }}-worker-authz | grep -v 'authz-gpu' | awk '{print $1}' | xargs {{ working_dir }}/oc patch machine -n openshift-machine-api -p '{\"spec\":{\"metadata\":{\"labels\":{\"tier\": \"authz\", \"portworx.io/node-type\": \"storageless\"}}}}' --type=merge"
+#  register: label_worker_result_amp
+#  until: label_worker_result_amp.rc == 0
+#  retries: "{{ retry_count | default(100) }}"
+#  delay: 30
+#  when: cluster_tenant == 'ampz'
+#  tags:
+#    - machineset
+#    - label
+#    - authz
+#
+# - name: Label worker machine for authz-gpu
+#  ansible.builtin.shell: "{{ working_dir }}/oc get machine -n openshift-machine-api --no-headers | grep {{ cluster_hash }}-worker-authz-gpu | awk '{print $1}' | xargs {{ working_dir }}/oc patch machine -n openshift-machine-api -p '{\"spec\":{\"metadata\":{\"labels\":{\"tier\": \"authz_gpu\", \"portworx.io/node-type\": \"storageless\"}}}}' --type=merge"
+#  register: label_worker_result_amp
+#  until: label_worker_result_amp.rc == 0
+#  retries: "{{ retry_count | default(100) }}"
+#  delay: 30
+#  when: cluster_tenant == 'ampz'
+#  tags:
+#    - machineset
+#    - label
+#    - authz_gpu
+
+- name: Label worker machine for region us-west
+  ansible.builtin.shell:
+    cmd: "set -o pipefail && {{ working_dir }}/oc get machine -n openshift-machine-api --no-headers | grep {{ cluster_hash }}-worker | awk '{print $1}' | xargs {{ working_dir }}/oc patch machine -n openshift-machine-api -p '{\"spec\":{\"metadata\":{\"labels\":{\"topology.kubernetes.io/region\": \"us-west\"}}}}' --type=merge"
+    executable: /bin/bash
+  register: label_worker_result
+  until: label_worker_result.rc == 0
+  retries: "{{ retry_count | default(100) }}"
+  delay: 30
+  when: 'gloo_mesh_management is not defined and cluster_datacenter == "eusw1"'
+  changed_when: label_worker_result.rc == 0
+  tags:
+    - machineset
+    - label
+    - region
+
+- name: Label worker machine for region us-east
+  ansible.builtin.shell:
+    cmd: "set -o pipefail && {{ working_dir }}/oc get machine -n openshift-machine-api --no-headers | grep {{ cluster_hash }}-worker | awk '{print $1}' | xargs {{ working_dir }}/oc patch machine -n openshift-machine-api -p '{\"spec\":{\"metadata\":{\"labels\":{\"topology.kubernetes.io/region\": \"us-east\"}}}}' --type=merge"
+    executable: /bin/bash
+  register: label_worker_result_amp
+  until: label_worker_result_amp.rc == 0
+  retries: "{{ retry_count | default(100) }}"
+  delay: 30
+  when: 'gloo_mesh_management is not defined and cluster_datacenter == "euse1"'
+  changed_when: label_worker_result_amp.rc == 0
+  tags:
+    - machineset
+    - label
+    - region
+
+- name: Label controlplane
+  ansible.builtin.shell:
+    cmd: "set -o pipefail && {{ working_dir }}/oc get machine -n openshift-machine-api --no-headers -l machine.openshift.io/cluster-api-machine-role=master | awk '{print $1}' | xargs {{ working_dir }}/oc patch machine -n openshift-machine-api -p '{\"spec\":{\"metadata\":{\"labels\":{\"px/enabled\": \"false\", \"tier\": \"controlplane\"}}}}' --type=merge"
+    executable: /bin/bash
+  register: label_cp_result
+  until: label_cp_result.rc == 0
+  retries: "{{ retry_count | default(100) }}"
+  delay: 30
+  changed_when: label_cp_result.rc == 0
+  tags:
+    - machineset
+    - label
+    - controlplane
+
+- name: Set machineset group fact
+  ansible.builtin.set_fact:
+    machineset_group: "{{ machineset_group | regex_replace('^,', '') }},{{ ng_item.role }}"
+  loop: "{{ cluster.spec.compute }}"
+  loop_control:
+    loop_var: ng_item
+  when: "ng_item.role != 'worker'"
+  tags:
+    - machineset
+    - facts
+
+- name: Create machinesets
+  ansible.builtin.include_role:
+    name: create_machineset
+  vars:
+    node_group: "{{ machineset_group }}"
+  tags:
+    - machineset
+    - create
+
+- name: Schedule nodes
+  ansible.builtin.include_role:
+    name: schedule_nodes
+  vars:
+    node_group: "{{ machineset_group }}"
+  when: not skip_schedule_nodes | default(false) | bool
+  tags:
+    - machineset
+    - schedule
+
+# - name: Set min node replicas fact
+#  ansible.builtin.set_fact:
+#    min_node_replicas: "{{ min_node_replicas | int + item.minNode | int }}"
+#  loop:
+#    - "{{ cluster.spec.compute }}"
+#  tags:
+#    - machineset
+#    - facts
+#
+# - name: Debug min node replicas
+#  ansible.builtin.debug:
+#    var: min_node_replicas
+#  tags:
+#    - machineset
+#    - debug
+#
+# - name: Fail if total vm provision count exceeds limit
+#  ansible.builtin.fail:
+#    msg: "Total vm provision count > 20"
+#  when: min_node_replicas | int > 20
+#  tags:
+#    - machineset
+#    - validation
+#
+# - name: Ensure machineset dir
+#  ansible.builtin.file:
+#    path: "{{ install_dir }}/machineset"
+#    state: directory
+#  tags:
+#    - machineset
+#    - directory
+#
+# - name: Create machineconfigpool
+#  ansible.builtin.template:
+#    src: mcp.yaml.j2
+#    dest: "{{ install_dir }}/machineset/mcp_{{ item.role }}.yaml"
+#  loop:
+#    - "{{ cluster.spec.compute }}"
+#  when: "item.role != 'worker' and item.mcp | default(true) | bool"
+#  tags:
+#    - machineset
+#    - machineconfigpool
+#
+# - name: Create machineset
+#  ansible.builtin.template:
+#    src: machineset.yaml.j2
+#    dest: "{{ install_dir }}/machineset/{{ item.role }}.yaml"
+#  loop:
+#    - "{{ cluster.spec.compute }}"
+#  when: item.role != "worker"
+#  tags:
+#    - machineset
+#    - create
+#
+# - name: Create machineset and machineconfigpool
+#  ansible.builtin.shell: "{{ working_dir }}/oc apply -f {{ install_dir }}/machineset -n openshift-machine-api"
+#  tags:
+#    - machineset
+#    - apply

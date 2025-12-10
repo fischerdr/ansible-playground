@@ -1,0 +1,345 @@
+---
+- name: Build cluster artifacts
+  when: not skip_build | default(false) | bool
+  block:
+    - name: Pre check on install directory
+      ansible.builtin.stat:
+        path: "{{ install_dir }}"
+      register: install_dir_check
+      failed_when: install_dir_check.stat.exists
+
+    - name: Get worker minimum replica & cpu
+      ansible.builtin.set_fact:
+        worker_min_replicas: "{{ item.minNode }}"
+        worker_cpu: "{{ item.numCPUs }}"
+      when: item.role == 'worker'
+      loop: "{{ cluster.spec.compute }}"
+
+    - name: Validate worker replica count
+      ansible.builtin.fail:
+        msg: "Total worker min replica count < 2"
+      when: worker_min_replicas | int < 2
+
+    - name: Ensure working directory exists
+      ansible.builtin.file:
+        path: "{{ working_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Download OCP installer archive
+      ansible.builtin.get_url:
+        url: "{{ mirror_endpoint }}/openshift-mirror/pub/openshift-v{{ ocp_x_stream }}/x86_64/clients/ocp/{{ ocp_version | default(ocp_version_default) }}/openshift-install-linux.tar.gz"
+        dest: "{{ working_dir }}/openshift-install-linux.tar.gz"
+        force: true
+        timeout: "{{ task_timeout | default(300) }}"
+        mode: '0644'
+      tags:
+        - packages
+
+    - name: Untar OCP installer
+      ansible.builtin.unarchive:
+        src: "{{ working_dir }}/openshift-install-linux.tar.gz"
+        dest: "{{ working_dir }}"
+        remote_src: true
+
+    - name: Delete OCP installer archive file
+      ansible.builtin.file:
+        path: "{{ working_dir }}/openshift-install-linux.tar.gz"
+        state: absent
+
+    - name: Download OCP client archive
+      ansible.builtin.get_url:
+        url: "{{ mirror_endpoint }}/openshift-mirror/pub/openshift-v{{ ocp_x_stream }}/x86_64/clients/ocp/{{ ocp_version | default(ocp_version_default) }}/openshift-client-linux.tar.gz"
+        dest: "{{ working_dir }}/openshift-client-linux.tar.gz"
+        force: true
+        timeout: "{{ task_timeout | default(300) }}"
+        mode: '0644'
+      tags:
+        - packages
+
+    - name: Untar OCP client
+      ansible.builtin.unarchive:
+        src: "{{ working_dir }}/openshift-client-linux.tar.gz"
+        dest: "{{ working_dir }}"
+        remote_src: true
+
+    - name: Delete OCP client archive
+      ansible.builtin.file:
+        path: "{{ working_dir }}/openshift-client-linux.tar.gz"
+        state: absent
+
+    - name: Generate ssh key pair
+      community.crypto.openssh_keypair:
+        type: rsa
+        size: 4096
+        path: "{{ working_dir }}/id_rsa"
+        state: present
+        force: true
+      register: ssh_key
+
+    - name: Push cluster ssh key metadata to Vault
+      ansible.builtin.shell:
+        cmd: >
+          set -euo pipefail &&
+          /opt/hvault/bin/vault kv put -ns={{ vault_namespace }} static_secrets/{{ cluster_user }}/{{ cluster_name }} created={{ ansible_date_time.iso8601 }}
+        chdir: "{{ working_dir }}"
+        executable: /bin/bash
+      environment:
+        VAULT_ADDR: "{{ vault_address }}"
+        VAULT_TOKEN: "{{ vault_token }}"
+        VAULT_SKIP_VERIFY: "true"
+      register: vault_put_result
+      changed_when: vault_put_result.rc == 0
+      no_log: true
+
+    - name: Push cluster ssh keys to Vault
+      ansible.builtin.shell:
+        cmd: >
+          set -euo pipefail &&
+          /opt/hvault/bin/vault kv patch -ns={{ vault_namespace }} static_secrets/{{ cluster_user }}/{{ cluster_name }} {{ item.key }}={{ item.value }}
+        chdir: "{{ working_dir }}"
+        executable: /bin/bash
+      environment:
+        VAULT_ADDR: "{{ vault_address }}"
+        VAULT_TOKEN: "{{ vault_token }}"
+        VAULT_SKIP_VERIFY: "true"
+      loop:
+        - { key: "ssh.private.key", value: "@id_rsa" }
+        - { key: "ssh.public.key", value: "@id_rsa.pub" }
+      register: vault_patch_result
+      changed_when: vault_patch_result.rc == 0
+      no_log: true
+
+    - name: Remove ssh key
+      ansible.builtin.file:
+        path: "{{ working_dir }}/id_rsa.pub"
+        state: absent
+
+    - name: Ensure install directory exists
+      ansible.builtin.file:
+        path: "{{ install_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Calculate initial sockets
+      ansible.builtin.set_fact:
+        initial_sockets: "{{ worker_cpu | int / num_of_sockets }}"
+
+    - name: Split socket precision values
+      ansible.builtin.set_fact:
+        precision_socket: "{{ initial_sockets.split('.')[0] }}"
+        fractional_socket: "{{ initial_sockets.split('.')[1] }}"
+
+    - name: Determine cores per socket
+      ansible.builtin.set_fact:
+        cores_per_socket: >-
+          {%- if fractional_socket | int > 0 -%}
+            {{ precision_socket | int + 1 }}
+          {%- else -%}
+            {{ precision_socket }}
+          {%- endif -%}
+
+    - name: Create install-config.yaml
+      ansible.builtin.template:
+        src: install-config.yaml.j2
+        dest: "{{ install_dir }}/install-config.yaml"
+        mode: '0600'
+
+    - name: Copy install-config.yaml to working directory
+      ansible.builtin.copy:
+        src: "{{ install_dir }}/install-config.yaml"
+        dest: "{{ working_dir }}"
+        remote_src: true
+        mode: '0600'
+
+    - name: Create manifests
+      ansible.builtin.shell:
+        cmd: >
+          set -euo pipefail &&
+          {{ working_dir }}/openshift-install create manifests --dir={{ install_dir }} --log-level=debug
+        executable: /bin/bash
+        creates: "{{ install_dir }}/manifests"
+      changed_when: false
+
+    - name: Normalize worker machineset name
+      ansible.builtin.replace:
+        path: "{{ install_dir }}/openshift/99_openshift-cluster-api_worker-machineset-0.yaml"
+        regexp: 'worker-0'
+        replace: 'worker'
+
+    - name: Update ssh-key for controlplane
+      ansible.builtin.lineinfile:
+        path: "{{ install_dir }}/openshift/99_openshift-machineconfig_99-master-ssh.yaml"
+        insertafter: "sshAuthorizedKeys:"
+        line: "        - {{ psm_ssh_key }}"
+
+    - name: Update ssh-key for worker
+      ansible.builtin.lineinfile:
+        path: "{{ install_dir }}/openshift/99_openshift-machineconfig_99-worker-ssh.yaml"
+        insertafter: "sshAuthorizedKeys:"
+        line: "        - {{ psm_ssh_key }}"
+
+    - name: Create cluster-network-03-config.yml
+      ansible.builtin.template:
+        src: cluster-network-03-config.yml.j2
+        dest: "{{ install_dir }}/manifests/cluster-network-03-config.yml"
+        mode: '0644'
+
+    - name: Configure image registry mirrors
+      block:
+        - name: Create mirror_registry_config
+          ansible.builtin.template:
+            src: mirror_registry_config.yml.j2
+            dest: "{{ working_dir }}/mirror_registry_config.yml"
+            mode: '0644'
+
+        - name: Encode registry configuration
+          ansible.builtin.shell:
+            cmd: >
+              set -euo pipefail &&
+              base64 -w0 "{{ working_dir }}/mirror_registry_config.yml"
+            executable: /bin/bash
+          register: registry_result
+          changed_when: false
+
+        - name: Create 99-master-mirror-by-digest-registries.yml
+          ansible.builtin.template:
+            src: 99-master-mirror-by-digest-registries.yml.j2
+            dest: "{{ install_dir }}/manifests/99-master-mirror-by-digest-registries.yml"
+            mode: '0644'
+
+        - name: Create 99-worker-mirror-by-digest-registries.yml
+          ansible.builtin.template:
+            src: 99-worker-mirror-by-digest-registries.yml.j2
+            dest: "{{ install_dir }}/manifests/99-worker-mirror-by-digest-registries.yml"
+            mode: '0644'
+
+    # when: "'eus' in cluster_datacenter or cluster_env != 'p'"
+
+    # - name: Encode mtu-30
+    #   ansible.builtin.shell: base64 -w0 "{{ role_path }}/files/30-mtu"
+    #   register: mtu_30
+
+    # - name: Create 99-worker-mtu.yaml
+    #   ansible.builtin.template:
+    #     src: 99-worker-mtu.yaml.j2
+    #     dest: "{{ install_dir }}/manifests/99-worker-mtu.yaml"
+
+    # - name: Create 99-master-mtu.yaml
+    #   ansible.builtin.template:
+    #     src: 99-master-mtu.yaml.j2
+    #     dest: "{{ install_dir }}/99-master-mtu.yaml"
+
+    # - name: Create master MTU script
+    #   ansible.builtin.template:
+    #     src: set_mtu_master.sh.j2
+    #     dest: "{{ install_dir }}/set_mtu_master.sh"
+    #     mode: '0777'
+
+    # - name: Setup master MTU
+    #   ansible.builtin.shell:
+    #     cmd: "{{ install_dir }}/set_mtu_master.sh | tee {{ install_dir }}/set_mtu_master.log"
+    #   async: 3600
+    #   poll: 0
+    #   register: mtu_bg
+
+    - name: Create cluster
+      ansible.builtin.shell:
+        cmd: >
+          set -euo pipefail &&
+          {{ working_dir }}/openshift-install create cluster --dir={{ install_dir }} --log-level=debug
+        executable: /bin/bash
+        creates: "{{ install_dir }}/auth/kubeconfig"
+      environment:
+        HTTP_PROXY: "{{ http_proxy_orch }}"
+        HTTPS_PROXY: "{{ http_proxy_orch }}"
+        NO_PROXY: ".aexp.com,{{ network.server_vlan }}"
+      register: cluster_create_result
+      changed_when: cluster_create_result.rc == 0
+
+- name: Push kube secrets to Vault
+  ansible.builtin.shell:
+    cmd: >
+      set -euo pipefail &&
+      /opt/hvault/bin/vault kv patch -ns={{ vault_namespace }} static_secrets/{{ cluster_user }}/{{ cluster_name }} {{ item.key }}={{ item.value }}
+    chdir: "{{ install_dir }}/auth"
+    executable: /bin/bash
+  environment:
+    VAULT_ADDR: "{{ vault_address }}"
+    VAULT_TOKEN: "{{ vault_token }}"
+    VAULT_SKIP_VERIFY: "true"
+  loop:
+    - { key: "kubeadmin-password", value: "@kubeadmin-password" }
+    - { key: "kubeconfig", value: "@kubeconfig" }
+    - { key: "kubeconfig_init", value: "@kubeconfig" }
+  register: kube_secrets_push
+  changed_when: kube_secrets_push.rc == 0
+  no_log: true
+
+# TODO: delete {{ install_dir }}/auth
+
+# - name: Update 99-master-mtu.yaml
+#   ansible.builtin.shell: "{{ OC_BIN }} create -f {{ install_dir }}/99-master-mtu.yaml"
+
+# - name: Wait for master MTU status
+#   ansible.builtin.async_status:
+#     jid: "{{ mtu_bg.ansible_job_id }}"
+#   register: job_result
+#   until: job_result.finished
+#   retries: 100
+#   delay: 30
+
+- name: Patch configs.samples.operator with its registry
+  ansible.builtin.shell:
+    cmd: >
+      set -euo pipefail &&
+      {{ OC_BIN }} patch configs.samples.operator.openshift.io cluster --type merge --patch '{"spec": {"samplesRegistry": "registry.redhat.io"}}'
+    executable: /bin/bash
+  register: patch_samples
+  changed_when: "'patched' in (patch_samples.stdout | lower)"
+
+- name: Patch OperatorHub to disable default CatalogSources
+  ansible.builtin.shell:
+    cmd: >
+      set -euo pipefail &&
+      {{ OC_BIN }} patch OperatorHub cluster --type json -p '[{"op": "add", "path": "/spec/disableAllDefaultSources", "value": true}]'
+    executable: /bin/bash
+  register: patch_operatorhub
+  changed_when: "'patched' in (patch_operatorhub.stdout | lower)"
+  # when: "'eus' in cluster_datacenter or cluster_env != 'p'"
+
+- name: Pause for machineconfigpools to detect changes
+  ansible.builtin.pause:
+    seconds: 60
+
+- name: Get machineconfigpools
+  ansible.builtin.shell:
+    cmd: >
+      set -euo pipefail &&
+      {{ OC_BIN }} get machineconfigpool --no-headers | wc -l
+    executable: /bin/bash
+  register: mcp_count
+  changed_when: false
+
+- name: Wait for machineconfigpool updates
+  ansible.builtin.shell:
+    cmd: >
+      set -euo pipefail &&
+      {{ OC_BIN }} get machineconfigpool | awk '$3 == "True"'
+    executable: /bin/bash
+  register: result
+  changed_when: false
+  until: result.stdout_lines | length == mcp_count.stdout | int
+  retries: 100
+  delay: 60
+
+- name: Clean temporary files
+  ansible.builtin.file:
+    path: "{{ clean_item }}"
+    state: absent
+  loop:
+    - "{{ working_dir }}/openshift-install"
+    - "{{ working_dir }}/install-config.yaml"
+    - "{{ working_dir }}/mirror_registry_config.yml"
+  loop_control:
+    loop_var: clean_item

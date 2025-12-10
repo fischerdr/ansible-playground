@@ -1,0 +1,266 @@
+- block:
+  - name: Pre check on install directory
+    stat:
+      path: "{{ install_dir }}"
+    register: install
+    failed_when: install.stat.exists
+
+  - name: Get worker minimum replica & cpu
+    set_fact:
+      worker_min_replicas: "{{ item.minNode }}"
+      worker_cpu: "{{ item.numCPUs }}"
+    when: item.role == 'worker'
+    with_items:
+      - "{{ cluster.spec.compute }}"
+
+  - fail: msg="Total worker min replica count < 2"
+    when: worker_min_replicas | int < 2
+
+  - name: Ensure working dir
+    file:
+      path: "{{ working_dir }}"
+      state: directory
+
+  - name: Download OCP installer
+    get_url:
+      url: "{{ mirror_endpoint }}/openshift-mirror/pub/openshift-v{{ ocp_x_stream }}/x86_64/clients/ocp/{{ ocp_version | default(ocp_version_default) }}/openshift-install-linux.tar.gz"
+      dest: "{{ working_dir }}/openshift-install-linux.tar.gz"
+      force: yes
+      timeout: "{{ task_timeout | default(300) }}"
+    tags:
+    - packages
+
+  - name: Untar OCP installer
+    unarchive:
+      src: "{{ working_dir }}/openshift-install-linux.tar.gz"
+      dest: "{{ working_dir }}"
+      remote_src: yes
+
+  - name: Delete OCP installer archive file
+    file:
+      path: "{{ working_dir }}/openshift-install-linux.tar.gz"
+      state: absent
+
+  - name: Download OCP client
+    get_url:
+      url: "{{ mirror_endpoint }}/openshift-mirror/pub/openshift-v{{ ocp_x_stream }}/x86_64/clients/ocp/{{ ocp_version | default(ocp_version_default) }}/openshift-client-linux.tar.gz"
+      dest: "{{ working_dir }}/openshift-client-linux.tar.gz"
+      force: yes
+      timeout: "{{ task_timeout | default(300) }}"
+    tags:
+    - packages
+
+  - name: Untar OCP client
+    unarchive:
+      src: "{{ working_dir }}/openshift-client-linux.tar.gz"
+      dest: "{{ working_dir }}"
+      remote_src: yes
+
+  - name: Delete OCP client
+    file:
+      path: "{{ working_dir }}/openshift-client-linux.tar.gz"
+      state: absent
+
+  - name: Generate ssh key
+    openssh_keypair:
+      type: rsa
+      size: 4096
+      path: "{{ working_dir }}/id_rsa"
+      state: present
+      force: True
+    register: ssh_key
+
+  - name: Push cluster ssh keys to Vault
+    shell: /opt/hvault/bin/vault kv put -ns={{ vault_namespace }} static_secrets/{{ cluster_user }}/{{ cluster_name }} created={{ ansible_date_time.iso8601 }}
+    args:
+      chdir: "{{ working_dir }}"
+    environment:
+      VAULT_ADDR: "{{ vault_address }}"
+      VAULT_TOKEN: "{{ vault_token }}"
+      VAULT_SKIP_VERIFY: true
+
+  - name: Push cluster ssh keys to Vault
+    shell: /opt/hvault/bin/vault kv patch -ns={{ vault_namespace }} static_secrets/{{ cluster_user }}/{{ cluster_name }} {{ item.key }}={{ item.value }}
+    args:
+      chdir: "{{ working_dir }}"
+    environment:
+      VAULT_ADDR: "{{ vault_address }}"
+      VAULT_TOKEN: "{{ vault_token }}"
+      VAULT_SKIP_VERIFY: true
+    with_items:
+    - { key: ssh.private.key, value: "@id_rsa" }
+    - { key: ssh.public.key, value: "@id_rsa.pub" }
+
+  - name: Remove ssh key
+    openssh_keypair:
+      path: "{{ working_dir }}/id_rsa.pub"
+      state: absent
+
+  - name: Ensure install dir
+    file:
+      path: "{{ install_dir }}"
+      state: directory
+
+  - set_fact:
+      initial_sockets: "{{ worker_cpu | int / num_of_sockets }}"
+
+  - set_fact:
+      precision_socket: "{{ initial_sockets.split('.')[0] }}"
+      fractional_socket: "{{ initial_sockets.split('.')[1] }}"
+
+  - set_fact:
+      cores_per_socket: >-
+        {%- if  fractional_socket | int > 0 -%}
+          {{ precision_socket | int + 1 }}
+        {%- else -%}
+          {{ precision_socket }}
+        {%- endif -%}
+
+  - name: Create install-config.yaml
+    template:
+      src: install-config.yaml.j2
+      dest: "{{ install_dir }}/install-config.yaml"
+
+  - copy:
+      src: "{{ install_dir }}/install-config.yaml"
+      dest: "{{ working_dir }}"
+      remote_src: true
+
+  - name: Create manifests
+    shell: "{{ working_dir }}/openshift-install create manifests --dir={{ install_dir }} --log-level=debug"
+
+  - replace:
+      path: "{{ install_dir }}/openshift/99_openshift-cluster-api_worker-machineset-0.yaml"
+      regexp: 'worker-0'
+      replace: 'worker'
+
+  - name: Update ssh-key for controlplane
+    lineinfile:
+      path: "{{ install_dir }}/openshift/99_openshift-machineconfig_99-master-ssh.yaml"
+      insertafter: "sshAuthorizedKeys:"
+      line: "        - {{ psm_ssh_key }}"
+
+  - name: Update ssh-key for worker
+    lineinfile:
+      path: "{{ install_dir }}/openshift/99_openshift-machineconfig_99-worker-ssh.yaml"
+      insertafter: "sshAuthorizedKeys:"
+      line: "        - {{ psm_ssh_key }}"
+
+  - name: Create cluster-network-03-config.yml
+    template:
+      src: cluster-network-03-config.yml.j2
+      dest: "{{ install_dir }}/manifests/cluster-network-03-config.yml"
+
+  - block:
+    - name: Create mirror_registry_config
+      template:
+        src: mirror_registry_config.yml.j2
+        dest: "{{ working_dir }}/mirror_registry_config.yml"
+
+    - name: Encode registry
+      shell: base64 -w0 "{{ working_dir }}/mirror_registry_config.yml"
+      register: registry_result
+
+    - name: Create 99-master-mirror-by-digest-registries.yml
+      template:
+        src: 99-master-mirror-by-digest-registries.yml.j2
+        dest: "{{ install_dir }}/manifests/99-master-mirror-by-digest-registries.yml"
+
+    - name: Create 99-worker-mirror-by-digest-registries.yml
+      template:
+        src: 99-worker-mirror-by-digest-registries.yml.j2
+        dest: "{{ install_dir }}/manifests/99-worker-mirror-by-digest-registries.yml"
+
+#    when: "'eus' in cluster_datacenter or cluster_env != 'p'"
+
+  #- name: Encode mtu-30
+  #  shell: base64 -w0 "{{ role_path }}/files/30-mtu"
+  #  register: mtu_30
+
+  #- name: Create 99-worker-mtu.yaml
+  #  template:
+  #    src: 99-worker-mtu.yaml.j2
+  #    dest: "{{ install_dir }}/manifests/99-worker-mtu.yaml"
+
+  #- name: Create 99-master-mtu.yaml
+  #  template:
+  #    src: 99-master-mtu.yaml.j2
+  #    dest: "{{ install_dir }}/99-master-mtu.yaml"
+
+  #- name: Create master MTU script
+  #  template:
+  #    src: set_mtu_master.sh.j2
+  #    dest: "{{ install_dir }}/set_mtu_master.sh"
+  #    mode: 0777
+  #
+  #- name: Setup master MTU
+  #  shell: "{{ install_dir }}/set_mtu_master.sh | tee {{ install_dir }}/set_mtu_master.log"
+  #  async: 3600
+  #  poll: 0
+  #  register: mtu_bg
+
+  - name: Create cluster
+    shell: "{{ working_dir }}/openshift-install create cluster --dir={{ install_dir }} --log-level=debug"
+    environment:
+      HTTP_PROXY: "{{ http_proxy_orch }}"
+      HTTPS_PROXY: "{{ http_proxy_orch }}"
+      NO_PROXY: ".aexp.com,{{ network.server_vlan }}"
+
+  when: not skip_build | default(False) | bool
+
+- name: Push kube secrets to Vault
+  shell: /opt/hvault/bin/vault kv patch -ns={{ vault_namespace }} static_secrets/{{ cluster_user }}/{{ cluster_name }} {{ item.key }}={{ item.value }}
+  args:
+    chdir: "{{ install_dir }}/auth"
+  environment:
+    VAULT_ADDR: "{{ vault_address }}"
+    VAULT_TOKEN: "{{ vault_token }}"
+    VAULT_SKIP_VERIFY: true
+  with_items:
+  - { key: kubeadmin-password, value: "@kubeadmin-password" }
+  - { key: kubeconfig, value: "@kubeconfig" }
+  - { key: kubeconfig_init, value: "@kubeconfig" }
+
+# TODO: delete {{ install_dir }}/auth
+
+#- name: Update 99-master-mtu.yaml
+#  shell: "{{ OC_BIN }} create -f {{ install_dir }}/99-master-mtu.yaml"
+
+#- name: Wait for master MTU status
+#  async_status: jid={{ mtu_bg.ansible_job_id }}
+#  register: job_result
+#  until: job_result.finished
+#  retries: 100
+#  delay: 30
+
+- name: Patch configs.samples.operator with its registry
+  shell: "{{ OC_BIN }} patch configs.samples.operator.openshift.io cluster --type merge --patch '{\"spec\": {\"samplesRegistry\": \"registry.redhat.io\"}}'"
+
+- name: Patch OperatorHub to disable default CatalogSources
+  shell: "{{ OC_BIN }} patch OperatorHub cluster --type json -p '[{\"op\": \"add\", \"path\": \"/spec/disableAllDefaultSources\", \"value\": true}]'"
+#  when: "'eus' in cluster_datacenter or cluster_env != 'p'"
+
+- name: Pause for machineconfigpools to detect changes
+  pause: seconds=60
+
+- name: Get machineconfigpools
+  shell: "{{ OC_BIN }} get machineconfigpool --no-headers | wc -l"
+  register: mcp_count
+
+- name: Wait for machineconfigpool updates
+  shell: "{{ OC_BIN }} get machineconfigpool | awk '$3 == \"True\"'"
+  register: result
+  until: result.stdout_lines | length == mcp_count.stdout | int
+  retries: 100
+  delay: 60
+
+- name: Clean temporary files
+  file:
+    path: "{{ clean_item }}"
+    state: absent
+  with_items:
+    - "{{ working_dir }}/openshift-install"
+    - "{{ working_dir }}/install-config.yaml"
+    - "{{ working_dir }}/mirror_registry_config.yml"
+  loop_control:
+    loop_var: clean_item

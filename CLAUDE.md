@@ -173,6 +173,12 @@ For new roles, follow this testing progression:
 - **`scripts/`**: Utility scripts
 - **`.cursor/rules/`**: Development standards and best practices
 
+- **`aap_import/`**: AAP/AWX import configurations for roles
+  - Role-specific subdirectories contain JSON configurations and import scripts
+  - Each role directory includes: project configs, job templates, workflows, execution environments
+  - Automated import scripts (`.sh`) for quick AAP setup
+  - See [aap_import/README.md](aap_import/README.md) for details
+
 ### Custom Modules
 
 The project includes custom Python modules embedded within roles:
@@ -372,6 +378,162 @@ This project is designed for **Ansible Automation Platform (AAP)** deployment:
 ### Communication Style
 
 When working with this codebase, maintain a formal, professional tone appropriate for enterprise environments. Emphasize maintainability, clarity, and operational soundness in all changes.
+
+## AAP/AWX Integration
+
+### AAP Overview
+
+This project includes AAP/AWX import configurations in the `aap_import/` directory. Each role that requires AAP integration has a dedicated subdirectory with all necessary configuration files for automated import.
+
+### AAP Directory Structure
+
+```text
+aap_import/
+├── README.md                    # Main import documentation
+└── <role_name>/                 # Role-specific configurations
+    ├── README.md                # Detailed import guide for the role
+    ├── import_to_aap.sh         # Automated import script
+    ├── project_*.json           # SCM project configuration
+    ├── execution_environment.json # Execution environment definition
+    ├── job_template_*.json      # Job template configurations
+    └── workflow_template_*.json # Workflow configurations (optional)
+```
+
+### AAP Configuration Files
+
+**Project Configuration** (`project_*.json`):
+
+- Defines Git repository URL, branch, and sync settings
+- Links to the source control management (SCM) provider
+- Configures update-on-launch behavior
+
+**Execution Environment** (`execution_environment.json`):
+
+- Specifies container image for job execution
+- Defines pull policy and credentials
+- Should match the EE defined in `Build-EE/execution-environment.yml`
+
+**Job Templates** (`job_template_*.json`):
+
+- Defines playbook path, inventory, and credentials
+- Includes survey specifications for user input
+- Configures tags, extra vars, and launch options
+- Should provide multiple templates for different operation modes (e.g., full run, preflight, impatient mode)
+
+**Workflow Templates** (`workflow_template_*.json`):
+
+- Orchestrates multiple job templates
+- Includes approval gates for production workflows
+- Defines success/failure paths and notifications
+- Useful for complex multi-step operations
+
+### Creating AAP Configurations for New Roles
+
+When creating a new role that should be runnable in AAP, follow these steps:
+
+1. **Create Role Subdirectory**:
+
+   ```bash
+   mkdir -p aap_import/<role_name>
+   ```
+
+2. **Required Files**:
+
+   - `README.md` - Comprehensive import guide with prerequisites, configuration steps, and troubleshooting
+   - `import_to_aap.sh` - Automated import script using `awx` CLI or API calls
+   - `project_*.json` - Project configuration for the Git repository
+   - `execution_environment.json` - EE configuration
+   - At least one `job_template_*.json` - Primary job template
+
+3. **Best Practices**:
+
+   **Naming Conventions**:
+   - Project: `{Role Name} Automation`
+   - Job Template: `{Role Name} - {Action}`
+   - Workflow: `{Role Name} - Full Workflow`
+   - EE: `{Role Name} EE` or use shared EE
+
+   **Survey Specifications**:
+   - Include surveys for all required runtime variables
+   - Provide sensible defaults where possible
+   - Use appropriate question types (text, integer, multiple choice)
+   - Mark required fields explicitly
+   - Include helpful descriptions and validation
+
+   **Security**:
+   - Never commit credentials to Git
+   - Use AAP credential types for sensitive data
+   - Implement approval gates for production workflows
+   - Limit job template execution permissions appropriately
+
+   **Multiple Job Templates**:
+   - Create separate templates for different execution modes
+   - Example: full run, preflight/check mode, accelerated mode
+   - Allow users to test before full execution
+   - Use consistent naming patterns
+
+4. **Automated Import Script**:
+
+   - Use `awx` CLI for programmatic import
+   - Check for existing resources before creation
+   - Provide clear success/failure messages
+   - Include rollback instructions in comments
+   - Set environment variables for configuration:
+
+     ```bash
+     export CONTROLLER_HOST=https://your-aap-server
+     export CONTROLLER_USERNAME=admin
+     export CONTROLLER_PASSWORD=your-password
+     ```
+
+5. **Documentation Requirements**:
+
+   - Prerequisites (AAP version, permissions, dependencies)
+   - Step-by-step import instructions
+   - Configuration variable descriptions
+   - Testing procedures
+   - Troubleshooting section
+   - Example execution commands
+
+6. **Testing Import Configurations**:
+
+   - Test project sync first
+   - Verify execution environment availability
+   - Test job templates with check mode
+   - Validate survey questions and defaults
+   - Test workflows end-to-end if applicable
+
+### Import Methods
+
+The project supports three import methods:
+
+1. **Automated Script** (Recommended):
+
+   ```bash
+   cd aap_import/<role_name>
+   ./import_to_aap.sh
+   ```
+
+2. **AWX CLI**:
+
+   ```bash
+   awx projects create --name "..." --scm_type git --scm_url "..."
+   awx job_templates create --name "..." --project "..." --playbook "..."
+   ```
+
+3. **Web UI**: Manual creation following README instructions
+
+4. **API/Curl**: Direct API calls using the JSON configuration files
+
+### AAP Maintenance
+
+When updating roles:
+
+- Update corresponding AAP configurations
+- Increment version numbers in documentation
+- Test import process after changes
+- Update survey specifications if new variables are added
+- Document breaking changes in role README
 
 ### Documentation Standards
 

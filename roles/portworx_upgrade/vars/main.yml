@@ -11,7 +11,7 @@ portworx_min_k8s_collection_version: "2.3.0"
 
 # Pod label selectors
 portworx_pod_selector: "name=portworx"
-portworx_kvdb_selector: "name=portworx-kvdb"
+portworx_kvdb_selector: "kvdb=true"
 
 # Node label keys
 portworx_node_type_label: "portworx.io/node-type"

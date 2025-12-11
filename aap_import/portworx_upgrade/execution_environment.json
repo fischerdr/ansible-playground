@@ -1,0 +1,8 @@
+{
+  "name": "Portworx Upgrade EE",
+  "description": "Execution Environment for Portworx cluster upgrade automation with kubernetes.core collection",
+  "image": "quay.io/ansible/awx-ee:latest",
+  "organization": null,
+  "credential": null,
+  "pull": "missing"
+}

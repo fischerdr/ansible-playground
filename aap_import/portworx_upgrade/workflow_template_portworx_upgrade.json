@@ -1,0 +1,101 @@
+{
+  "name": "Portworx Upgrade - Full Workflow",
+  "description": "Complete Portworx upgrade workflow: Preflight -> Upgrade -> Validation with approval gates",
+  "organization": null,
+  "survey_enabled": true,
+  "allow_simultaneous": false,
+  "ask_variables_on_launch": true,
+  "ask_limit_on_launch": false,
+  "ask_inventory_on_launch": false,
+  "ask_scm_branch_on_launch": false,
+  "ask_skip_tags_on_launch": false,
+  "ask_tags_on_launch": false,
+  "extra_vars": "---\nportworx_target_version: \"\"\nportworx_impatient_mode: false",
+  "inventory": null,
+  "limit": "",
+  "scm_branch": "",
+  "webhook_service": "",
+  "webhook_credential": null,
+  "survey_spec": {
+    "name": "Workflow Upgrade Parameters",
+    "description": "Configure parameters for complete upgrade workflow",
+    "spec": [
+      {
+        "question_name": "Target Portworx Version",
+        "question_description": "Target Portworx OCI version (e.g., 3.5.0)",
+        "required": true,
+        "type": "text",
+        "variable": "portworx_target_version",
+        "min": 0,
+        "max": 1024,
+        "default": "",
+        "choices": "",
+        "new_question": true
+      },
+      {
+        "question_name": "Cluster Name",
+        "question_description": "Name of the cluster being upgraded",
+        "required": false,
+        "type": "text",
+        "variable": "portworx_cluster_name",
+        "min": 0,
+        "max": 256,
+        "default": "",
+        "choices": "",
+        "new_question": true
+      },
+      {
+        "question_name": "Enable Impatient Mode",
+        "question_description": "Enable accelerated storageless node upgrades",
+        "required": false,
+        "type": "multiplechoice",
+        "variable": "portworx_impatient_mode",
+        "min": 0,
+        "max": 1024,
+        "default": "false",
+        "choices": "false\ntrue",
+        "new_question": true
+      }
+    ]
+  },
+  "workflow_nodes": [
+    {
+      "identifier": "preflight_check",
+      "unified_job_template": "Portworx Upgrade - Preflight Check",
+      "success_nodes": ["approval_gate"],
+      "failure_nodes": [],
+      "always_nodes": []
+    },
+    {
+      "identifier": "approval_gate",
+      "unified_job_template": null,
+      "approval_node": true,
+      "approval_name": "Approve Upgrade Execution",
+      "approval_description": "Preflight checks passed. Review results and approve to proceed with upgrade.",
+      "success_nodes": ["upgrade_execution"],
+      "failure_nodes": [],
+      "always_nodes": []
+    },
+    {
+      "identifier": "upgrade_execution",
+      "unified_job_template": "Portworx Cluster Upgrade",
+      "success_nodes": ["send_success_notification"],
+      "failure_nodes": ["send_failure_notification"],
+      "always_nodes": []
+    },
+    {
+      "identifier": "send_success_notification",
+      "unified_job_template": null,
+      "success_nodes": [],
+      "failure_nodes": [],
+      "always_nodes": []
+    },
+    {
+      "identifier": "send_failure_notification",
+      "unified_job_template": null,
+      "success_nodes": [],
+      "failure_nodes": [],
+      "always_nodes": []
+    }
+  ]
+}

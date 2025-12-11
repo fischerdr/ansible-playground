@@ -1,0 +1,20 @@
+{
+  "name": "Portworx Upgrade Automation",
+  "description": "Ansible project for automated Portworx cluster upgrades on OpenShift",
+  "local_path": "",
+  "scm_type": "git",
+  "scm_url": "https://github.com/your-org/ansible-playground.git",
+  "scm_branch": "feature/portworx-upgrade",
+  "scm_refspec": "",
+  "scm_clean": true,
+  "scm_track_submodules": false,
+  "scm_delete_on_update": false,
+  "credential": null,
+  "timeout": 0,
+  "organization": null,
+  "scm_update_on_launch": true,
+  "scm_update_cache_timeout": 0,
+  "allow_override": false,
+  "custom_virtualenv": null,
+  "default_environment": null
+}

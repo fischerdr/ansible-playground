@@ -19,7 +19,7 @@ This is an enterprise Ansible Automation Platform (AAP) project for managing Kub
 
 **Active Development:** Creating a new role `roles/portworx_upgrade/` for automated Portworx cluster upgrades on OpenShift 4.18.
 
-**Specification:** The complete specification is in `portworx-upgrade-role-final.md` at the repository root.
+**Specification:** The complete specification is in `docs/portworx_upgrade/portworx_upgrade-role-final.md` at the repository root.
 
 **Key Implementation Notes:**
 
@@ -543,9 +543,40 @@ When updating roles:
 - **Ask before creating** - Always ask the user for approval before generating or modifying documentation files
 - **No unsolicited documentation** - Never proactively create README files, markdown documentation, or similar without explicit user request
 
+**Documentation File Placement:**
+
+All documentation and markdown files must be placed in the `docs/` directory:
+
+- **General documentation**: Place in `docs/` root (e.g., `docs/setup_guide.md`)
+- **Role-specific documentation**: Create subdirectory `docs/<role_name>/` (e.g., `docs/portworx_upgrade/architecture.md`)
+- **Collection-specific documentation**: Create subdirectory `docs/<collection_name>/` (e.g., `docs/px_backup/api_guide.md`)
+- **Playbook-specific documentation**: Create subdirectory `docs/<playbook_name>/` (e.g., `docs/px_upgrade_playbook/usage.md`)
+
+**Examples:**
+
+```text
+docs/
+├── general_overview.md          # General project documentation
+├── portworx_upgrade/            # Role-specific docs
+│   ├── architecture.md
+│   ├── troubleshooting.md
+│   └── upgrade_process.md
+├── pxbackup/                    # Collection-specific docs
+│   └── api_reference.md
+└── px_upgrade_playbook/         # Playbook-specific docs
+    └── execution_guide.md
+```
+
+**Exceptions:**
+
+- `CLAUDE.md` - Repository root (project instructions for Claude Code)
+- `README.md` - Repository root only (main project README)
+- `aap_import/README.md` - AAP import main documentation
+- `aap_import/<role_name>/README.md` - Role-specific AAP import guides
+
 This applies to all documentation including:
 
-- README files
+- README files (except repository root and aap_import directories)
 - Markdown documentation (*.md)
 - Code comments and docstrings (emojis prohibited)
 - Commit messages (emojis prohibited)

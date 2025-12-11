@@ -1,20 +1,43 @@
 {
-  "name": "Portworx Upgrade Automation",
-  "description": "Ansible project for automated Portworx cluster upgrades on OpenShift",
-  "local_path": "",
-  "scm_type": "git",
-  "scm_url": "https://github.com/your-org/ansible-playground.git",
-  "scm_branch": "feature/portworx-upgrade",
-  "scm_refspec": "",
-  "scm_clean": true,
-  "scm_track_submodules": false,
-  "scm_delete_on_update": false,
-  "credential": null,
-  "timeout": 0,
-  "organization": null,
-  "scm_update_on_launch": true,
-  "scm_update_cache_timeout": 0,
-  "allow_override": false,
-  "custom_virtualenv": null,
-  "default_environment": null
+  "projects": [
+    {
+      "name": "Portworx Automation",
+      "description": "Ansible project for automated Portworx cluster upgrades on OpenShift",
+      "local_path": "_portworx_automation",
+      "scm_type": "git",
+      "scm_url": "https://github.com/your-org/ansible-playground.git",
+      "scm_branch": "",
+      "scm_refspec": "",
+      "scm_clean": true,
+      "scm_track_submodules": false,
+      "scm_delete_on_update": true,
+      "timeout": 0,
+      "scm_update_on_launch": false,
+      "scm_update_cache_timeout": 0,
+      "allow_override": true,
+      "signature_validation_credential": null,
+      "credential": null,
+      "organization": {
+        "name": "Default",
+        "type": "organization"
+      },
+      "default_environment": {
+        "name": "Portworx EE",
+        "type": "execution_environment"
+      },
+      "related": {
+        "notification_templates_started": [],
+        "notification_templates_success": [],
+        "notification_templates_error": []
+      },
+      "natural_key": {
+        "organization": {
+          "name": "Default",
+          "type": "organization"
+        },
+        "name": "Portworx Automation",
+        "type": "project"
+      }
+    }
+  ]
 }

@@ -2,21 +2,23 @@
 # Ansible Lint Configuration
 # Supports structured multi-line Jinja2 expressions and enterprise standards
 
+profile: production
+
 skip_list:
   # YAML Formatting
-  - yaml[line-length]              # Allow long lines in multi-line blocks (>-)
-  - yaml[octal-values]             # Allow '0755' notation for file modes
+  - yaml[line-length]
+  - yaml[octal-values]
 
   # Variable Naming
-  - var-naming[no-role-prefix]     # Allow role-prefixed variables
-  - var-naming[pattern]            # Allow flexible variable naming patterns
+  - var-naming[no-role-prefix]
+  - var-naming[pattern]
 
   # Module Usage
-  - command-instead-of-module      # Allow shell/command when necessary
+  - command-instead-of-module
 
   # Jinja2 Templates
-  - name[template]                 # Allow Jinja2 in task names
-  - jinja[spacing]                 # Allow flexible spacing in complex Jinja2 expressions
+  - name[template]
+  - jinja[spacing]
 
 # Enable strict mode for better error detection
 # strict: true
@@ -32,18 +34,21 @@ exclude_paths:
   - tmp/
   - collections/
   - Build-EE/
-
+  - .github/
+  - .molecule/
+  - tests/
 # Enable specific rules (these support our formatting standards)
 enable_list:
-  - fqcn                          # Enforce FQCN (ansible.builtin.*)
-  - yaml[truthy]                  # Enforce lowercase true/false
-  - no-log-password               # Enforce no_log for sensitive data
-  - yaml[indentation]             # Consistent indentation
-
+  - fqcn
+  - yaml[truthy]
+  - no-log-password
+  - yaml[indentation]
+  - no-same-owner
 # Set warnings for rules that should be followed but aren't critical
 warn_list:
-  - experimental                  # Warn about experimental features
-  - role-name                     # Warn about role naming conventions
+  - experimental
+  - role-name
+  - jinja[spacing]
 
 # Configure specific rules (if needed)
 # Note: Most rule configuration is handled via skip_list and enable_list above
@@ -52,3 +57,4 @@ warn_list:
 # rules:
 #   yaml[line-length]:
 #     max: 160
+

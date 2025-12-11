@@ -99,7 +99,7 @@ See `defaults/main.yml` for complete variable list.
 
 The role executes in 8 sequential phases:
 
-1. **Preflight Validation** (`preflight` tag)
+1. **Preflight Validation** (tags: `preflight`, `validation`)
    - Environment validation (kubeconfig, namespace, permissions)
    - Node validation (Ready status, resource capacity)
    - Pod validation (Running status, version detection)
@@ -107,29 +107,32 @@ The role executes in 8 sequential phases:
    - StorageCluster configuration validation (updateStrategy)
    - Resource backup (StorageCluster, ConfigMap, Subscription) - when `portworx_backup_resources: true`
 
-2. **Upgrade Operator** (`upgrade` tag)
+2. **Upgrade Operator** (tags: `upgrade`, `operator`)
    - Updates operator subscription channel
    - Approves install plan if manual approval required
 
-3. **Update ConfigMap** (`upgrade` tag)
+3. **Update ConfigMap** (tags: `upgrade`, `configmap`)
    - Updates px-versions ConfigMap with target version
 
-4. **Update Components** (`upgrade` tag)
+4. **Update Components** (tags: `upgrade`, `components`)
    - Patches StorageCluster autoUpdateComponents
 
-5. **Trigger StorageCluster Upgrade** (`upgrade` tag)
+5. **Trigger StorageCluster Upgrade** (tags: `upgrade`, `storagecluster`)
    - Updates StorageCluster image to target version
 
-6. **Monitor Automatic Rolling Upgrade** (`monitor` tag)
+6. **Monitor Automatic Rolling Upgrade** (tag: `monitor`)
    - Tracks pod image changes via Kubernetes API
    - Detects stuck upgrades using dual timeout strategy
    - Executes impatient mode for storageless nodes (if enabled)
 
-7. **Validate and Report** (`validate`, `report` tags)
+7. **Final Validation** (tags: `validate`, `final`)
    - Final pod validation
    - Cluster health verification
    - Version consistency check
+
+8. **Generate Reports** (tag: `report`)
    - Generates upgrade summary report
+   - Creates timestamped report files
 
 ## Tag-Based Execution
 
@@ -139,20 +142,35 @@ Run specific phases using tags:
 # Preflight checks only (includes resource backup if portworx_backup_resources=true)
 ansible-playbook upgrade.yml --tags preflight
 
-# Upgrade phases only (operator, configmap, components, storagecluster)
+# All upgrade phases (operator, configmap, components, storagecluster)
 ansible-playbook upgrade.yml --tags upgrade
+
+# Specific upgrade phases
+ansible-playbook upgrade.yml --tags operator      # Operator upgrade only
+ansible-playbook upgrade.yml --tags configmap     # ConfigMap update only
+ansible-playbook upgrade.yml --tags components    # Component update only
+ansible-playbook upgrade.yml --tags storagecluster # StorageCluster trigger only
 
 # Monitoring only (assumes upgrade already triggered)
 ansible-playbook upgrade.yml --tags monitor
 
-# Validation only
+# Final validation only
 ansible-playbook upgrade.yml --tags validate
 
 # Report generation only
 ansible-playbook upgrade.yml --tags report
+
+# Combined examples
+ansible-playbook upgrade.yml --tags preflight,upgrade  # Preflight + all upgrade phases
+ansible-playbook upgrade.yml --tags validate,report    # Validation + reporting
 ```
 
-**Note**: Resource backup is part of the preflight phase and runs when `portworx_backup_resources` is set to `true` (default). There is no separate `backup` tag.
+**Notes**:
+
+- Resource backup is part of the preflight phase and runs when `portworx_backup_resources` is set to `true` (default)
+- Multiple tags can be combined using comma-separated values
+- The `upgrade` tag runs all upgrade phases (operator, configmap, components, storagecluster)
+- Granular tags (operator, configmap, components, storagecluster) allow selective execution of specific upgrade steps
 
 ## Impatient Mode
 

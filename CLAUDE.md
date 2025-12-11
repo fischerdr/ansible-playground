@@ -107,7 +107,7 @@ When modifying files, automatically run appropriate tools:
 
 - **Python files** (`.py`, custom modules in `roles/*/library/`): Run black, isort, flake8
 - **Ansible files** (playbooks `*.yml`, roles, tasks): Run ansible-lint
-- **All changes**: Run ansible-lint on affected playbooks/roles
+- **All changes**: Run ansible-lint on affected playbooks/roles(playbooks `*.yml`, roles, tasks)
 
 ### Running Playbooks
 

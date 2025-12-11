@@ -105,29 +105,27 @@ The role executes in 8 sequential phases:
    - Pod validation (Running status, version detection)
    - Cluster status validation (PX operational, KVDB health)
    - StorageCluster configuration validation (updateStrategy)
+   - Resource backup (StorageCluster, ConfigMap, Subscription) - when `portworx_backup_resources: true`
 
-2. **Backup Resources** (`backup` tag)
-   - Creates timestamped backup of StorageCluster CRD
-
-3. **Upgrade Operator** (`upgrade` tag)
+2. **Upgrade Operator** (`upgrade` tag)
    - Updates operator subscription channel
    - Approves install plan if manual approval required
 
-4. **Update ConfigMap** (`upgrade` tag)
+3. **Update ConfigMap** (`upgrade` tag)
    - Updates px-versions ConfigMap with target version
 
-5. **Update Components** (`upgrade` tag)
+4. **Update Components** (`upgrade` tag)
    - Patches StorageCluster autoUpdateComponents
 
-6. **Trigger StorageCluster Upgrade** (`upgrade` tag)
+5. **Trigger StorageCluster Upgrade** (`upgrade` tag)
    - Updates StorageCluster image to target version
 
-7. **Monitor Automatic Rolling Upgrade** (`monitor` tag)
+6. **Monitor Automatic Rolling Upgrade** (`monitor` tag)
    - Tracks pod image changes via Kubernetes API
    - Detects stuck upgrades using dual timeout strategy
    - Executes impatient mode for storageless nodes (if enabled)
 
-8. **Validate and Report** (`validate`, `report` tags)
+7. **Validate and Report** (`validate`, `report` tags)
    - Final pod validation
    - Cluster health verification
    - Version consistency check
@@ -138,13 +136,10 @@ The role executes in 8 sequential phases:
 Run specific phases using tags:
 
 ```bash
-# Preflight checks only
+# Preflight checks only (includes resource backup if portworx_backup_resources=true)
 ansible-playbook upgrade.yml --tags preflight
 
-# Backup only
-ansible-playbook upgrade.yml --tags backup
-
-# Upgrade phases only (skip monitoring)
+# Upgrade phases only (operator, configmap, components, storagecluster)
 ansible-playbook upgrade.yml --tags upgrade
 
 # Monitoring only (assumes upgrade already triggered)
@@ -156,6 +151,8 @@ ansible-playbook upgrade.yml --tags validate
 # Report generation only
 ansible-playbook upgrade.yml --tags report
 ```
+
+**Note**: Resource backup is part of the preflight phase and runs when `portworx_backup_resources` is set to `true` (default). There is no separate `backup` tag.
 
 ## Impatient Mode
 

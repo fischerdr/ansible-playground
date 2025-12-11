@@ -19,11 +19,15 @@
 #   - portworx_operator_auto_approve: Auto-approve operator upgrades (default: true)
 #
 # Tags:
-#   - preflight: Run only preflight validation
-#   - upgrade: Run only upgrade phases
-#   - monitor: Run only monitoring phase
-#   - validate: Run only final validation
-#   - report: Run only report generation
+#   - preflight, validation: Run preflight validation
+#   - upgrade: Run all upgrade phases (operator, configmap, components, storagecluster)
+#     - operator: Run only operator upgrade
+#     - configmap: Run only ConfigMap update
+#     - components: Run only component update
+#     - storagecluster: Run only StorageCluster trigger
+#   - monitor: Run monitoring phase
+#   - validate, final: Run final validation
+#   - report: Run report generation
 
 - name: Upgrade Portworx cluster
   hosts: localhost

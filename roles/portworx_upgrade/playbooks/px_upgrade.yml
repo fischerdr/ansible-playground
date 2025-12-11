@@ -1,0 +1,77 @@
+---
+# Playbook to upgrade Portworx clusters on OpenShift
+#
+# This playbook upgrades a Portworx cluster using the portworx_upgrade role.
+# It performs comprehensive preflight validation, triggers operator-controlled
+# rolling upgrades, monitors progress with timeout detection, and validates
+# final cluster health.
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/px_upgrade.yml \
+#     -e portworx_target_version=3.5.0
+#
+# Required variables:
+#   - portworx_target_version: Target Portworx OCI version (e.g., "3.5.0")
+#
+# Optional variables:
+#   - portworx_impatient_mode: Enable accelerated storageless upgrades (default: false)
+#   - portworx_detailed_logging: Enable detailed logging (default: true)
+#   - portworx_operator_auto_approve: Auto-approve operator upgrades (default: true)
+#
+# Tags:
+#   - preflight: Run only preflight validation
+#   - upgrade: Run only upgrade phases
+#   - monitor: Run only monitoring phase
+#   - validate: Run only final validation
+#   - report: Run only report generation
+
+- name: Upgrade Portworx cluster
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    # Default cluster identification
+    portworx_cluster_name: "{{ lookup('env', 'CLUSTER_NAME') | default(ansible_facts['fqdn'], true) }}"
+
+    # Default work directory
+    portworx_work_dir: "{{ lookup('env', 'WORK_DIR') | default('/tmp/ansible-workdir', true) }}"
+
+  pre_tasks:
+    - name: Validate required variables
+      ansible.builtin.assert:
+        that:
+          - portworx_target_version is defined
+          - portworx_target_version | length > 0
+        fail_msg: |
+          portworx_target_version is required!
+
+          Usage:
+            ansible-playbook playbooks/px_upgrade.yml -e portworx_target_version=3.5.0
+        success_msg: "Target version: {{ portworx_target_version }}"
+
+    - name: Display upgrade configuration
+      ansible.builtin.debug:
+        msg:
+          - "Portworx Upgrade Configuration"
+          - "=============================="
+          - "Cluster: {{ portworx_cluster_name }}"
+          - "Target Version: {{ portworx_target_version }}"
+          - "Impatient Mode: {{ portworx_impatient_mode | default(false) }}"
+          - "Detailed Logging: {{ portworx_detailed_logging | default(true) }}"
+          - "Work Directory: {{ portworx_work_dir }}"
+          - ""
+          - "Timeouts:"
+          - "  Global Inactivity: {{ portworx_global_inactivity_timeout | default(2100) }}s ({{ (portworx_global_inactivity_timeout | default(2100) | int / 60) | round(1) }}min)"
+          - "  Per-Pod: {{ portworx_pod_upgrade_timeout | default(1500) }}s ({{ (portworx_pod_upgrade_timeout | default(1500) | int / 60) | round(1) }}min)"
+
+  roles:
+    - role: portworx_upgrade
+
+  post_tasks:
+    - name: Display completion message
+      ansible.builtin.debug:
+        msg:
+          - "Portworx upgrade completed successfully"
+          - "Cluster: {{ portworx_cluster_name }}"
+          - "New Version: {{ portworx_target_version }}"
+          - "Reports: {{ portworx_report_dir | default(portworx_work_dir ~ '/portworx-upgrade') }}"

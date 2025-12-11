@@ -1,0 +1,19 @@
+{
+  "execution_environments": [
+    {
+      "name": "Portworx EE",
+      "description": "Execution Environment for Portworx cluster upgrade automation with kubernetes.core collection",
+      "image": "quay.io/ansible/awx-ee:latest",
+      "credential": null,
+      "pull": "always",
+      "organization": {
+        "name": "Default",
+        "type": "organization"
+      },
+      "natural_key": {
+        "name": "Portworx EE",
+        "type": "execution_environment"
+      }
+    }
+  ]
+}

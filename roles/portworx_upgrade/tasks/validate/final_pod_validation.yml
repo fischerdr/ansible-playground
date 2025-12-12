@@ -16,21 +16,19 @@
          rejectattr('status.phase', 'equalto', 'Running') |
          list }}
 
-- name: Check all pods are ready
+- name: Initialize not-ready pod list
   ansible.builtin.set_fact:
-    portworx_not_ready: >-
-      {{ portworx_final_pods.resources |
-         rejectattr('status.conditions', 'defined') |
-         list +
-         portworx_final_pods.resources |
-         selectattr('status.conditions', 'defined') |
-         rejectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') |
-         list +
-         portworx_final_pods.resources |
-         selectattr('status.conditions', 'defined') |
-         selectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') |
-         rejectattr('status.conditions', 'selectattr', 'status', 'equalto', 'True') |
-         list }}
+    portworx_not_ready: []
+
+- name: Identify not-ready pods
+  ansible.builtin.set_fact:
+    portworx_not_ready: "{{ portworx_not_ready + [item] }}"
+  when: >-
+    item.status.conditions is undefined or
+    (item.status.conditions | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length == 0)
+  loop: "{{ portworx_final_pods.resources }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
 
 - name: Check all pods have new image version
   ansible.builtin.set_fact:

@@ -18,16 +18,25 @@
           - "{{ portworx_pod_selector }}"
       register: portworx_current_pods
 
-    - name: Analyze pod upgrade status
+    - name: Initialize pod tracking lists
       ansible.builtin.set_fact:
-        portworx_pods_with_new_image: >-
-          {{ portworx_current_pods.resources |
-             selectattr('spec.containers', 'defined') |
-             selectattr('spec.containers.0.image', 'search', portworx_target_version) |
-             selectattr('status.phase', 'equalto', 'Running') |
-             selectattr('status.conditions', 'defined') |
-             selectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') |
-             list }}
+        portworx_pods_with_new_image: []
+
+    - name: Identify pods with new image that are ready
+      ansible.builtin.set_fact:
+        portworx_pods_with_new_image: "{{ portworx_pods_with_new_image + [item] }}"
+      when:
+        - item.spec.containers is defined
+        - item.spec.containers.0.image is search(portworx_target_version)
+        - item.status.phase == 'Running'
+        - item.status.conditions is defined
+        - item.status.conditions | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length > 0
+      loop: "{{ portworx_current_pods.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
+    - name: Analyze other pod statuses
+      ansible.builtin.set_fact:
 
         portworx_pods_with_old_image: >-
           {{ portworx_current_pods.resources |

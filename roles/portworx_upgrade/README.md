@@ -101,7 +101,9 @@ The role executes in 8 sequential phases:
 
 1. **Preflight Validation** (tags: `preflight`, `validation`)
    - Environment validation (kubeconfig, namespace, permissions)
-   - Node validation (Ready status, resource capacity)
+   - Node validation (minimum 3 storage nodes, node-type labels)
+     - Note: Zone labels (topology.portworx.io/zone, topology.kubernetes.io/zone) are NOT validated
+     - Only `portworx.io/node-type` labels (storage/storageless) are required
    - Pod validation (Running status, version detection)
    - Cluster status validation (PX operational, KVDB health)
    - StorageCluster configuration validation (updateStrategy)

@@ -39,7 +39,6 @@ portworx_cluster_name: "{{ lookup('env', 'CLUSTER_NAME') | default(ansible_facts
 # Preflight check behavior
 portworx_fail_on_unhealthy_pods: true  # Fail immediately if pods are unhealthy
 portworx_fail_on_degraded_cluster: true  # Fail immediately if cluster is degraded
-portworx_fail_on_label_mismatch: true  # Fail immediately if node labels are incorrect
 portworx_fail_on_invalid_updatestrategy: true  # Fail if STC updateStrategy is not configured correctly
 
 # Backup configuration

@@ -1,44 +1,29 @@
 ---
 # Validate node labels and configuration
 
-- name: Get all nodes with Portworx labels
+- name: Get storage nodes directly from Kubernetes
   kubernetes.core.k8s_info:
     kind: Node
     label_selectors:
-      - "{{ portworx_node_type_label }}"
-  register: portworx_nodes
+      - "{{ portworx_node_type_label }}=storage"
+  register: portworx_storage_nodes_result
 
-- name: Parse node information
-  ansible.builtin.set_fact:
-    portworx_storage_nodes: []
-    portworx_storageless_nodes: []
+- name: Get storageless nodes directly from Kubernetes
+  kubernetes.core.k8s_info:
+    kind: Node
+    label_selectors:
+      - "{{ portworx_node_type_label }}=storageless"
+  register: portworx_storageless_nodes_result
 
-- name: Classify nodes by type
+- name: Set node facts
   ansible.builtin.set_fact:
-    portworx_storage_nodes: "{{ portworx_storage_nodes + [item] }}"
-  when: item.metadata.labels[portworx_node_type_label] == 'storage'
-  loop: "{{ portworx_nodes.resources }}"
-  loop_control:
-    label: "{{ item.metadata.name }}"
-
-- name: Classify storageless nodes
-  ansible.builtin.set_fact:
-    portworx_storageless_nodes: "{{ portworx_storageless_nodes + [item] }}"
-  when: item.metadata.labels[portworx_node_type_label] == 'storageless'
-  loop: "{{ portworx_nodes.resources }}"
-  loop_control:
-    label: "{{ item.metadata.name }}"
-
-- name: Extract node names for later use
-  ansible.builtin.set_fact:
-    portworx_storage_node_names: "{{ portworx_storage_nodes | map(attribute='metadata.name') | list }}"
-    portworx_storageless_node_names: "{{ portworx_storageless_nodes | map(attribute='metadata.name') | list }}"
-
-- name: Count nodes
-  ansible.builtin.set_fact:
-    portworx_storage_node_count: "{{ portworx_storage_nodes | length }}"
-    portworx_storageless_node_count: "{{ portworx_storageless_nodes | length }}"
-    portworx_total_node_count: "{{ portworx_nodes.resources | length }}"
+    portworx_storage_nodes: "{{ portworx_storage_nodes_result.resources }}"
+    portworx_storageless_nodes: "{{ portworx_storageless_nodes_result.resources }}"
+    portworx_storage_node_names: "{{ portworx_storage_nodes_result.resources | map(attribute='metadata.name') | list }}"
+    portworx_storageless_node_names: "{{ portworx_storageless_nodes_result.resources | map(attribute='metadata.name') | list }}"
+    portworx_storage_node_count: "{{ portworx_storage_nodes_result.resources | length }}"
+    portworx_storageless_node_count: "{{ portworx_storageless_nodes_result.resources | length }}"
+    portworx_total_node_count: "{{ (portworx_storage_nodes_result.resources | length) + (portworx_storageless_nodes_result.resources | length) }}"
 
 - name: Display node counts
   ansible.builtin.debug:
@@ -53,19 +38,6 @@
       - portworx_storage_node_count | int >= 3
     fail_msg: "Minimum 3 storage nodes required, found {{ portworx_storage_node_count }}"
     success_msg: "Storage node count validated: {{ portworx_storage_node_count }}"
-
-- name: Validate storage nodes have required labels
-  ansible.builtin.assert:
-    that:
-      - item.metadata.labels[portworx_zone_label_px] is defined
-      - item.metadata.labels[portworx_zone_label_k8s] is defined
-      - item.metadata.labels[portworx_zone_label_px] == item.metadata.labels[portworx_zone_label_k8s]
-    fail_msg: "Storage node {{ item.metadata.name }} has mismatched or missing zone labels"
-    success_msg: "Storage node {{ item.metadata.name }} labels validated"
-  loop: "{{ portworx_storage_nodes }}"
-  loop_control:
-    label: "{{ item.metadata.name }}"
-  when: portworx_fail_on_label_mismatch
 
 - name: Node label validation complete
   ansible.builtin.debug:

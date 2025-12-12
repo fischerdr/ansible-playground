@@ -7,7 +7,11 @@
       "Bash(.venv/bin/flake8:*)",
       "Bash(.venv/bin/ansible-lint:*)",
       "Bash(.venv/bin/ansible-playbook:*)",
-      "Bash(tar:*)"
+      "Bash(tar:*)",
+      "Bash(.venv/bin/python:*)",
+      "Bash(.venv/bin/pip:*)",
+      "Bash(.venv/bin/awx:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

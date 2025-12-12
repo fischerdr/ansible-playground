@@ -44,14 +44,14 @@ When working on this role, always reference the specification document for exact
 
 ### Python Environment
 
-**IMPORTANT:** Always use the Python virtual environment located at `/development/git/ansible-playground/.venv`
+**IMPORTANT:** Always use the Python virtual environment located at `.venv` at the top of the project directory
 
 ```bash
 # Activate virtual environment
 source .venv/bin/activate
 
 # Verify you're using the correct Python
-which python  # Should show: /development/git/ansible-playground/.venv/bin/python
+which python  # Should show: .venv/bin/python
 ```
 
 All Python commands, pip installations, and tool executions must be run using the virtual environment Python interpreter at `.venv/bin/python`.
@@ -1797,7 +1797,7 @@ This applies to all documentation including:
 
 ### Virtual Environment Usage
 
-**CRITICAL:** All Python and Ansible commands MUST use the virtual environment at `/development/git/ansible-playground/.venv`
+**CRITICAL:** All Python and Ansible commands MUST use the virtual environment at `.venv` at the top of the project directory
 
 - Python interpreter: `.venv/bin/python`
 - Pip: `.venv/bin/pip`

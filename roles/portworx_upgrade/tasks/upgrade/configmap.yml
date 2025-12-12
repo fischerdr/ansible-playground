@@ -5,17 +5,25 @@
   ansible.builtin.set_fact:
     portworx_configmap_start_time: "{{ ansible_date_time.epoch }}"
 
+- name: Set versions file path
+  ansible.builtin.set_fact:
+    _portworx_versions_path: "{{ portworx_versions_file_path | default(role_path ~ '/files/versions/' ~ portworx_versions_file, true) }}"
+
 - name: Verify version file exists
   ansible.builtin.stat:
-    path: "{{ role_path }}/files/versions/{{ portworx_versions_file }}"
+    path: "{{ _portworx_versions_path }}"
   register: portworx_version_file_stat
   delegate_to: localhost
 
 - name: Fail if version file not found
   ansible.builtin.fail:
     msg: |
-      Version file not found: {{ role_path }}/files/versions/{{ portworx_versions_file }}
-      Available version files should be in: {{ role_path }}/files/versions/
+      Version file not found: {{ _portworx_versions_path }}
+      {% if portworx_versions_file_path %}
+      Custom path was specified via portworx_versions_file_path variable.
+      {% else %}
+      Default location: {{ role_path }}/files/versions/{{ portworx_versions_file }}
+      {% endif %}
 
       To obtain version files:
       export PXVER={{ portworx_target_version }}
@@ -52,7 +60,7 @@
         name: px-versions
         namespace: "{{ portworx_namespace }}"
       data:
-        versions: "{{ lookup('file', role_path ~ '/files/versions/' ~ portworx_versions_file) }}"
+        versions: "{{ lookup('file', _portworx_versions_path) }}"
 
 - name: Verify configmap creation
   kubernetes.core.k8s_info:

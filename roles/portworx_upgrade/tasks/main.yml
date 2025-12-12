@@ -39,14 +39,14 @@
 
 # Phase 1: Pre-flight validation
 - name: "PHASE 1: Pre-flight validation"
-  ansible.builtin.include_tasks: preflight/main.yml
+  ansible.builtin.import_tasks: preflight/main.yml
   tags:
     - preflight
     - validation
 
 # Phase 2: Operator upgrade
 - name: "PHASE 2: Operator upgrade"
-  ansible.builtin.include_tasks: upgrade/operator.yml
+  ansible.builtin.import_tasks: upgrade/operator.yml
   when: not portworx_skip_operator_upgrade
   tags:
     - upgrade
@@ -54,41 +54,41 @@
 
 # Phase 3: ConfigMap update
 - name: "PHASE 3: ConfigMap update"
-  ansible.builtin.include_tasks: upgrade/configmap.yml
+  ansible.builtin.import_tasks: upgrade/configmap.yml
   tags:
     - upgrade
     - configmap
 
 # Phase 4: Update components (autoUpdateComponents patch)
 - name: "PHASE 4: Update components"
-  ansible.builtin.include_tasks: upgrade/update_components.yml
+  ansible.builtin.import_tasks: upgrade/update_components.yml
   tags:
     - upgrade
     - components
 
 # Phase 5: StorageCluster update (THE TRIGGER)
 - name: "PHASE 5: StorageCluster update"
-  ansible.builtin.include_tasks: upgrade/storagecluster.yml
+  ansible.builtin.import_tasks: upgrade/storagecluster.yml
   tags:
     - upgrade
     - storagecluster
 
 # Phase 6: Monitor automatic rolling upgrade
 - name: "PHASE 6: Monitor automatic rolling upgrade"
-  ansible.builtin.include_tasks: monitor/main.yml
+  ansible.builtin.import_tasks: monitor/main.yml
   tags:
     - monitor
 
 # Phase 7: Final validation
 - name: "PHASE 7: Final validation"
-  ansible.builtin.include_tasks: validate/main.yml
+  ansible.builtin.import_tasks: validate/main.yml
   tags:
     - validate
     - final
 
 # Phase 8: Generate reports
 - name: "PHASE 8: Generate reports"
-  ansible.builtin.include_tasks: report/main.yml
+  ansible.builtin.import_tasks: report/main.yml
   when: portworx_create_summary
   tags:
     - report

@@ -23,7 +23,7 @@
       - "  - Impatient mode: {{ 'ENABLED' if portworx_impatient_mode else 'DISABLED' }}"
 
 - name: Monitor automatic rolling upgrade
-  ansible.builtin.include_tasks: automatic_rolling_upgrade.yml
+  ansible.builtin.import_tasks: automatic_rolling_upgrade.yml
 
 - name: Check if impatient mode should be used
   when:
@@ -31,7 +31,7 @@
     - portworx_pods_needing_upgrade | length > 0
   block:
     - name: Verify prerequisites for impatient mode
-      ansible.builtin.include_tasks: impatient_mode.yml
+      ansible.builtin.import_tasks: impatient_mode.yml
 
 - name: Record monitoring end time
   ansible.builtin.set_fact:

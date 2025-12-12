@@ -15,16 +15,17 @@
 
 - name: Check for not-ready pods
   ansible.builtin.set_fact:
-    portworx_not_ready_pods: >-
-      {{ portworx_pods.resources |
-         selectattr('status.conditions', 'defined') |
-         rejectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') |
-         list +
-         portworx_pods.resources |
-         selectattr('status.conditions', 'defined') |
-         selectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') |
-         rejectattr('status.conditions', 'selectattr', 'status', 'equalto', 'True') |
-         list }}
+    portworx_not_ready_pods: []
+
+- name: Identify not-ready pods
+  ansible.builtin.set_fact:
+    portworx_not_ready_pods: "{{ portworx_not_ready_pods + [item] }}"
+  when: >-
+    item.status.conditions is undefined or
+    (item.status.conditions | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length == 0)
+  loop: "{{ portworx_pods.resources }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
 
 - name: Display pod health summary
   ansible.builtin.debug:

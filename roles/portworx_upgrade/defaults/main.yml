@@ -4,6 +4,7 @@
 # Version configuration
 portworx_target_version: ""  # REQUIRED: Target Portworx OCI version (e.g., "3.5.0")
 portworx_versions_file: "versions-{{ portworx_target_version }}"  # Version file in role's files/versions/
+portworx_versions_file_path: ""  # Optional: Override with full path to custom versions file (e.g., "/path/to/versions-3.5.0")
 
 # Namespace
 portworx_namespace: "portworx"

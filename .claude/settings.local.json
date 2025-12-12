@@ -11,7 +11,12 @@
       "Bash(.venv/bin/python:*)",
       "Bash(.venv/bin/pip:*)",
       "Bash(.venv/bin/awx:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(/development/git/ansible-playground/.venv/bin/black:*)",
+      "Bash(/development/git/ansible-playground/.venv/bin/isort:*)",
+      "Bash(/development/git/ansible-playground/.venv/bin/flake8:*)",
+      "Bash(/development/git/ansible-playground/.venv/bin/ansible-playbook:*)",
+      "Bash(/development/git/ansible-playground/.venv/bin/ansible-lint:*)"      
     ],
     "deny": [],
     "ask": []

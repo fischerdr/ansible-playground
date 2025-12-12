@@ -10,8 +10,24 @@
 
 - name: Parse node information
   ansible.builtin.set_fact:
-    portworx_storage_nodes: "{{ portworx_nodes.resources | selectattr('metadata.labels.' ~ portworx_node_type_label, 'equalto', 'storage') | list }}"
-    portworx_storageless_nodes: "{{ portworx_nodes.resources | selectattr('metadata.labels.' ~ portworx_node_type_label, 'equalto', 'storageless') | list }}"
+    portworx_storage_nodes: []
+    portworx_storageless_nodes: []
+
+- name: Classify nodes by type
+  ansible.builtin.set_fact:
+    portworx_storage_nodes: "{{ portworx_storage_nodes + [item] }}"
+  when: item.metadata.labels[portworx_node_type_label] == 'storage'
+  loop: "{{ portworx_nodes.resources }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+
+- name: Classify storageless nodes
+  ansible.builtin.set_fact:
+    portworx_storageless_nodes: "{{ portworx_storageless_nodes + [item] }}"
+  when: item.metadata.labels[portworx_node_type_label] == 'storageless'
+  loop: "{{ portworx_nodes.resources }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
 
 - name: Extract node names for later use
   ansible.builtin.set_fact:

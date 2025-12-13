@@ -29,18 +29,6 @@
       tags:
         - monitor
 
-- name: Check if impatient mode should be used
-  when:
-    - portworx_impatient_mode
-    - portworx_pods_needing_upgrade | length > 0
-  block:
-    - name: Verify prerequisites for impatient mode
-      ansible.builtin.include_tasks:
-        file: impatient_mode.yml
-        apply:
-          tags:
-            - monitor
-
 - name: Record monitoring end time
   ansible.builtin.set_fact:
     portworx_monitoring_end_time: "{{ ansible_date_time.epoch }}"

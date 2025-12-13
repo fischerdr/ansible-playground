@@ -1,19 +1,147 @@
 ---
-# Detect stuck upgrade conditions and timeout scenarios
+# Detect stuck upgrade conditions with per-pod and global timeout checks
+# Includes impatient mode trigger for accelerating storageless pod upgrades
 
-- name: Calculate time since last activity
+- name: Calculate time since last progress
   ansible.builtin.set_fact:
     portworx_inactivity_duration: "{{ (ansible_date_time.epoch | int) - (portworx_last_activity_time | int) }}"
 
 - name: Log inactivity duration
   ansible.builtin.debug:
-    msg: "Time since last upgrade activity: {{ portworx_inactivity_duration }} seconds (timeout: {{ portworx_global_inactivity_timeout }})"
+    msg: "Time since last upgrade progress: {{ portworx_inactivity_duration }} seconds (global timeout: {{ portworx_global_inactivity_timeout }})"
   when:
     - portworx_detailed_logging
     - portworx_inactivity_duration | int > 300  # Log if over 5 minutes
 
-- name: Check for global inactivity timeout
-  when: portworx_inactivity_duration | int > portworx_global_inactivity_timeout | int
+# Per-pod timeout check - any pod stuck >15min in non-Running state is a failure
+- name: Check for pods stuck beyond per-pod timeout
+  when:
+    - portworx_pods_upgrading | length > 0 or portworx_pods_new_not_ready | length > 0
+  block:
+    - name: Check each upgrading pod creation time
+      ansible.builtin.set_fact:
+        portworx_stuck_pod_detected: "{{ portworx_stuck_pod_detected | default(false) or ((ansible_date_time.epoch | int) - (item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int)) > (portworx_pod_upgrade_timeout | int) }}"
+        portworx_stuck_pod_name: "{{ item.metadata.name if ((ansible_date_time.epoch | int) - (item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int)) > (portworx_pod_upgrade_timeout | int) else portworx_stuck_pod_name | default('') }}"
+        portworx_stuck_pod_age: "{{ ((ansible_date_time.epoch | int) - (item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int)) if ((ansible_date_time.epoch | int) - (item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int)) > (portworx_pod_upgrade_timeout | int) else portworx_stuck_pod_age | default(0) }}"
+      loop: "{{ portworx_pods_upgrading + portworx_pods_new_not_ready }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
+    - name: Fail if pod stuck beyond per-pod timeout
+      when: portworx_stuck_pod_detected | default(false)
+      block:
+        - name: Get diagnostic info for stuck pod
+          kubernetes.core.k8s_info:
+            kind: Pod
+            namespace: "{{ portworx_namespace }}"
+            label_selectors:
+              - "{{ portworx_pod_selector }}"
+          register: portworx_diagnostic_pods
+
+        - name: Fail due to per-pod timeout
+          ansible.builtin.fail:
+            msg: |
+              PER-POD TIMEOUT: Pod stuck and not reaching Running+Ready state
+
+              Stuck Pod: {{ portworx_stuck_pod_name }}
+              Age: {{ portworx_stuck_pod_age }} seconds ({{ (portworx_stuck_pod_age | int / 60) | round(1) }} minutes)
+              Per-pod timeout: {{ portworx_pod_upgrade_timeout }} seconds ({{ (portworx_pod_upgrade_timeout | int / 60) | round(1) }} minutes)
+
+              This indicates a problem with pod startup (image pull, node resources, etc.)
+              and requires troubleshooting before the upgrade can continue.
+
+              TROUBLESHOOTING:
+              1. Check pod details: oc describe pod {{ portworx_stuck_pod_name }} -n {{ portworx_namespace }}
+              2. Check pod events: oc get events --field-selector involvedObject.name={{ portworx_stuck_pod_name }} -n {{ portworx_namespace }}
+              3. Check node resources: oc describe node <node-name>
+              4. Check image pull status
+              5. Review pod logs if available
+
+# Impatient mode trigger - accelerate upgrade by batch-deleting storageless pods
+- name: Try impatient mode to accelerate upgrade
+  when:
+    - portworx_impatient_mode
+    - not (portworx_impatient_mode_used | default(false))  # Only use once
+    - portworx_inactivity_duration | int > (portworx_impatient_trigger_timeout | default(1200))  # 20 min default
+    - portworx_inactivity_duration | int < (portworx_global_inactivity_timeout | int)  # Before global timeout
+    - portworx_pods_with_old_image | length > 0
+  block:
+    - name: Log impatient mode trigger
+      ansible.builtin.debug:
+        msg:
+          - "IMPATIENT MODE TRIGGERED"
+          - "No progress for {{ portworx_inactivity_duration }} seconds"
+          - "Attempting to accelerate upgrade by batch-deleting storageless pods"
+
+    - name: Verify all storage nodes are upgraded
+      ansible.builtin.set_fact:
+        portworx_storage_pods_pending: >-
+          {{ portworx_pods_with_old_image |
+             selectattr('spec.nodeName', 'in', portworx_storage_node_names) |
+             list }}
+
+    - name: Check if safe to use impatient mode
+      ansible.builtin.assert:
+        that:
+          - portworx_storage_pods_pending | length == 0
+        fail_msg: |
+          Cannot use impatient mode - storage nodes still have pods on old version!
+          Storage pods pending: {{ portworx_storage_pods_pending | length }}
+          Impatient mode is ONLY for storageless pods.
+        success_msg: "All storage nodes upgraded - safe to accelerate storageless pods"
+
+    - name: Identify storageless pods for batch deletion
+      ansible.builtin.set_fact:
+        portworx_storageless_pods_to_delete: >-
+          {{ portworx_pods_with_old_image |
+             selectattr('spec.nodeName', 'in', portworx_storageless_node_names) |
+             list }}
+
+    - name: Execute impatient mode batch deletion
+      when: portworx_storageless_pods_to_delete | length > 0
+      block:
+        - name: Create deletion batch
+          ansible.builtin.set_fact:
+            portworx_impatient_batch: "{{ portworx_storageless_pods_to_delete[:portworx_impatient_batch_size | default(5)] }}"
+            portworx_impatient_batch_names: "{{ portworx_storageless_pods_to_delete[:portworx_impatient_batch_size | default(5)] | map(attribute='metadata.name') | list }}"
+
+        - name: Display batch deletion plan
+          ansible.builtin.debug:
+            msg:
+              - "Deleting {{ portworx_impatient_batch | length }} storageless pods to accelerate upgrade"
+              - "Pods: {{ portworx_impatient_batch_names | join(', ') }}"
+              - "Operator will recreate them with new image"
+
+        - name: Delete storageless pods in batch
+          kubernetes.core.k8s:
+            api_version: v1
+            kind: Pod
+            namespace: "{{ portworx_namespace }}"
+            name: "{{ item.metadata.name }}"
+            state: absent
+            wait: false
+          loop: "{{ portworx_impatient_batch }}"
+          loop_control:
+            label: "{{ item.metadata.name }}"
+
+        - name: Record impatient mode usage
+          ansible.builtin.set_fact:
+            portworx_impatient_mode_used: true
+            portworx_impatient_deleted_pods: "{{ portworx_impatient_batch_names }}"
+
+        - name: Wait for pods to begin deletion
+          ansible.builtin.pause:
+            seconds: 5
+
+        - name: Log impatient mode execution
+          ansible.builtin.debug:
+            msg:
+              - "Impatient mode executed - {{ portworx_impatient_batch | length }} pods deleted"
+              - "Continue monitoring for pod recreation and upgrade completion"
+
+# Global timeout check - no progress for 35+ minutes means upgrade is stuck
+- name: Check for global progress timeout
+  when: portworx_inactivity_duration | int > (portworx_global_inactivity_timeout | int)
   block:
     - name: Get current pod states for diagnostics
       kubernetes.core.k8s_info:
@@ -31,30 +159,37 @@
         namespace: "{{ portworx_namespace }}"
       register: portworx_stuck_stc
 
-    - name: Fail due to global inactivity timeout
+    - name: Fail due to global progress timeout
       ansible.builtin.fail:
         msg: |
-          UPGRADE TIMEOUT: No upgrade activity detected for {{ portworx_inactivity_duration }} seconds
+          GLOBAL TIMEOUT: No upgrade progress for {{ portworx_inactivity_duration }} seconds
 
-          Global inactivity timeout: {{ portworx_global_inactivity_timeout }} seconds ({{ (portworx_global_inactivity_timeout | int / 60) | round(1) }} minutes)
+          Global progress timeout: {{ portworx_global_inactivity_timeout }} seconds ({{ (portworx_global_inactivity_timeout | int / 60) | round(1) }} minutes)
 
-          Last activity time: {{ portworx_last_activity_time }}
+          Last progress time: {{ portworx_last_activity_time }}
           Current time: {{ ansible_date_time.epoch }}
 
           Current Status:
-          - Pods with new image (ready): {{ portworx_pods_with_new_image | length }}
+          - Pods upgraded (new image + ready): {{ portworx_pods_with_new_image | length }}
           - Pods with old image: {{ portworx_pods_with_old_image | length }}
           - Pods actively upgrading: {{ portworx_pods_upgrading | length }}
           - Pods new but not ready: {{ portworx_pods_new_not_ready | length }}
 
+          Impatient mode: {{ 'Used at least once' if portworx_impatient_mode_used | default(false) else 'Not triggered' }}
+
           Pods still needing upgrade:
           {% for pod in portworx_pods_with_old_image %}
-          - {{ pod.metadata.name }} (node: {{ pod.spec.nodeName }})
+          - {{ pod.metadata.name }} (node: {{ pod.spec.nodeName }}, phase: {{ pod.status.phase }})
           {% endfor %}
 
           Pods in upgrading state:
           {% for pod in portworx_pods_upgrading %}
-          - {{ pod.metadata.name }}: {{ pod.status.phase }}
+          - {{ pod.metadata.name }}: {{ pod.status.phase }} (age: {{ ((ansible_date_time.epoch | int) - (pod.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int)) }}s)
+          {% endfor %}
+
+          Pods new but not ready:
+          {% for pod in portworx_pods_new_not_ready %}
+          - {{ pod.metadata.name }}: {{ pod.status.phase }}, Ready={{ pod.status.conditions | selectattr('type', 'equalto', 'Ready') | map(attribute='status') | first | default('Unknown') }}
           {% endfor %}
 
           StorageCluster Update Status:
@@ -64,15 +199,16 @@
           1. Check operator logs: oc logs -n {{ portworx_namespace }} -l name=portworx-operator
           2. Check StorageCluster events: oc describe stc {{ portworx_stc_name }} -n {{ portworx_namespace }}
           3. Check if operator is running: oc get pods -n {{ portworx_namespace }} -l name=portworx-operator
-          4. Check for stuck pods: oc get pods -n {{ portworx_namespace }} -l {{ portworx_pod_selector }}
-          5. Review pxctl status from a running pod
+          4. Verify operator is processing updates
+          5. Check for stuck pods: oc get pods -n {{ portworx_namespace }} -l {{ portworx_pod_selector }}
+          6. Review pxctl status: oc exec -n {{ portworx_namespace }} <pod-name> -- /opt/pwx/bin/pxctl status
 
-- name: Warning for pods upgrading longer than expected
+- name: Warning for pods in upgrading state
   ansible.builtin.debug:
-    msg: "WARNING: Pod {{ item.metadata.name }} has been in {{ item.status.phase }} state. Monitor closely."
+    msg: "INFO: Pod {{ item.metadata.name }} in {{ item.status.phase }} phase for {{ ((ansible_date_time.epoch | int) - (item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int)) }} seconds"
   loop: "{{ portworx_pods_upgrading }}"
   loop_control:
     label: "{{ item.metadata.name }}"
   when:
-    - portworx_inactivity_duration | int > 900  # 15 minutes
     - portworx_detailed_logging
+    - portworx_inactivity_duration | int > 600  # Log after 10 minutes

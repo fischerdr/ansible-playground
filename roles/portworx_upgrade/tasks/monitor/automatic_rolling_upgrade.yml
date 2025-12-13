@@ -18,49 +18,18 @@
           - "{{ portworx_pod_selector }}"
       register: portworx_current_pods
 
-    - name: Initialize pod tracking lists
+    - name: Classify pods efficiently (single pass)
       ansible.builtin.set_fact:
-        portworx_pods_with_new_image: []
+        portworx_classified_pods: >-
+          {{ portworx_current_pods.resources |
+             classify_portworx_pods(portworx_target_version, portworx_active_upgrade_phases) }}
 
-    - name: Identify pods with new image that are ready
+    - name: Extract classification results
       ansible.builtin.set_fact:
-        portworx_pods_with_new_image: "{{ portworx_pods_with_new_image + [item] }}"
-      when:
-        - item.spec.containers is defined
-        - item.spec.containers.0.image is search(portworx_target_version)
-        - item.status.phase == 'Running'
-        - item.status.conditions is defined
-        - item.status.conditions | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length > 0
-      loop: "{{ portworx_current_pods.resources }}"
-      loop_control:
-        label: "{{ item.metadata.name }}"
-
-    - name: Analyze other pod statuses
-      ansible.builtin.set_fact:
-
-        portworx_pods_with_old_image: >-
-          {{ portworx_current_pods.resources |
-             selectattr('spec.containers', 'defined') |
-             rejectattr('spec.containers.0.image', 'search', portworx_target_version) |
-             list }}
-
-        portworx_pods_upgrading: >-
-          {{ portworx_current_pods.resources |
-             selectattr('status.phase', 'in', portworx_active_upgrade_phases) |
-             list }}
-
-        portworx_pods_new_not_ready: >-
-          {{ portworx_current_pods.resources |
-             selectattr('spec.containers', 'defined') |
-             selectattr('spec.containers.0.image', 'search', portworx_target_version) |
-             rejectattr('status.phase', 'equalto', 'Running') |
-             list +
-             portworx_current_pods.resources |
-             selectattr('spec.containers', 'defined') |
-             selectattr('spec.containers.0.image', 'search', portworx_target_version) |
-             selectattr('status.phase', 'equalto', 'Running') |
-             rejectattr('status.conditions', 'defined') |
-             list }}
+        portworx_pods_with_new_image: "{{ portworx_classified_pods.upgraded }}"
+        portworx_pods_with_old_image: "{{ portworx_classified_pods.old_image }}"
+        portworx_pods_upgrading: "{{ portworx_classified_pods.upgrading }}"
+        portworx_pods_new_not_ready: "{{ portworx_classified_pods.new_not_ready }}"
 
     - name: Display current upgrade status
       ansible.builtin.debug:

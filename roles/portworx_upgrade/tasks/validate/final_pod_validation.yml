@@ -16,19 +16,10 @@
          rejectattr('status.phase', 'equalto', 'Running') |
          list }}
 
-- name: Initialize not-ready pod list
+- name: Classify pods by readiness
   ansible.builtin.set_fact:
-    portworx_not_ready: []
-
-- name: Identify not-ready pods
-  ansible.builtin.set_fact:
-    portworx_not_ready: "{{ portworx_not_ready + [item] }}"
-  when: >-
-    item.status.conditions is undefined or
-    (item.status.conditions | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length == 0)
-  loop: "{{ portworx_final_pods.resources }}"
-  loop_control:
-    label: "{{ item.metadata.name }}"
+    portworx_final_pod_readiness: "{{ portworx_final_pods.resources | classify_pods_by_readiness }}"
+    portworx_not_ready: "{{ (portworx_final_pods.resources | classify_pods_by_readiness).not_ready }}"
 
 - name: Check all pods have new image version
   ansible.builtin.set_fact:

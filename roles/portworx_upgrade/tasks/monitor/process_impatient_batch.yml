@@ -46,22 +46,12 @@
              selectattr('spec.nodeName', 'in', portworx_current_batch | map(attribute='spec.nodeName') | list) |
              list }}
 
-    - name: Check batch recovery status
+    - name: Classify batch pods
       ansible.builtin.set_fact:
-        portworx_batch_recovered: []
-
-    - name: Check batch pod recovery status
-      ansible.builtin.set_fact:
-        portworx_batch_recovered: "{{ portworx_batch_recovered + [item] }}"
-      when:
-        - item.spec.containers is defined
-        - item.spec.containers.0.image is search(portworx_target_version)
-        - item.status.phase == 'Running'
-        - item.status.conditions is defined
-        - item.status.conditions | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length > 0
-      loop: "{{ portworx_batch_current_pods }}"
-      loop_control:
-        label: "{{ item.metadata.name }}"
+        portworx_batch_classified: >-
+          {{ portworx_batch_current_pods |
+             classify_portworx_pods(portworx_target_version, portworx_active_upgrade_phases) }}
+        portworx_batch_recovered: "{{ (portworx_batch_current_pods | classify_portworx_pods(portworx_target_version, portworx_active_upgrade_phases)).upgraded }}"
 
     - name: Update batch recovered count
       ansible.builtin.set_fact:

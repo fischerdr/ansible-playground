@@ -16,9 +16,12 @@
       "Bash(/development/git/ansible-playground/.venv/bin/isort:*)",
       "Bash(/development/git/ansible-playground/.venv/bin/flake8:*)",
       "Bash(/development/git/ansible-playground/.venv/bin/ansible-playbook:*)",
-      "Bash(/development/git/ansible-playground/.venv/bin/ansible-lint:*)"      
+      "Bash(/development/git/ansible-playground/.venv/bin/ansible-lint:*)",
+      "Bash(.venv/bin/ansible:*)"
     ],
     "deny": [],
-    "ask": []
+    "ask": [
+      "Bash(rm:*)"
+    ]
   }
 }

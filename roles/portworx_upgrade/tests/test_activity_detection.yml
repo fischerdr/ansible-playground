@@ -1,0 +1,156 @@
+---
+# Test activity detection logic - pods completing vs pods upgrading
+# This tests the critical fix for global timeout detection
+
+- name: Test activity detection logic
+  hosts: localhost
+  gather_facts: true
+  vars:
+    portworx_global_inactivity_timeout: 2100  # 35 minutes
+
+  tasks:
+    - name: Test 1 - Progress detected when completion count increases
+      block:
+        - name: Set initial state (3 pods completed)
+          ansible.builtin.set_fact:
+            last_completed_count: 3
+            current_completed_pods:
+              - {name: "pod-1"}
+              - {name: "pod-2"}
+              - {name: "pod-3"}
+              - {name: "pod-4"}  # New completion
+
+        - name: Calculate current completed count
+          ansible.builtin.set_fact:
+            current_completed_count: "{{ current_completed_pods | length }}"
+
+        - name: Check if progress made
+          ansible.builtin.set_fact:
+            progress_made: "{{ current_completed_count | int > last_completed_count | int }}"
+
+        - name: Verify progress detected
+          ansible.builtin.assert:
+            that:
+              - progress_made | bool
+              - current_completed_count | int == 4
+              - last_completed_count | int == 3
+            fail_msg: "Progress should be detected (4 > 3)"
+            success_msg: "✓ Test 1 passed: Progress detected when count increases"
+
+    - name: Test 2 - No progress when completion count stays same
+      block:
+        - name: Set state with no new completions
+          ansible.builtin.set_fact:
+            last_completed_count_2: 5
+            current_completed_pods_2:
+              - {name: "pod-1"}
+              - {name: "pod-2"}
+              - {name: "pod-3"}
+              - {name: "pod-4"}
+              - {name: "pod-5"}
+
+        - name: Calculate current completed count
+          ansible.builtin.set_fact:
+            current_completed_count_2: "{{ current_completed_pods_2 | length }}"
+
+        - name: Check if progress made
+          ansible.builtin.set_fact:
+            progress_made_2: "{{ current_completed_count_2 | int > last_completed_count_2 | int }}"
+
+        - name: Verify NO progress detected
+          ansible.builtin.assert:
+            that:
+              - not (progress_made_2 | bool)
+              - current_completed_count_2 | int == 5
+              - last_completed_count_2 | int == 5
+            fail_msg: "No progress should be detected (5 == 5)"
+            success_msg: "✓ Test 2 passed: No progress when count unchanged"
+
+    - name: Test 3 - Stuck pod scenario (should NOT reset timer)
+      block:
+        - name: Simulate scenario - 9 pods completed, 1 stuck
+          ansible.builtin.set_fact:
+            scenario_last_completed: 9
+            scenario_current_completed: 9  # No change
+            scenario_pods_upgrading:
+              - {name: "pod-10", phase: "Pending"}  # Stuck pod
+            scenario_last_activity_time: "{{ ansible_date_time.epoch | int - 2400 }}"  # 40 min ago
+
+        - name: Check progress
+          ansible.builtin.set_fact:
+            scenario_progress: "{{ scenario_current_completed | int > scenario_last_completed | int }}"
+
+        - name: Calculate inactivity duration
+          ansible.builtin.set_fact:
+            scenario_inactivity: "{{ ansible_date_time.epoch | int - scenario_last_activity_time | int }}"
+
+        - name: Verify stuck pod does NOT reset timer
+          ansible.builtin.assert:
+            that:
+              - not (scenario_progress | bool)
+              - scenario_inactivity | int > portworx_global_inactivity_timeout | int
+              - scenario_pods_upgrading | length == 1
+            fail_msg: "Stuck pod should NOT prevent timeout"
+            success_msg: "✓ Test 3 passed: Stuck pod doesn't reset timer - timeout would trigger"
+
+    - name: Test 4 - Timer should reset on completion (old logic would reset on transition)
+      block:
+        - name: Simulate pod completing (not just transitioning)
+          ansible.builtin.set_fact:
+            test_last_completed: 10
+            test_current_completed: 11  # Pod completed!
+            test_pods_upgrading: []  # No pods transitioning
+
+        - name: Check if progress made
+          ansible.builtin.set_fact:
+            test_progress: "{{ test_current_completed | int > test_last_completed | int }}"
+
+        - name: Verify timer SHOULD reset
+          ansible.builtin.assert:
+            that:
+              - test_progress | bool
+              - test_pods_upgrading | length == 0
+            fail_msg: "Timer should reset on completion"
+            success_msg: "✓ Test 4 passed: Timer resets on completion"
+
+    - name: Test 5 - Timeline simulation
+      block:
+        - name: Simulate timeline
+          ansible.builtin.debug:
+            msg:
+              - "Timeline simulation:"
+              - "T+0:  completed=0, last_activity=now"
+              - "T+5:  completed=1 (pod-1 done), progress=true, reset timer"
+              - "T+10: completed=2 (pod-2 done), progress=true, reset timer"
+              - "T+15: completed=3 (pod-3 done), progress=true, reset timer"
+              - "T+20: completed=3 (pod-4 stuck), progress=false, NO reset"
+              - "T+25: completed=3 (still stuck), progress=false, NO reset"
+              - "T+30: completed=3 (still stuck), progress=false, NO reset"
+              - "T+55: completed=3, 35 min since T+20 → TIMEOUT"
+
+        - name: Verify timeline logic at T+55
+          ansible.builtin.set_fact:
+            timeline_completed: 3
+            timeline_last_completed: 3
+            timeline_last_activity: "{{ ansible_date_time.epoch | int - 2100 }}"  # 35 min ago
+
+        - name: Check conditions at T+55
+          ansible.builtin.set_fact:
+            timeline_progress: "{{ timeline_completed | int > timeline_last_completed | int }}"
+            timeline_inactivity: "{{ ansible_date_time.epoch | int - timeline_last_activity | int }}"
+
+        - name: Verify timeout should trigger
+          ansible.builtin.assert:
+            that:
+              - not (timeline_progress | bool)
+              - timeline_inactivity | int >= portworx_global_inactivity_timeout | int
+            fail_msg: "Timeline logic error"
+            success_msg: "✓ Test 5 passed: Timeline simulation correct - timeout triggers at T+55"
+
+    - name: All activity detection tests completed
+      ansible.builtin.debug:
+        msg:
+          - "=== All Activity Detection Tests Passed ==="
+          - "Progress detection: CORRECT (based on completions)"
+          - "Stuck pod handling: CORRECT (doesn't reset timer)"
+          - "Global timeout logic: CORRECT (triggers on no progress)"

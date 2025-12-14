@@ -1,0 +1,61 @@
+---
+# Debug validate_nodes.yml Jinja2 logic
+
+- name: Debug node validation logic
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Create mock data - healthy nodes
+      ansible.builtin.set_fact:
+        portworx_node_names: ["node-1", "node-2", "node-3"]
+        portworx_all_nodes:
+          resources:
+            - metadata:
+                name: "node-1"
+              status:
+                conditions:
+                  - type: "Ready"
+                    status: "True"
+              spec: {}
+            - metadata:
+                name: "node-2"
+              status:
+                conditions:
+                  - type: "Ready"
+                    status: "True"
+              spec: {}
+            - metadata:
+                name: "node-3"
+              status:
+                conditions:
+                  - type: "Ready"
+                    status: "True"
+              spec: {}
+
+    - name: Run node issue detection logic
+      ansible.builtin.set_fact:
+        portworx_node_issues: >-
+          {% set issues = [] %}
+          {% for node_name in portworx_node_names %}
+            {% set node = portworx_all_nodes.resources | selectattr('metadata.name', 'equalto', node_name) | first | default(none) %}
+            {% if node %}
+              {# Check if node is Ready #}
+              {% set ready_condition = node.status.conditions | selectattr('type', 'equalto', 'Ready') | first | default(none) %}
+              {% if not ready_condition or ready_condition.status != 'True' %}
+                {% set _ = issues.append({'node': node_name, 'issue': 'Not Ready', 'status': ready_condition.status | default('Unknown')}) %}
+              {% endif %}
+              {# Check if node is schedulable (not cordoned) #}
+              {% if node.spec.unschedulable | default(false) %}
+                {% set _ = issues.append({'node': node_name, 'issue': 'Unschedulable (cordoned)', 'status': 'SchedulingDisabled'}) %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+          {{ issues }}
+
+    - name: Debug output
+      ansible.builtin.debug:
+        msg:
+          - "portworx_node_issues type: {{ portworx_node_issues | type_debug }}"
+          - "portworx_node_issues length: {{ portworx_node_issues | length }}"
+          - "portworx_node_issues content: {{ portworx_node_issues }}"

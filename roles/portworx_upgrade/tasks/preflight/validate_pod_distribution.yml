@@ -1,0 +1,33 @@
+---
+# Validate pod distribution and storage configuration
+# Storage vs storageless pods are identified by pod labels, NOT node labels
+# This task runs AFTER validate_pods.yml which fetches portworx_pods
+
+- name: Count storage and storageless pods
+  ansible.builtin.set_fact:
+    portworx_storage_pods: >-
+      {{ portworx_pods.resources |
+         selectattr('metadata.labels.storage', 'defined') |
+         list }}
+    portworx_storageless_pods: >-
+      {{ portworx_pods.resources |
+         rejectattr('metadata.labels.storage', 'defined') |
+         list }}
+
+- name: Display pod distribution
+  ansible.builtin.debug:
+    msg:
+      - "Storage pods (with storage='true' label): {{ portworx_storage_pods | length }}"
+      - "Storageless pods (without storage label): {{ portworx_storageless_pods | length }}"
+      - "Total pods: {{ portworx_pods.resources | length }}"
+
+- name: Validate minimum storage pods
+  ansible.builtin.assert:
+    that:
+      - portworx_storage_pods | length >= 3
+    fail_msg: "Minimum 3 storage pods required, found {{ portworx_storage_pods | length }}"
+    success_msg: "Storage pod count validated: {{ portworx_storage_pods | length }}"
+
+- name: Pod distribution validation complete
+  ansible.builtin.debug:
+    msg: "Pod distribution validated successfully"

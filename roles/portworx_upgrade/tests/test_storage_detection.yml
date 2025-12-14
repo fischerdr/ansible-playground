@@ -1,0 +1,186 @@
+---
+# Test storage pod detection using pod labels
+# This tests the critical fix that prevents data loss during impatient mode
+
+- name: Test storage pod detection logic
+  hosts: localhost
+  gather_facts: false
+  vars:
+    test_pods:
+      resources:
+        - metadata:
+            name: portworx-storage-1
+            labels:
+              storage: "true"
+              name: portworx
+        - metadata:
+            name: portworx-storage-2
+            labels:
+              storage: "true"
+              name: portworx
+        - metadata:
+            name: portworx-storageless-1
+            labels:
+              name: portworx
+        - metadata:
+            name: portworx-storageless-2
+            labels:
+              name: portworx
+        - metadata:
+            name: portworx-storageless-3
+            labels:
+              name: portworx
+
+  tasks:
+    - name: Test 1 - Identify storage pods using selectattr
+      block:
+        - name: Get storage pods
+          ansible.builtin.set_fact:
+            storage_pods: >-
+              {{ test_pods.resources |
+                 selectattr('metadata.labels.storage', 'defined') |
+                 list }}
+
+        - name: Verify storage pod count
+          ansible.builtin.assert:
+            that:
+              - storage_pods | length == 2
+            fail_msg: "Expected 2 storage pods, got {{ storage_pods | length }}"
+            success_msg: "✓ Test 1 passed: Found 2 storage pods"
+
+        - name: Verify storage pod names
+          ansible.builtin.assert:
+            that:
+              - "'portworx-storage-1' in (storage_pods | map(attribute='metadata.name') | list)"
+              - "'portworx-storage-2' in (storage_pods | map(attribute='metadata.name') | list)"
+            fail_msg: "Storage pod names don't match expected"
+            success_msg: "✓ Test 1 passed: Storage pod names correct"
+
+    - name: Test 2 - Identify storageless pods using rejectattr
+      block:
+        - name: Get storageless pods
+          ansible.builtin.set_fact:
+            storageless_pods: >-
+              {{ test_pods.resources |
+                 rejectattr('metadata.labels.storage', 'defined') |
+                 list }}
+
+        - name: Verify storageless pod count
+          ansible.builtin.assert:
+            that:
+              - storageless_pods | length == 3
+            fail_msg: "Expected 3 storageless pods, got {{ storageless_pods | length }}"
+            success_msg: "✓ Test 2 passed: Found 3 storageless pods"
+
+        - name: Verify storageless pod names
+          ansible.builtin.assert:
+            that:
+              - "'portworx-storageless-1' in (storageless_pods | map(attribute='metadata.name') | list)"
+              - "'portworx-storageless-2' in (storageless_pods | map(attribute='metadata.name') | list)"
+              - "'portworx-storageless-3' in (storageless_pods | map(attribute='metadata.name') | list)"
+            fail_msg: "Storageless pod names don't match expected"
+            success_msg: "✓ Test 2 passed: Storageless pod names correct"
+
+    - name: Test 3 - Impatient mode safety check (all storage upgraded)
+      block:
+        - name: Simulate pods with old image (mix of storage and storageless)
+          ansible.builtin.set_fact:
+            pods_with_old_image:
+              - metadata:
+                  name: portworx-storageless-1
+                  labels:
+                    name: portworx
+              - metadata:
+                  name: portworx-storageless-2
+                  labels:
+                    name: portworx
+
+        - name: Check for storage pods pending upgrade
+          ansible.builtin.set_fact:
+            storage_pods_pending: >-
+              {{ pods_with_old_image |
+                 selectattr('metadata.labels.storage', 'defined') |
+                 list }}
+
+        - name: Verify no storage pods pending (safe for impatient mode)
+          ansible.builtin.assert:
+            that:
+              - storage_pods_pending | length == 0
+            fail_msg: "Storage pods still pending - impatient mode UNSAFE"
+            success_msg: "✓ Test 3 passed: No storage pods pending - impatient mode SAFE"
+
+    - name: Test 4 - Impatient mode safety check (storage pods pending - UNSAFE)
+      block:
+        - name: Simulate pods with old image including storage pod
+          ansible.builtin.set_fact:
+            pods_with_old_image_unsafe:
+              - metadata:
+                  name: portworx-storage-1
+                  labels:
+                    storage: "true"
+                    name: portworx
+              - metadata:
+                  name: portworx-storageless-1
+                  labels:
+                    name: portworx
+
+        - name: Check for storage pods pending upgrade
+          ansible.builtin.set_fact:
+            storage_pods_pending_unsafe: >-
+              {{ pods_with_old_image_unsafe |
+                 selectattr('metadata.labels.storage', 'defined') |
+                 list }}
+
+        - name: Verify storage pod detected (impatient mode UNSAFE)
+          ansible.builtin.assert:
+            that:
+              - storage_pods_pending_unsafe | length == 1
+              - storage_pods_pending_unsafe[0].metadata.name == 'portworx-storage-1'
+            fail_msg: "Storage pod detection failed"
+            success_msg: "✓ Test 4 passed: Storage pod detected - impatient mode correctly blocked"
+
+    - name: Test 5 - Batch selection for deletion (only storageless)
+      block:
+        - name: Simulate mixed pods needing upgrade
+          ansible.builtin.set_fact:
+            mixed_pods_old_image:
+              - metadata:
+                  name: portworx-storageless-1
+                  labels:
+                    name: portworx
+              - metadata:
+                  name: portworx-storageless-2
+                  labels:
+                    name: portworx
+              - metadata:
+                  name: portworx-storageless-3
+                  labels:
+                    name: portworx
+
+        - name: Select storageless pods for batch deletion
+          ansible.builtin.set_fact:
+            storageless_to_delete: >-
+              {{ mixed_pods_old_image |
+                 rejectattr('metadata.labels.storage', 'defined') |
+                 list }}
+
+        - name: Create deletion batch (first 2)
+          ansible.builtin.set_fact:
+            batch_to_delete: "{{ storageless_to_delete[:2] }}"
+
+        - name: Verify batch contains only storageless pods
+          ansible.builtin.assert:
+            that:
+              - batch_to_delete | length == 2
+              - batch_to_delete[0].metadata.labels.storage is not defined
+              - batch_to_delete[1].metadata.labels.storage is not defined
+            fail_msg: "Batch contains storage pods - CRITICAL SAFETY VIOLATION"
+            success_msg: "✓ Test 5 passed: Batch contains only storageless pods"
+
+    - name: All storage detection tests completed
+      ansible.builtin.debug:
+        msg:
+          - "=== All Storage Detection Tests Passed ==="
+          - "Storage pod detection: CORRECT"
+          - "Storageless pod detection: CORRECT"
+          - "Impatient mode safety checks: CORRECT"

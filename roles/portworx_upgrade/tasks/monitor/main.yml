@@ -11,6 +11,7 @@
     portworx_pods_upgraded: []
     portworx_pods_needing_upgrade: []
     portworx_currently_upgrading: []
+    portworx_last_completed_count: 0  # Track completions for progress detection
 
 - name: Determine upgrade strategy
   ansible.builtin.debug:

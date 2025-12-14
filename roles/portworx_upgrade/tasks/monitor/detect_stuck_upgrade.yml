@@ -20,9 +20,9 @@
   block:
     - name: Check each upgrading pod creation time
       ansible.builtin.set_fact:
-        portworx_stuck_pod_detected: "{{ portworx_stuck_pod_detected | default(false) or ((ansible_date_time.epoch | int) - (item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int)) > (portworx_pod_upgrade_timeout | int) }}"
-        portworx_stuck_pod_name: "{{ item.metadata.name if ((ansible_date_time.epoch | int) - (item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int)) > (portworx_pod_upgrade_timeout | int) else portworx_stuck_pod_name | default('') }}"
-        portworx_stuck_pod_age: "{{ ((ansible_date_time.epoch | int) - (item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int)) if ((ansible_date_time.epoch | int) - (item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int)) > (portworx_pod_upgrade_timeout | int) else portworx_stuck_pod_age | default(0) }}"
+        portworx_stuck_pod_detected: "{{ portworx_stuck_pod_detected | default(false) or ((ansible_date_time.epoch | int) - ((item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) > (portworx_pod_upgrade_timeout | int) }}"
+        portworx_stuck_pod_name: "{{ item.metadata.name if ((ansible_date_time.epoch | int) - ((item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) > (portworx_pod_upgrade_timeout | int) else portworx_stuck_pod_name | default('') }}"
+        portworx_stuck_pod_age: "{{ ((ansible_date_time.epoch | int) - ((item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) if ((ansible_date_time.epoch | int) - ((item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) > (portworx_pod_upgrade_timeout | int) else portworx_stuck_pod_age | default(0) }}"
       loop: "{{ portworx_pods_upgrading + portworx_pods_new_not_ready }}"
       loop_control:
         label: "{{ item.metadata.name }}"
@@ -57,27 +57,26 @@
               4. Check image pull status
               5. Review pod logs if available
 
-# Impatient mode trigger - accelerate upgrade by batch-deleting storageless pods
-- name: Try impatient mode to accelerate upgrade
+# Impatient mode - user-controlled batch deletion of storageless pods to accelerate upgrade
+# WARNING: Can cause cluster failure if safety checks are not met
+# Runs MULTIPLE times during upgrade until all storageless pods are upgraded
+- name: Execute impatient mode if enabled by user
   when:
     - portworx_impatient_mode
-    - not (portworx_impatient_mode_used | default(false))  # Only use once
-    - portworx_inactivity_duration | int > (portworx_impatient_trigger_timeout | default(1200))  # 20 min default
-    - portworx_inactivity_duration | int < (portworx_global_inactivity_timeout | int)  # Before global timeout
-    - portworx_pods_with_old_image | length > 0
+    - portworx_pods_with_old_image | length > 0  # Work remaining
   block:
-    - name: Log impatient mode trigger
+    - name: Log impatient mode activation
       ansible.builtin.debug:
         msg:
-          - "IMPATIENT MODE TRIGGERED"
-          - "No progress for {{ portworx_inactivity_duration }} seconds"
+          - "IMPATIENT MODE ACTIVATED (user-controlled)"
           - "Attempting to accelerate upgrade by batch-deleting storageless pods"
+          - "WARNING: This bypasses operator's serial upgrade - ensure safety checks pass"
 
-    - name: Verify all storage nodes are upgraded
+    - name: Verify all storage pods are upgraded
       ansible.builtin.set_fact:
         portworx_storage_pods_pending: >-
           {{ portworx_pods_with_old_image |
-             selectattr('spec.nodeName', 'in', portworx_storage_node_names) |
+             selectattr('metadata.labels.storage', 'defined') |
              list }}
 
     - name: Check if safe to use impatient mode
@@ -85,20 +84,21 @@
         that:
           - portworx_storage_pods_pending | length == 0
         fail_msg: |
-          Cannot use impatient mode - storage nodes still have pods on old version!
+          Cannot use impatient mode - storage pods still on old version!
           Storage pods pending: {{ portworx_storage_pods_pending | length }}
-          Impatient mode is ONLY for storageless pods.
-        success_msg: "All storage nodes upgraded - safe to accelerate storageless pods"
+          Impatient mode is ONLY for storageless pods (pods WITHOUT storage="true" label).
+          All storage pods MUST be upgraded first to prevent data loss.
+        success_msg: "All storage pods upgraded - safe to accelerate storageless pods"
 
     - name: Identify storageless pods for batch deletion
       ansible.builtin.set_fact:
         portworx_storageless_pods_to_delete: >-
           {{ portworx_pods_with_old_image |
-             selectattr('spec.nodeName', 'in', portworx_storageless_node_names) |
+             rejectattr('metadata.labels.storage', 'defined') |
              list }}
 
     - name: Execute impatient mode batch deletion
-      when: portworx_storageless_pods_to_delete | length > 0
+      when: portworx_storageless_pods_to_delete | length > 0  # Only if storageless pods remain
       block:
         - name: Create deletion batch
           ansible.builtin.set_fact:
@@ -124,20 +124,55 @@
           loop_control:
             label: "{{ item.metadata.name }}"
 
-        - name: Record impatient mode usage
+        - name: Record deleted pod nodes for tracking
           ansible.builtin.set_fact:
-            portworx_impatient_mode_used: true
-            portworx_impatient_deleted_pods: "{{ portworx_impatient_batch_names }}"
+            portworx_impatient_deleted_pod_nodes: "{{ portworx_impatient_batch | map(attribute='spec.nodeName') | list }}"
+            portworx_impatient_batch_count: "{{ (portworx_impatient_batch_count | default(0) | int) + 1 }}"
 
         - name: Wait for pods to begin deletion
           ansible.builtin.pause:
-            seconds: 5
+            seconds: 10
 
-        - name: Log impatient mode execution
+        - name: Wait for operator to recreate pods on affected nodes
           ansible.builtin.debug:
             msg:
-              - "Impatient mode executed - {{ portworx_impatient_batch | length }} pods deleted"
-              - "Continue monitoring for pod recreation and upgrade completion"
+              - "Waiting for operator to recreate {{ portworx_impatient_batch | length }} deleted pods"
+              - "Affected nodes: {{ portworx_impatient_deleted_pod_nodes | join(', ') }}"
+              - "Normal monitoring will track when recreated pods reach Running+Ready"
+
+        - name: Verify pods are being recreated
+          block:
+            - name: Get current pods after deletion
+              kubernetes.core.k8s_info:
+                kind: Pod
+                namespace: "{{ portworx_namespace }}"
+                label_selectors:
+                  - "{{ portworx_pod_selector }}"
+              register: portworx_pods_after_deletion
+
+            - name: Check for new pods on affected nodes
+              ansible.builtin.set_fact:
+                portworx_recreated_pods: >-
+                  {{ portworx_pods_after_deletion.resources |
+                     selectattr('spec.nodeName', 'in', portworx_impatient_deleted_pod_nodes) |
+                     list }}
+
+            - name: Log recreation status
+              ansible.builtin.debug:
+                msg:
+                  - "Pods on affected nodes after deletion: {{ portworx_recreated_pods | length }}"
+                  - "Expected: {{ portworx_impatient_deleted_pod_nodes | length }}"
+                  - "Operator will recreate missing pods with new image"
+
+        - name: Log impatient mode batch completion
+          ansible.builtin.debug:
+            msg:
+              - "Impatient mode batch {{ portworx_impatient_batch_count }} completed"
+              - "Deleted {{ portworx_impatient_batch | length }} storageless pods"
+              - "Remaining storageless pods with old image: {{ (portworx_pods_with_old_image | rejectattr('metadata.labels.storage', 'defined') | list | length) - (portworx_impatient_batch | length) }}"
+              - "Continue normal monitoring - deleted pods will be tracked as they recreate and upgrade"
+              - "Per-pod timeout ({{ portworx_pod_upgrade_timeout }}s) applies to recreated pods"
+              - "Will attempt next batch if storageless pods with old image still exist on next cycle"
 
 # Global timeout check - no progress for 35+ minutes means upgrade is stuck
 - name: Check for global progress timeout
@@ -175,7 +210,7 @@
           - Pods actively upgrading: {{ portworx_pods_upgrading | length }}
           - Pods new but not ready: {{ portworx_pods_new_not_ready | length }}
 
-          Impatient mode: {{ 'Used at least once' if portworx_impatient_mode_used | default(false) else 'Not triggered' }}
+          Impatient mode: {{ ('Executed ' + (portworx_impatient_batch_count | default(0) | string) + ' batches') if portworx_impatient_batch_count | default(0) > 0 else 'Not executed' }}
 
           Pods still needing upgrade:
           {% for pod in portworx_pods_with_old_image %}

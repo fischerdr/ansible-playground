@@ -14,6 +14,9 @@
 - name: Include pod health validation
   ansible.builtin.import_tasks: validate_pods.yml
 
+- name: Include pod distribution validation
+  ansible.builtin.import_tasks: validate_pod_distribution.yml
+
 - name: Include cluster status validation
   ansible.builtin.import_tasks: validate_cluster_status.yml
 

@@ -41,16 +41,27 @@
           - "  Pods new but not ready: {{ portworx_pods_new_not_ready | length }}"
       when: portworx_detailed_logging
 
-    - name: Check for upgrade activity
+    - name: Check for upgrade progress (pods completing)
       ansible.builtin.set_fact:
-        portworx_activity_detected: >-
-          {{ (portworx_pods_upgrading | length > 0) or
-             (portworx_pods_new_not_ready | length > 0) }}
+        portworx_current_completed_count: "{{ portworx_pods_with_new_image | length }}"
+        portworx_progress_made: >-
+          {{ portworx_pods_with_new_image | length > (portworx_last_completed_count | default(0)) }}
 
-    - name: Update last activity time if activity detected
+    - name: Update last activity time if pods completed
       ansible.builtin.set_fact:
         portworx_last_activity_time: "{{ ansible_date_time.epoch }}"
-      when: portworx_activity_detected
+        portworx_last_completed_count: "{{ portworx_current_completed_count }}"
+      when: portworx_progress_made
+
+    - name: Log progress details
+      ansible.builtin.debug:
+        msg:
+          - "Progress check:"
+          - "  Pods completed this cycle: {{ portworx_current_completed_count }}"
+          - "  Pods completed last cycle: {{ portworx_last_completed_count | default(0) }}"
+          - "  Progress made: {{ portworx_progress_made }}"
+          - "  Time since last progress: {{ (ansible_date_time.epoch | int) - (portworx_last_activity_time | int) }} seconds"
+      when: portworx_detailed_logging
 
     - name: Log newly completed pods
       ansible.builtin.debug:

@@ -1,0 +1,126 @@
+---
+# Test per-pod timeout logic from detect_stuck_upgrade.yml lines 17-28
+# This tests the complex loop that checks pod creation timestamps
+
+- name: Test per-pod timeout detection logic
+  hosts: localhost
+  gather_facts: true
+  vars:
+    portworx_pod_upgrade_timeout: 900  # 15 minutes
+
+  tasks:
+    - name: Test 1 - Pod within timeout (should NOT be detected as stuck)
+      block:
+        - name: Create mock pod (5 minutes old)
+          ansible.builtin.set_fact:
+            test_pods_upgrading:
+              - metadata:
+                  name: "portworx-abc123"
+                  creationTimestamp: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - 300) }}"
+                status:
+                  phase: "Pending"
+
+        - name: Check each upgrading pod creation time (simulate detect_stuck_upgrade.yml logic)
+          ansible.builtin.set_fact:
+            stuck_pod_detected: "{{ stuck_pod_detected | default(false) or ((ansible_date_time.epoch | int) - ((item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) > (portworx_pod_upgrade_timeout | int) }}"
+            stuck_pod_name: "{{ item.metadata.name if ((ansible_date_time.epoch | int) - ((item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) > (portworx_pod_upgrade_timeout | int) else stuck_pod_name | default('') }}"
+            stuck_pod_age: "{{ ((ansible_date_time.epoch | int) - ((item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) if ((ansible_date_time.epoch | int) - ((item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) > (portworx_pod_upgrade_timeout | int) else stuck_pod_age | default(0) }}"
+          loop: "{{ test_pods_upgrading }}"
+          loop_control:
+            label: "{{ item.metadata.name }}"
+
+        - name: Verify pod NOT detected as stuck
+          ansible.builtin.assert:
+            that:
+              - not (stuck_pod_detected | default(false) | bool)
+            fail_msg: "Pod should NOT be stuck (5 min < 15 min timeout)"
+            success_msg: "✓ Test 1 passed: Pod within timeout not flagged"
+
+    - name: Test 2 - Pod exceeds timeout (should be detected as stuck)
+      block:
+        - name: Reset detection vars
+          ansible.builtin.set_fact:
+            stuck_pod_detected_2: false
+            stuck_pod_name_2: ""
+            stuck_pod_age_2: 0
+
+        - name: Create mock pod (20 minutes old - exceeds 15 min timeout)
+          ansible.builtin.set_fact:
+            test_pods_stuck:
+              - metadata:
+                  name: "portworx-def456"
+                  creationTimestamp: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - 1200) }}"
+                status:
+                  phase: "Pending"
+
+        - name: Check pod creation time
+          ansible.builtin.set_fact:
+            stuck_pod_detected_2: "{{ stuck_pod_detected_2 | default(false) or ((ansible_date_time.epoch | int) - ((item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) > (portworx_pod_upgrade_timeout | int) }}"
+            stuck_pod_name_2: "{{ item.metadata.name if ((ansible_date_time.epoch | int) - ((item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) > (portworx_pod_upgrade_timeout | int) else stuck_pod_name_2 | default('') }}"
+            stuck_pod_age_2: "{{ ((ansible_date_time.epoch | int) - ((item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) if ((ansible_date_time.epoch | int) - ((item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) > (portworx_pod_upgrade_timeout | int) else stuck_pod_age_2 | default(0) }}"
+          loop: "{{ test_pods_stuck }}"
+          loop_control:
+            label: "{{ item.metadata.name }}"
+
+        - name: Verify pod detected as stuck
+          ansible.builtin.assert:
+            that:
+              - stuck_pod_detected_2 | bool
+              - stuck_pod_name_2 == 'portworx-def456'
+              - stuck_pod_age_2 | int >= 1200
+            fail_msg: "Pod should be stuck (20 min > 15 min timeout)"
+            success_msg: "✓ Test 2 passed: Pod exceeding timeout flagged correctly"
+
+    - name: Test 3 - Multiple pods, one stuck
+      block:
+        - name: Reset vars
+          ansible.builtin.set_fact:
+            stuck_detected_multi: false
+            stuck_name_multi: ""
+            stuck_age_multi: 0
+
+        - name: Create mix of pods
+          ansible.builtin.set_fact:
+            test_pods_mixed:
+              - metadata:
+                  name: "portworx-ok-1"
+                  creationTimestamp: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - 300) }}"  # 5 min
+                status:
+                  phase: "Pending"
+              - metadata:
+                  name: "portworx-ok-2"
+                  creationTimestamp: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - 600) }}"  # 10 min
+                status:
+                  phase: "ContainerCreating"
+              - metadata:
+                  name: "portworx-stuck-1"
+                  creationTimestamp: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - 1800) }}"  # 30 min - STUCK!
+                status:
+                  phase: "Pending"
+
+        - name: Check all pods
+          ansible.builtin.set_fact:
+            stuck_detected_multi: "{{ stuck_detected_multi | default(false) or ((ansible_date_time.epoch | int) - ((item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) > (portworx_pod_upgrade_timeout | int) }}"
+            stuck_name_multi: "{{ item.metadata.name if ((ansible_date_time.epoch | int) - ((item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) > (portworx_pod_upgrade_timeout | int) else stuck_name_multi | default('') }}"
+            stuck_age_multi: "{{ ((ansible_date_time.epoch | int) - ((item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) if ((ansible_date_time.epoch | int) - ((item.metadata.creationTimestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int)) > (portworx_pod_upgrade_timeout | int) else stuck_age_multi | default(0) }}"
+          loop: "{{ test_pods_mixed }}"
+          loop_control:
+            label: "{{ item.metadata.name }}"
+
+        - name: Verify stuck pod detected in mixed scenario
+          ansible.builtin.assert:
+            that:
+              - stuck_detected_multi | bool
+              - stuck_name_multi == 'portworx-stuck-1'
+              - stuck_age_multi | int >= 1800
+            fail_msg: "Should detect portworx-stuck-1 (30 min old)"
+            success_msg: "✓ Test 3 passed: Stuck pod detected among multiple pods"
+
+    - name: All per-pod timeout tests completed
+      ansible.builtin.debug:
+        msg:
+          - "=== All Per-Pod Timeout Tests Passed ==="
+          - "Pod age calculation: CORRECT"
+          - "Timeout comparison: CORRECT"
+          - "Stuck pod detection: CORRECT"
+          - "Logic from detect_stuck_upgrade.yml lines 17-28: VALIDATED"

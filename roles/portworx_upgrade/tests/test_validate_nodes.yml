@@ -1,0 +1,347 @@
+---
+# Test validate_nodes.yml logic (lines 26-45)
+# Tests the Jinja2 template that builds portworx_node_issues list
+
+- name: Test validate_nodes.yml Jinja2 logic
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Test 1 - All nodes healthy (Ready=True, schedulable)
+      block:
+        - name: Create mock data - healthy nodes
+          ansible.builtin.set_fact:
+            portworx_node_names: ["node-1", "node-2", "node-3"]
+            portworx_all_nodes:
+              resources:
+                - metadata:
+                    name: "node-1"
+                  status:
+                    conditions:
+                      - type: "Ready"
+                        status: "True"
+                  spec: {}
+                - metadata:
+                    name: "node-2"
+                  status:
+                    conditions:
+                      - type: "Ready"
+                        status: "True"
+                  spec: {}
+                - metadata:
+                    name: "node-3"
+                  status:
+                    conditions:
+                      - type: "Ready"
+                        status: "True"
+                  spec: {}
+
+        - name: Run node issue detection logic
+          ansible.builtin.set_fact:
+            portworx_node_issues: "{{ portworx_node_issues_str | from_yaml }}"
+          vars:
+            portworx_node_issues_str: >-
+              {% set issues = [] %}
+              {% for node_name in portworx_node_names %}
+                {% set node = portworx_all_nodes.resources | selectattr('metadata.name', 'equalto', node_name) | first | default(none) %}
+                {% if node %}
+                  {# Check if node is Ready #}
+                  {% set ready_condition = node.status.conditions | selectattr('type', 'equalto', 'Ready') | first | default(none) %}
+                  {% if not ready_condition or ready_condition.status != 'True' %}
+                    {% set _ = issues.append({'node': node_name, 'issue': 'Not Ready', 'status': ready_condition.status | default('Unknown')}) %}
+                  {% endif %}
+                  {# Check if node is schedulable (not cordoned) #}
+                  {% if node.spec.unschedulable | default(false) %}
+                    {% set _ = issues.append({'node': node_name, 'issue': 'Unschedulable (cordoned)', 'status': 'SchedulingDisabled'}) %}
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+              {{ issues }}
+
+        - name: Verify no issues detected
+          ansible.builtin.assert:
+            that:
+              - portworx_node_issues | length == 0
+            fail_msg: "Should detect 0 issues, found {{ portworx_node_issues | length }}"
+            success_msg: "Test 1 passed: All healthy nodes correctly validated"
+
+    - name: Test 2 - Node with Ready=False
+      block:
+        - name: Create mock data - one not-ready node
+          ansible.builtin.set_fact:
+            portworx_node_names_test2: ["node-healthy", "node-not-ready"]
+            portworx_all_nodes_test2:
+              resources:
+                - metadata:
+                    name: "node-healthy"
+                  status:
+                    conditions:
+                      - type: "Ready"
+                        status: "True"
+                  spec: {}
+                - metadata:
+                    name: "node-not-ready"
+                  status:
+                    conditions:
+                      - type: "Ready"
+                        status: "False"
+                  spec: {}
+
+        - name: Run detection logic
+          ansible.builtin.set_fact:
+            portworx_node_issues_test2: "{{ portworx_node_issues_str2 | from_yaml }}"
+          vars:
+            portworx_node_issues_str2: >-
+              {% set issues = [] %}
+              {% for node_name in portworx_node_names_test2 %}
+                {% set node = portworx_all_nodes_test2.resources | selectattr('metadata.name', 'equalto', node_name) | first | default(none) %}
+                {% if node %}
+                  {% set ready_condition = node.status.conditions | selectattr('type', 'equalto', 'Ready') | first | default(none) %}
+                  {% if not ready_condition or ready_condition.status != 'True' %}
+                    {% set _ = issues.append({'node': node_name, 'issue': 'Not Ready', 'status': ready_condition.status | default('Unknown')}) %}
+                  {% endif %}
+                  {% if node.spec.unschedulable | default(false) %}
+                    {% set _ = issues.append({'node': node_name, 'issue': 'Unschedulable (cordoned)', 'status': 'SchedulingDisabled'}) %}
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+              {{ issues }}
+
+        - name: Verify not-ready node detected
+          ansible.builtin.assert:
+            that:
+              - portworx_node_issues_test2 | length == 1
+              - portworx_node_issues_test2[0].node == 'node-not-ready'
+              - portworx_node_issues_test2[0].issue == 'Not Ready'
+              - portworx_node_issues_test2[0].status == 'False'
+            fail_msg: "Should detect not-ready node"
+            success_msg: "Test 2 passed: Not-ready node correctly detected"
+
+    - name: Test 3 - Node with unschedulable=true (cordoned)
+      block:
+        - name: Create mock data - cordoned node
+          ansible.builtin.set_fact:
+            portworx_node_names_test3: ["node-normal", "node-cordoned"]
+            portworx_all_nodes_test3:
+              resources:
+                - metadata:
+                    name: "node-normal"
+                  status:
+                    conditions:
+                      - type: "Ready"
+                        status: "True"
+                  spec: {}
+                - metadata:
+                    name: "node-cordoned"
+                  status:
+                    conditions:
+                      - type: "Ready"
+                        status: "True"
+                  spec:
+                    unschedulable: true
+
+        - name: Run detection logic
+          ansible.builtin.set_fact:
+            portworx_node_issues_test3: "{{ portworx_node_issues_str3 | from_yaml }}"
+          vars:
+            portworx_node_issues_str3: >-
+              {% set issues = [] %}
+              {% for node_name in portworx_node_names_test3 %}
+                {% set node = portworx_all_nodes_test3.resources | selectattr('metadata.name', 'equalto', node_name) | first | default(none) %}
+                {% if node %}
+                  {% set ready_condition = node.status.conditions | selectattr('type', 'equalto', 'Ready') | first | default(none) %}
+                  {% if not ready_condition or ready_condition.status != 'True' %}
+                    {% set _ = issues.append({'node': node_name, 'issue': 'Not Ready', 'status': ready_condition.status | default('Unknown')}) %}
+                  {% endif %}
+                  {% if node.spec.unschedulable | default(false) %}
+                    {% set _ = issues.append({'node': node_name, 'issue': 'Unschedulable (cordoned)', 'status': 'SchedulingDisabled'}) %}
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+              {{ issues }}
+
+        - name: Verify cordoned node detected
+          ansible.builtin.assert:
+            that:
+              - portworx_node_issues_test3 | length == 1
+              - portworx_node_issues_test3[0].node == 'node-cordoned'
+              - portworx_node_issues_test3[0].issue == 'Unschedulable (cordoned)'
+              - portworx_node_issues_test3[0].status == 'SchedulingDisabled'
+            fail_msg: "Should detect cordoned node"
+            success_msg: "Test 3 passed: Cordoned node correctly detected"
+
+    - name: Test 4 - Node with multiple issues
+      block:
+        - name: Create mock data - node both not-ready and cordoned
+          ansible.builtin.set_fact:
+            portworx_node_names_test4: ["node-multiple-issues"]
+            portworx_all_nodes_test4:
+              resources:
+                - metadata:
+                    name: "node-multiple-issues"
+                  status:
+                    conditions:
+                      - type: "Ready"
+                        status: "False"
+                  spec:
+                    unschedulable: true
+
+        - name: Run detection logic
+          ansible.builtin.set_fact:
+            portworx_node_issues_test4: "{{ portworx_node_issues_str4 | from_yaml }}"
+          vars:
+            portworx_node_issues_str4: >-
+              {% set issues = [] %}
+              {% for node_name in portworx_node_names_test4 %}
+                {% set node = portworx_all_nodes_test4.resources | selectattr('metadata.name', 'equalto', node_name) | first | default(none) %}
+                {% if node %}
+                  {% set ready_condition = node.status.conditions | selectattr('type', 'equalto', 'Ready') | first | default(none) %}
+                  {% if not ready_condition or ready_condition.status != 'True' %}
+                    {% set _ = issues.append({'node': node_name, 'issue': 'Not Ready', 'status': ready_condition.status | default('Unknown')}) %}
+                  {% endif %}
+                  {% if node.spec.unschedulable | default(false) %}
+                    {% set _ = issues.append({'node': node_name, 'issue': 'Unschedulable (cordoned)', 'status': 'SchedulingDisabled'}) %}
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+              {{ issues }}
+
+        - name: Verify both issues detected
+          ansible.builtin.assert:
+            that:
+              - portworx_node_issues_test4 | length == 2
+              - portworx_node_issues_test4 | selectattr('issue', 'equalto', 'Not Ready') | list | length == 1
+              - portworx_node_issues_test4 | selectattr('issue', 'equalto', 'Unschedulable (cordoned)') | list | length == 1
+            fail_msg: "Should detect both not-ready and cordoned issues"
+            success_msg: "Test 4 passed: Multiple issues on same node correctly detected"
+
+    - name: Test 5 - Node missing Ready condition
+      block:
+        - name: Create mock data - node without Ready condition
+          ansible.builtin.set_fact:
+            portworx_node_names_test5: ["node-no-ready-condition"]
+            portworx_all_nodes_test5:
+              resources:
+                - metadata:
+                    name: "node-no-ready-condition"
+                  status:
+                    conditions:
+                      - type: "MemoryPressure"
+                        status: "False"
+                  spec: {}
+
+        - name: Run detection logic
+          ansible.builtin.set_fact:
+            portworx_node_issues_test5: "{{ portworx_node_issues_str5 | from_yaml }}"
+          vars:
+            portworx_node_issues_str5: >-
+              {% set issues = [] %}
+              {% for node_name in portworx_node_names_test5 %}
+                {% set node = portworx_all_nodes_test5.resources | selectattr('metadata.name', 'equalto', node_name) | first | default(none) %}
+                {% if node %}
+                  {% set ready_condition = node.status.conditions | selectattr('type', 'equalto', 'Ready') | first | default(none) %}
+                  {% if not ready_condition or ready_condition.status != 'True' %}
+                    {% set _ = issues.append({'node': node_name, 'issue': 'Not Ready', 'status': ready_condition.status | default('Unknown')}) %}
+                  {% endif %}
+                  {% if node.spec.unschedulable | default(false) %}
+                    {% set _ = issues.append({'node': node_name, 'issue': 'Unschedulable (cordoned)', 'status': 'SchedulingDisabled'}) %}
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+              {{ issues }}
+
+        - name: Verify missing Ready condition detected
+          ansible.builtin.assert:
+            that:
+              - portworx_node_issues_test5 | length == 1
+              - portworx_node_issues_test5[0].node == 'node-no-ready-condition'
+              - portworx_node_issues_test5[0].issue == 'Not Ready'
+              - portworx_node_issues_test5[0].status == 'Unknown'
+            fail_msg: "Should detect missing Ready condition"
+            success_msg: "Test 5 passed: Missing Ready condition correctly detected"
+
+    - name: Test 6 - Mixed scenario (multiple nodes with various issues)
+      block:
+        - name: Create mock data - realistic cluster scenario
+          ansible.builtin.set_fact:
+            portworx_node_names_test6: ["node-ok-1", "node-ok-2", "node-not-ready", "node-cordoned", "node-bad"]
+            portworx_all_nodes_test6:
+              resources:
+                - metadata:
+                    name: "node-ok-1"
+                  status:
+                    conditions:
+                      - type: "Ready"
+                        status: "True"
+                  spec: {}
+                - metadata:
+                    name: "node-ok-2"
+                  status:
+                    conditions:
+                      - type: "Ready"
+                        status: "True"
+                  spec: {}
+                - metadata:
+                    name: "node-not-ready"
+                  status:
+                    conditions:
+                      - type: "Ready"
+                        status: "False"
+                  spec: {}
+                - metadata:
+                    name: "node-cordoned"
+                  status:
+                    conditions:
+                      - type: "Ready"
+                        status: "True"
+                  spec:
+                    unschedulable: true
+                - metadata:
+                    name: "node-bad"
+                  status:
+                    conditions:
+                      - type: "Ready"
+                        status: "Unknown"
+                  spec:
+                    unschedulable: true
+
+        - name: Run detection logic
+          ansible.builtin.set_fact:
+            portworx_node_issues_test6: "{{ portworx_node_issues_str6 | from_yaml }}"
+          vars:
+            portworx_node_issues_str6: >-
+              {% set issues = [] %}
+              {% for node_name in portworx_node_names_test6 %}
+                {% set node = portworx_all_nodes_test6.resources | selectattr('metadata.name', 'equalto', node_name) | first | default(none) %}
+                {% if node %}
+                  {% set ready_condition = node.status.conditions | selectattr('type', 'equalto', 'Ready') | first | default(none) %}
+                  {% if not ready_condition or ready_condition.status != 'True' %}
+                    {% set _ = issues.append({'node': node_name, 'issue': 'Not Ready', 'status': ready_condition.status | default('Unknown')}) %}
+                  {% endif %}
+                  {% if node.spec.unschedulable | default(false) %}
+                    {% set _ = issues.append({'node': node_name, 'issue': 'Unschedulable (cordoned)', 'status': 'SchedulingDisabled'}) %}
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+              {{ issues }}
+
+        - name: Verify mixed scenario results
+          ansible.builtin.assert:
+            that:
+              - portworx_node_issues_test6 | length == 4
+              - portworx_node_issues_test6 | selectattr('node', 'equalto', 'node-not-ready') | list | length == 1
+              - portworx_node_issues_test6 | selectattr('node', 'equalto', 'node-cordoned') | list | length == 1
+              - portworx_node_issues_test6 | selectattr('node', 'equalto', 'node-bad') | list | length == 2
+            fail_msg: "Should detect 4 issues across 3 nodes"
+            success_msg: "Test 6 passed: Mixed scenario with multiple nodes and issues"
+
+    - name: All validate_nodes.yml logic tests completed
+      ansible.builtin.debug:
+        msg:
+          - "=== All Node Validation Logic Tests Passed ==="
+          - "Ready condition detection: CORRECT"
+          - "Unschedulable detection: CORRECT"
+          - "Missing condition handling: CORRECT"
+          - "Multiple issues per node: CORRECT"
+          - "Mixed cluster scenarios: CORRECT"
+          - "Logic from validate_nodes.yml lines 26-45: VALIDATED"

@@ -20,8 +20,10 @@ portworx_pod_check_interval: 10  # Seconds between pod status checks
 portworx_autoUpdateComponents_settle_time: 180  # Seconds (3 minutes) - wait after patching STC
 
 # Impatient mode (accelerated storageless pod upgrades)
-portworx_impatient_mode: false  # Enable automatic batch deletion of storageless pods
-portworx_impatient_trigger_timeout: 1200  # Seconds (20 minutes) - trigger impatient mode after this inactivity
+# WARNING: Impatient mode bypasses operator's serial upgrade by batch-deleting pods
+# Only safe for storageless nodes after all storage nodes are upgraded
+# Can cause cluster failure if safety requirements not met
+portworx_impatient_mode: false  # Enable user-controlled batch deletion of storageless pods
 portworx_impatient_batch_size: 5  # Number of storageless pods to delete at once (5-7 recommended)
 
 # Logging and reporting

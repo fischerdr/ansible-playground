@@ -41,6 +41,10 @@
           {% if node.spec.unschedulable | default(false) %}
             {% set _ = issues.append({'node': node_name, 'issue': 'Unschedulable (cordoned)', 'status': 'SchedulingDisabled'}) %}
           {% endif %}
+          {# Check for px/service=stop label (Portworx service stopped) #}
+          {% if node.metadata.labels['px/service'] is defined and node.metadata.labels['px/service'] == 'stop' %}
+            {% set _ = issues.append({'node': node_name, 'issue': 'Portworx service stopped (px/service=stop label)', 'status': 'ServiceStopped'}) %}
+          {% endif %}
         {% endif %}
       {% endfor %}
       {{ issues }}
@@ -70,10 +74,13 @@
       2. Check node details: oc describe node <node-name>
       3. For cordoned nodes: oc uncordon <node-name>
       4. For not-ready nodes: Investigate node issues before proceeding
+      5. For px/service=stop nodes: Remove label with: oc label node <node-name> px/service-
+      6. Wait for Portworx pod to become ready after removing px/service=stop label
 
       All nodes running Portworx pods MUST be:
       - Ready (Ready condition = True)
       - Schedulable (not cordoned/unschedulable)
+      - NOT have px/service=stop label (Portworx service must be running)
 
 - name: Node validation successful
   ansible.builtin.debug:

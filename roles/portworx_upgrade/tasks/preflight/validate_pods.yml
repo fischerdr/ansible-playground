@@ -28,15 +28,52 @@
 - name: Fail if unhealthy pods found
   ansible.builtin.fail:
     msg: |
-      Found {{ portworx_unhealthy_pods | length }} unhealthy pods:
+      PREFLIGHT FAILURE: Found {{ portworx_unhealthy_pods | length }} unhealthy pods (not in Running state)
+
+      Unhealthy pods:
       {% for pod in portworx_unhealthy_pods %}
-      - {{ pod.metadata.name }}: {{ pod.status.phase }}
+      - {{ pod.metadata.name }} (Node: {{ pod.spec.nodeName }}): {{ pod.status.phase }}
       {% endfor %}
 
-      Troubleshoot these pods before proceeding with upgrade.
+      TROUBLESHOOTING:
+      1. Check pod status: oc get pods -n {{ portworx_namespace }}
+      2. Check pod details: oc describe pod <pod-name> -n {{ portworx_namespace }}
+      3. Check pod logs: oc logs <pod-name> -n {{ portworx_namespace }}
+      4. Check node status: oc get nodes
+
+      All Portworx pods must be in Running state before upgrade.
   when:
     - portworx_fail_on_unhealthy_pods
     - portworx_unhealthy_pods | length > 0
+
+- name: Fail if not-ready pods found
+  ansible.builtin.fail:
+    msg: |
+      PREFLIGHT FAILURE: Found {{ portworx_not_ready_pods | length }} pods that are not ready
+
+      Not-ready pods:
+      {% for pod in portworx_not_ready_pods %}
+      - {{ pod.metadata.name }} (Node: {{ pod.spec.nodeName }}): Running but not Ready
+      {% endfor %}
+
+      TROUBLESHOOTING:
+      1. Check pod readiness: oc get pods -n {{ portworx_namespace }}
+      2. Check pod details: oc describe pod <pod-name> -n {{ portworx_namespace }}
+      3. Check if node has px/service=stop label: oc get node <node-name> --show-labels | grep px/service
+      4. Remove px/service=stop label if present: oc label node <node-name> px/service-
+      5. Check pod logs: oc logs <pod-name> -n {{ portworx_namespace }}
+      6. Verify Portworx service is running on the node
+
+      Common causes:
+      - Node has px/service=stop label (Portworx intentionally stopped)
+      - Network issues preventing pod readiness probe
+      - Storage issues on the node
+      - Resource constraints (CPU/memory)
+
+      All Portworx pods must be Running AND Ready before upgrade.
+  when:
+    - portworx_fail_on_unhealthy_pods
+    - portworx_not_ready_pods | length > 0
 
 - name: Get KVDB pods
   kubernetes.core.k8s_info:

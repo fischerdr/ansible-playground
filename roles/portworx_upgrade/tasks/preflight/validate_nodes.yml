@@ -6,6 +6,7 @@
   kubernetes.core.k8s_info:
     kind: Node
   register: portworx_all_nodes
+  no_log: true
 
 - name: Get all Portworx pods to identify which nodes have Portworx
   kubernetes.core.k8s_info:
@@ -14,6 +15,7 @@
     label_selectors:
       - "{{ portworx_pod_selector }}"
   register: portworx_pods_for_node_check
+  no_log: true
 
 - name: Extract unique node names running Portworx
   ansible.builtin.set_fact:

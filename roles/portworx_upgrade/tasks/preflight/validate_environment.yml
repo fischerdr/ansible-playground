@@ -14,6 +14,7 @@
   register: portworx_k8s_collection_check
   changed_when: false
   failed_when: false
+  no_log: true
 
 - name: Validate kubernetes.core collection installed
   ansible.builtin.assert:
@@ -26,6 +27,7 @@
   kubernetes.core.k8s_cluster_info:
   register: portworx_cluster_info
   failed_when: false
+  no_log: true
 
 - name: Validate cluster connectivity
   ansible.builtin.assert:
@@ -39,6 +41,7 @@
     kind: Namespace
     name: "{{ portworx_namespace }}"
   register: portworx_ns_check
+  no_log: true
 
 - name: Validate portworx namespace exists
   ansible.builtin.assert:

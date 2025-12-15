@@ -7,6 +7,7 @@
     kind: "{{ portworx_stc_kind }}"
     namespace: "{{ portworx_namespace }}"
   register: portworx_stc_list
+  no_log: true
 
 - name: Verify StorageCluster exists
   ansible.builtin.assert:
@@ -27,6 +28,28 @@
       - "Current Portworx version: {{ portworx_current_version }}"
       - "Target Portworx version: {{ portworx_target_version }}"
       - "StorageCluster name: {{ portworx_stc_name }}"
+
+- name: Verify version upgrade is needed
+  ansible.builtin.assert:
+    that:
+      - portworx_current_version != portworx_target_version
+    fail_msg: |
+      PREFLIGHT FAILURE: Cluster is already at target version
+
+      Current version: {{ portworx_current_version }}
+      Target version:  {{ portworx_target_version }}
+
+      The cluster is already running the target version. No upgrade is needed.
+
+      If you need to force a reinstall or reconfiguration, consider:
+      1. Verifying the target version is correct
+      2. Checking if a rollback or different version is intended
+      3. Using a different upgrade mechanism if reconfiguration is needed
+    success_msg: "Version upgrade confirmed: {{ portworx_current_version }} -> {{ portworx_target_version }}"
+
+- name: Extract STC spec image for pod validation
+  ansible.builtin.set_fact:
+    portworx_stc_spec_image: "{{ portworx_stc.spec.image }}"
 
 - name: Validate updateStrategy type
   ansible.builtin.assert:

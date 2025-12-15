@@ -8,6 +8,7 @@
     label_selectors:
       - "{{ portworx_pod_selector }}"
   register: portworx_pods
+  no_log: true
 
 - name: Check for unhealthy pods
   ansible.builtin.set_fact:
@@ -82,6 +83,7 @@
     label_selectors:
       - "{{ portworx_kvdb_selector }}"
   register: portworx_kvdb_pods
+  no_log: true
 
 - name: Validate KVDB pod count
   ansible.builtin.assert:
@@ -100,6 +102,50 @@
   loop: "{{ portworx_kvdb_pods.resources }}"
   loop_control:
     label: "{{ item.metadata.name }}"
+
+- name: Check for pods with mismatched images
+  ansible.builtin.set_fact:
+    portworx_mismatched_pods: >-
+      {{
+        portworx_pods.resources |
+        rejectattr('spec.containers.0.image', 'equalto', portworx_stc_spec_image) |
+        list
+      }}
+
+- name: Display pod image consistency
+  ansible.builtin.debug:
+    msg:
+      - "STC spec.image: {{ portworx_stc_spec_image }}"
+      - "Total Portworx pods: {{ portworx_pods.resources | length }}"
+      - "Pods with mismatched images: {{ portworx_mismatched_pods | length }}"
+
+- name: Fail if pods have mismatched images
+  ansible.builtin.fail:
+    msg: |
+      PREFLIGHT FAILURE: Found {{ portworx_mismatched_pods | length }} pods with images that don't match StorageCluster spec
+
+      Expected image: {{ portworx_stc_spec_image }}
+
+      Mismatched pods:
+      {% for pod in portworx_mismatched_pods %}
+      - {{ pod.metadata.name }} (Node: {{ pod.spec.nodeName }}): {{ pod.spec.containers[0].image }}
+      {% endfor %}
+
+      TROUBLESHOOTING:
+      1. Check if a previous upgrade is still in progress
+      2. Verify all pods have completed their rolling update
+      3. Check for stuck or failed pods: oc get pods -n {{ portworx_namespace }}
+      4. Review pod events: oc describe pod <pod-name> -n {{ portworx_namespace }}
+
+      Common causes:
+      - Previous upgrade incomplete or stuck
+      - Pod stuck in ImagePullBackOff or CrashLoopBackOff
+      - Node with px/service=stop label preventing pod restart
+      - Manual pod intervention interrupted rolling update
+
+      All pods must be running the same image version as defined in StorageCluster spec before starting a new upgrade.
+  when:
+    - portworx_mismatched_pods | length > 0
 
 - name: Pod health validation complete
   ansible.builtin.debug:

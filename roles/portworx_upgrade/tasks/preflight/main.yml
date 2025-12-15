@@ -8,6 +8,9 @@
 - name: Include environment validation
   ansible.builtin.import_tasks: validate_environment.yml
 
+- name: Include STC configuration validation
+  ansible.builtin.import_tasks: validate_stc_config.yml
+
 - name: Include node label validation
   ansible.builtin.import_tasks: validate_nodes.yml
 
@@ -19,9 +22,6 @@
 
 - name: Include cluster status validation
   ansible.builtin.import_tasks: validate_cluster_status.yml
-
-- name: Include STC configuration validation
-  ansible.builtin.import_tasks: validate_stc_config.yml
 
 - name: Include resource backup
   ansible.builtin.import_tasks: backup_resources.yml

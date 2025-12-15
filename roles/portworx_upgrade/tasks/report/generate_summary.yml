@@ -1,6 +1,13 @@
 ---
 # Generate upgrade summary report
 
+- name: Ensure report directory exists
+  ansible.builtin.file:
+    path: "{{ portworx_report_dir }}"
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+
 - name: Calculate phase durations
   ansible.builtin.set_fact:
     portworx_preflight_duration: "{{ portworx_preflight_end_time | default(0) | int - portworx_preflight_start_time | default(0) | int }}"

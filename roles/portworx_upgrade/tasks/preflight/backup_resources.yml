@@ -1,6 +1,13 @@
 ---
 # Backup StorageCluster and related resources before upgrade
 
+- name: Ensure backup directory exists
+  ansible.builtin.file:
+    path: "{{ portworx_backup_dir }}"
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+
 - name: Get StorageCluster for backup
   kubernetes.core.k8s_info:
     api_version: "{{ portworx_stc_api_version }}"

@@ -14,12 +14,17 @@
          rejectattr('metadata.labels.storage', 'defined') |
          list }}
 
+- name: Extract storage node names for pxctl command execution
+  ansible.builtin.set_fact:
+    portworx_storage_node_names: "{{ portworx_storage_pods | map(attribute='spec.nodeName') | unique | list }}"
+
 - name: Display pod distribution
   ansible.builtin.debug:
     msg:
       - "Storage pods (with storage='true' label): {{ portworx_storage_pods | length }}"
       - "Storageless pods (without storage label): {{ portworx_storageless_pods | length }}"
       - "Total pods: {{ portworx_pods.resources | length }}"
+      - "Storage nodes: {{ portworx_storage_node_names | length }}"
 
 - name: Validate minimum storage pods
   ansible.builtin.assert:

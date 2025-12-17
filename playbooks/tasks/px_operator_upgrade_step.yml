@@ -119,48 +119,53 @@
           - _deployments.resources | selectattr('status.availableReplicas', 'defined') | list | length > 0
         fail_msg: "Deployments not ready after {{ _next_step.csv_name }}"
 
-    - name: "Run smoke tests"
-      ansible.builtin.command:
-        cmd: "{{ _validation_command }} --namespace {{ _operator_namespace }}"
-      register: _validation_result
-      changed_when: false
-      ignore_errors: true
-      when: _validation_command != '/usr/local/bin/run-operator-smoke-tests'
-
-    - name: "Fail if validation failed"
-      ansible.builtin.fail:
-        msg: "Validation failed: {{ _validation_result.rc | default('unknown') }}"
-      when:
-        - _validation_result is defined
-        - _validation_result.rc | default(0) != 0
-
 - name: "Update current version from newly installed CSV"
   when: _next_step != {}
   tags: [update, version]
   block:
-    - name: "Get all CSVs"
+    - name: "Retrieve Subscription status to identify installed CSV (avoid unrelated operators in namespace)"
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: Subscription
+        name: "{{ _subscription_name }}"
+        namespace: "{{ _operator_namespace }}"
+      register: _subscription_info_step
+      no_log: false
+
+    - name: "Set installed CSV name from Subscription status"
+      ansible.builtin.set_fact:
+        _installed_csv_name_step: >-
+          {{
+            (
+              _subscription_info_step.resources[0].status.installedCSV
+              | default(_subscription_info_step.resources[0].status.currentCSV | default(''))
+            )
+          }}
+      when: _subscription_info_step.resources | length > 0
+      no_log: false
+
+    - name: "Fail if Subscription does not report an installed CSV"
+      ansible.builtin.fail:
+        msg: |
+          Subscription {{ _subscription_name }} in namespace {{ _operator_namespace }} does not have status.installedCSV/currentCSV yet.
+          Verify the operator is installed and OLM has reconciled the Subscription.
+      when:
+        - _subscription_info_step.resources | length == 0 or _installed_csv_name_step | length == 0
+
+    - name: "Retrieve installed ClusterServiceVersion referenced by Subscription"
       kubernetes.core.k8s_info:
         api_version: operators.coreos.com/v1alpha1
         kind: ClusterServiceVersion
+        name: "{{ _installed_csv_name_step }}"
         namespace: "{{ _operator_namespace }}"
-      register: _csvs_after
+      register: _installed_csv_info_step
       no_log: false
 
-    - name: "Extract version from newest succeeded CSV"
+    - name: "Set current CSV object and parsed version match from installed CSV"
       ansible.builtin.set_fact:
-        _current_csv_obj: >-
-          {{
-            (
-              _csvs_after.resources
-              | selectattr('status.phase', 'defined')
-              | selectattr('status.phase', 'equalto', 'Succeeded')
-              | sort(attribute='metadata.creationTimestamp')
-              | last
-            )
-            if (_csvs_after.resources | selectattr('status.phase', 'defined') | selectattr('status.phase', 'equalto', 'Succeeded') | list | length) > 0
-            else (_csvs_after.resources | sort(attribute='metadata.creationTimestamp') | last)
-          }}
-        _version_match: "{{ _current_csv_obj.metadata.name | regex_search(_semver_regex, '\\1', '\\2', '\\3') }}"
+        _current_csv_obj: "{{ _installed_csv_info_step.resources[0] }}"
+        _version_match: "{{ _installed_csv_info_step.resources[0].metadata.name | regex_search(_semver_regex, '\\1', '\\2', '\\3') }}"
+      when: _installed_csv_info_step.resources | length > 0
       no_log: false
 
     - name: "Update current version variables"

@@ -10,7 +10,7 @@
         kind: InstallPlan
         namespace: "{{ _operator_namespace }}"
       register: _installplans_current
-      no_log: true
+      no_log: false
 
     - name: "Find next upgrade candidate (smallest version > current)"
       ansible.builtin.set_fact:
@@ -36,7 +36,7 @@
             {%- endif -%}
           {%- endfor -%}
           {{ candidates | sort(attribute='version') | first | default({}) }}
-      no_log: true
+      no_log: false
 
 - name: "Fail if no next InstallPlan available"
   ansible.builtin.fail:
@@ -66,11 +66,14 @@
         name: "{{ _next_step.installplan_name }}"
         namespace: "{{ _operator_namespace }}"
         state: patched
-        merge_type: strategic-merge
+        merge_type: merge
         definition:
+          metadata:
+            name: "{{ _next_step.installplan_name }}"
+            namespace: "{{ _operator_namespace }}"
           spec:
             approved: true
-      no_log: true
+      no_log: false
 
     - name: "Require manual approval if auto-approval disabled"
       ansible.builtin.fail:
@@ -86,7 +89,7 @@
     name: "{{ _next_step.csv_name }}"
     namespace: "{{ _operator_namespace }}"
   register: _csv_status
-  no_log: true
+  no_log: false
   retries: "{{ (_per_step_timeout | int / 10) | int }}"
   delay: 10
   until:
@@ -107,7 +110,7 @@
         kind: Deployment
         namespace: "{{ _operator_namespace }}"
       register: _deployments
-      no_log: true
+      no_log: false
 
     - name: "Assert deployments available"
       ansible.builtin.assert:
@@ -141,7 +144,7 @@
         kind: ClusterServiceVersion
         namespace: "{{ _operator_namespace }}"
       register: _csvs_after
-      no_log: true
+      no_log: false
 
     - name: "Extract version from newest succeeded CSV"
       ansible.builtin.set_fact:
@@ -158,7 +161,7 @@
             else (_csvs_after.resources | sort(attribute='metadata.creationTimestamp') | last)
           }}
         _version_match: "{{ _current_csv_obj.metadata.name | regex_search(_semver_regex, '\\1', '\\2', '\\3') }}"
-      no_log: true
+      no_log: false
 
     - name: "Update current version variables"
       ansible.builtin.set_fact:
@@ -172,7 +175,7 @@
       when:
         - _version_match is defined
         - _version_match | length == 3
-      no_log: true
+      no_log: false
 
 - name: "Wait for OLM to create next InstallPlan"
   ansible.builtin.pause:

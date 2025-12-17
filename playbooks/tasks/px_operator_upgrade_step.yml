@@ -1,7 +1,19 @@
 ---
 # Single upgrade step: discover, approve, wait, validate, update version
 
+- name: "Check if target version already reached (early exit)"
+  ansible.builtin.set_fact:
+    _target_reached: "{{ (_current_major | int == _target_major | int) and (_current_minor | int == _target_minor | int) and (_current_patch | int == _target_patch | int) }}"
+  tags: [upgrade, version_check]
+
+- name: "Skip remaining upgrade steps - target version reached"
+  ansible.builtin.debug:
+    msg: "Target version {{ _target_major }}.{{ _target_minor }}.{{ _target_patch }} reached. Skipping iteration {{ _iteration }}."
+  when: _target_reached | bool
+  tags: [upgrade, version_check]
+
 - name: "Discover and select next InstallPlan for upgrade"
+  when: not (_target_reached | bool)
   tags: [discovery, installplan]
   block:
     - name: "Get all InstallPlans in namespace"
@@ -43,17 +55,14 @@
     msg: |
       No next InstallPlan to progress from {{ _current_major }}.{{ _current_minor }}.{{ _current_patch }}.
       Verify catalog/channel exposes next version and OLM has created InstallPlan.
-  when: >
-    (_next_step == {}) and
-    not (
-      (_current_major | int == _target_major | int) and
-      (_current_minor | int == _target_minor | int) and
-      (_current_patch | int == _target_patch | int)
-    )
+  when:
+    - not (_target_reached | bool)
+    - _next_step == {}
   tags: [validation, error_handling]
 
 - name: "Approve InstallPlan if needed"
   when:
+    - not (_target_reached | bool)
     - _next_step != {}
     - _auto_approve_sequence | bool
     - not (_next_step.approved | bool)
@@ -95,11 +104,14 @@
   until:
     - _csv_status.resources | length > 0
     - _csv_status.resources[0].status.phase | default('') == 'Succeeded'
-  when: _next_step != {}
+  when:
+    - not (_target_reached | bool)
+    - _next_step != {}
   tags: [waiting, csv]
 
 - name: "Validate operator health (optional)"
   when:
+    - not (_target_reached | bool)
     - _validate_between_steps | bool
     - _next_step != {}
   tags: [validation, testing]
@@ -120,7 +132,9 @@
         fail_msg: "Deployments not ready after {{ _next_step.csv_name }}"
 
 - name: "Update current version from newly installed CSV"
-  when: _next_step != {}
+  when:
+    - not (_target_reached | bool)
+    - _next_step != {}
   tags: [update, version]
   block:
     - name: "Retrieve Subscription status to identify installed CSV (avoid unrelated operators in namespace)"
@@ -186,6 +200,7 @@
   ansible.builtin.pause:
     seconds: "{{ _installplan_poll_timeout }}"
   when:
+    - not (_target_reached | bool)
     - _next_step != {}
     - not (
         (_current_major | int == _target_major | int) and

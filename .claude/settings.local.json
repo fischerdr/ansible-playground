@@ -17,7 +17,9 @@
       "Bash(/development/git/ansible-playground/.venv/bin/flake8:*)",
       "Bash(/development/git/ansible-playground/.venv/bin/ansible-playbook:*)",
       "Bash(/development/git/ansible-playground/.venv/bin/ansible-lint:*)",
-      "Bash(.venv/bin/ansible:*)"
+      "Bash(.venv/bin/ansible:*)",
+      "Bash(grep:*)",
+      "Bash(.venv/bin/pytest:*)"
     ],
     "deny": [],
     "ask": [

@@ -1,0 +1,224 @@
+---
+# Purpose: Sequentially upgrade OpenShift/OLM-based operator to target semantic version
+#          by iteratively approving InstallPlans until the target version is reached
+# Dependencies:
+#   - kubernetes.core collection (>= 2.3.0)
+#   - community.kubernetes collection (>= 2.0.0)
+#   - OLM (Operator Lifecycle Manager) must be installed on the cluster
+#   - Operator subscription must exist in the target namespace
+#   - Valid kubeconfig with sufficient RBAC permissions
+# Variables:
+#   Required:
+#     - _operator_target_version: string - Target version as "MAJOR.MINOR.PATCH" (example: "25.5.0")
+#   Optional:
+#     - _operator_namespace: string - Namespace containing the operator (default: "portworx")
+#     - _subscription_name: string - Name of the operator subscription (default: "portworx-operator-sub")
+#     - _auto_approve_sequence: boolean - Auto-approve InstallPlans (default: true)
+#     - _validate_between_steps: boolean - Run validation after each upgrade step (default: true)
+#     - _per_step_timeout: integer - Timeout in seconds per upgrade step (default: 900)
+#     - _installplan_poll_timeout: integer - Seconds to wait for new InstallPlan (default: 120)
+#     - _validation_command: string - Path to validation command (default: "/usr/local/bin/run-operator-smoke-tests")
+
+- name: "Sequential operator upgrade to target semantic version via OLM InstallPlan approval"
+  hosts: localhost
+  gather_facts: false
+  become: false
+  vars:
+    _operator_namespace: "{{ _operator_namespace | default('portworx') }}"
+    _subscription_name: "{{ _subscription_name | default('portworx-operator-sub') }}"
+    _operator_target_version: "{{ _operator_target_version | default('25.5.0') }}"
+    _auto_approve_sequence: "{{ _auto_approve_sequence | default(true) }}"
+    _validate_between_steps: "{{ _validate_between_steps | default(true) }}"
+    _per_step_timeout: "{{ _per_step_timeout | default(900) }}"
+    _installplan_poll_timeout: "{{ _installplan_poll_timeout | default(120) }}"
+    _validation_command: "{{ _validation_command | default('/usr/local/bin/run-operator-smoke-tests') }}"
+    _semver_regex: 'v?([0-9]+)\.([0-9]+)\.([0-9]+)'
+
+  pre_tasks:
+    - name: "Validate required variables are defined and meet semantic version requirements"
+      ansible.builtin.assert:
+        that:
+          - _operator_target_version is defined
+          - _operator_target_version | string | length > 0
+          - _operator_target_version is match('^[0-9]+\.[0-9]+\.[0-9]+$')
+          - _operator_namespace is defined
+          - _operator_namespace | string | length > 0
+          - _subscription_name is defined
+          - _subscription_name | string | length > 0
+          - _per_step_timeout | int > 0
+          - _installplan_poll_timeout | int > 0
+        fail_msg: |
+          Required variable validation failed. Requirements:
+          - _operator_target_version: semantic version string (format: MAJOR.MINOR.PATCH, example: 25.5.0)
+          - _operator_namespace: non-empty string namespace name
+          - _subscription_name: non-empty string subscription name
+          - _per_step_timeout: positive integer timeout in seconds
+          - _installplan_poll_timeout: positive integer timeout in seconds
+        success_msg: "All required variables validated successfully"
+      tags: [validation, always]
+
+    - name: "Parse target semantic version components from provided version string"
+      ansible.builtin.set_fact:
+        _target_parts: "{{ _operator_target_version.split('.') }}"
+      tags: [validation, parsing]
+
+    - name: "Set target version numeric fields for comparison operations"
+      ansible.builtin.set_fact:
+        _target_major: "{{ _target_parts[0] | int }}"
+        _target_minor: "{{ _target_parts[1] | int }}"
+        _target_patch: "{{ _target_parts[2] | int }}"
+      tags: [validation, parsing]
+
+  tasks:
+    - name: "Configure operator subscription for manual upgrade approval workflow"
+      kubernetes.core.k8s:
+        api_version: operators.coreos.com/v1alpha1
+        kind: Subscription
+        name: "{{ _subscription_name }}"
+        namespace: "{{ _operator_namespace }}"
+        merge_type: strategic-merge
+        definition:
+          spec:
+            installPlanApproval: Manual
+      no_log: true
+      tags: [subscription, configuration]
+
+    - name: "Execute sequential operator upgrade with comprehensive error handling"
+      tags: [upgrade, main, critical]
+      block:
+        - name: "Retrieve currently installed ClusterServiceVersions from operator namespace"
+          kubernetes.core.k8s_info:
+            api_version: operators.coreos.com/v1alpha1
+            kind: ClusterServiceVersion
+            namespace: "{{ _operator_namespace }}"
+          register: _csvs_initial
+          no_log: true
+          tags: [discovery, csv]
+
+        - name: "Determine current operator version from installed CSVs (prefer Succeeded phase)"
+          ansible.builtin.set_fact:
+            _current_csv_obj: >-
+              {{
+                (
+                  _csvs_initial.resources
+                  | selectattr('status.phase', 'defined')
+                  | selectattr('status.phase', 'equalto', 'Succeeded')
+                  | sort(attribute='metadata.creationTimestamp')
+                  | last
+                )
+                if (_csvs_initial.resources | selectattr('status.phase', 'defined') | selectattr('status.phase', 'equalto', 'Succeeded') | list | length) > 0
+                else (
+                  _csvs_initial.resources | sort(attribute='metadata.creationTimestamp') | last
+                )
+              }}
+          when: _csvs_initial.resources | length > 0
+          no_log: true
+          tags: [discovery, csv]
+
+        - name: "Fail if no ClusterServiceVersions exist in namespace (cannot determine baseline)"
+          ansible.builtin.fail:
+            msg: "No ClusterServiceVersions found in namespace {{ _operator_namespace }}. Cannot determine current operator version. Verify operator installation."
+          when: _csvs_initial.resources | length == 0
+          tags: [validation, csv]
+
+        - name: "Extract and set current version from CSV name"
+          ansible.builtin.set_fact:
+            _version_match: "{{ _current_csv_obj.metadata.name | regex_search(_semver_regex, '\\1', '\\2', '\\3') }}"
+            _current_major: "{{ _version_match[0] | int }}"
+            _current_minor: "{{ _version_match[1] | int }}"
+            _current_patch: "{{ _version_match[2] | int }}"
+          when: _version_match | length == 3
+          no_log: true
+          tags: [parsing, csv]
+
+        - name: "Initialize upgrade operation state tracking for monitoring and recovery"
+          ansible.builtin.set_fact:
+            _upgrade_state:
+              operation_start: "{{ ansible_date_time.iso8601 }}"
+              initial_version: "{{ _current_major }}.{{ _current_minor }}.{{ _current_patch }}"
+              target_version: "{{ _target_major }}.{{ _target_minor }}.{{ _target_patch }}"
+              steps_completed: []
+              current_step: "initialization"
+          tags: [state_tracking, monitoring]
+
+        - name: "Execute sequential operator upgrade steps until target version reached"
+          ansible.builtin.include_tasks:
+            file: tasks/px_operator_upgrade_step.yml
+          loop: "{{ range(0, 200) | list }}"
+          loop_control:
+            loop_var: _iteration
+          when: >
+            not (
+              (_current_major | int == _target_major | int) and
+              (_current_minor | int == _target_minor | int) and
+              (_current_patch | int == _target_patch | int)
+            )
+          tags: [upgrade, loop, critical]
+
+      rescue:
+        - name: "Capture upgrade operation failure details for troubleshooting and recovery"
+          ansible.builtin.set_fact:
+            _upgrade_failure:
+              failure_time: "{{ ansible_date_time.iso8601 }}"
+              current_version: "{{ _current_major }}.{{ _current_minor }}.{{ _current_patch }}"
+              target_version: "{{ _operator_target_version }}"
+              namespace: "{{ _operator_namespace }}"
+              subscription: "{{ _subscription_name }}"
+              last_step_attempted: "{{ _next_step.csv_name | default('unknown') }}"
+          tags: [error_handling, state_tracking]
+
+        - name: "Log comprehensive upgrade failure information for operational analysis"
+          ansible.builtin.debug:
+            msg: |
+              ========================================
+              OPERATOR UPGRADE FAILURE
+              ========================================
+              Failure Time: {{ _upgrade_failure.failure_time }}
+              Namespace: {{ _upgrade_failure.namespace }}
+              Subscription: {{ _upgrade_failure.subscription }}
+              Current Version: {{ _upgrade_failure.current_version }}
+              Target Version: {{ _upgrade_failure.target_version }}
+              Last Step Attempted: {{ _upgrade_failure.last_step_attempted }}
+              Steps Completed: {{ _upgrade_state.steps_completed | default([]) | join(', ') }}
+              ========================================
+              TROUBLESHOOTING STEPS:
+              1. Check CSV status: oc get csv -n {{ _operator_namespace }}
+              2. Check InstallPlans: oc get installplan -n {{ _operator_namespace }}
+              3. Check Subscription: oc get subscription {{ _subscription_name }} -n {{ _operator_namespace }} -o yaml
+              4. Check operator logs: oc logs -n {{ _operator_namespace }} -l app=<operator-label>
+              5. Review OLM catalog logs: oc logs -n openshift-marketplace -l olm.catalogSource=<catalog-name>
+              ========================================
+          tags: [error_handling, logging]
+
+        - name: "Fail playbook execution with actionable error message for operations team"
+          ansible.builtin.fail:
+            msg: |
+              Operator upgrade sequence failed. Current version: {{ _upgrade_failure.current_version }}, Target: {{ _upgrade_failure.target_version }}.
+              Manual intervention required. Review OLM logs and CSV status in namespace {{ _operator_namespace }}.
+          tags: [error_handling, failure]
+
+      always:
+        - name: "Record final upgrade operation outcome for audit and monitoring systems"
+          ansible.builtin.debug:
+            msg: |
+              Upgrade operation completed at {{ ansible_date_time.iso8601 }}
+              Status: {{ 'FAILED' if _upgrade_failure is defined else 'SUCCESS' }}
+              Initial Version: {{ _upgrade_state.initial_version | default('unknown') }}
+              Final Version: {{ _current_major | default('?') }}.{{ _current_minor | default('?') }}.{{ _current_patch | default('?') }}
+              Target Version: {{ _upgrade_state.target_version | default('unknown') }}
+              Steps Completed: {{ _upgrade_state.steps_completed | default([]) | length }}
+          tags: [monitoring, audit]
+
+    - name: "Assert target operator version successfully reached after upgrade sequence"
+      ansible.builtin.assert:
+        that:
+          - _current_major | int == _target_major | int
+          - _current_minor | int == _target_minor | int
+          - _current_patch | int == _target_patch | int
+        fail_msg: |
+          Target version {{ _operator_target_version }} not reached.
+          Current version: {{ _current_major }}.{{ _current_minor }}.{{ _current_patch }}
+          Review InstallPlans availability and catalog channel configuration.
+          Verify subscription channel in namespace {{ _operator_namespace }}.
+        success_msg: "Successfully upgraded operator to target version {{ _operator_target_version }}"
+      tags: [verification, final, always]

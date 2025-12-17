@@ -83,48 +83,77 @@
         - name: "Execute sequential operator upgrade with comprehensive error handling"
           tags: [upgrade, main, critical]
           block:
-            - name: "Retrieve currently installed ClusterServiceVersions from operator namespace"
+            - name: "Retrieve Subscription status to identify installed CSV (avoid unrelated operators in namespace)"
+              kubernetes.core.k8s_info:
+                api_version: operators.coreos.com/v1alpha1
+                kind: Subscription
+                name: "{{ _subscription_name }}"
+                namespace: "{{ _operator_namespace }}"
+              register: _subscription_info
+              no_log: false
+              tags: [discovery, subscription]
+
+            - name: "Set installed CSV name from Subscription status"
+              ansible.builtin.set_fact:
+                _installed_csv_name: >-
+                  {{
+                    (
+                      _subscription_info.resources[0].status.installedCSV
+                      | default(_subscription_info.resources[0].status.currentCSV | default(''))
+                    )
+                  }}
+              when: _subscription_info.resources | length > 0
+              no_log: false
+              tags: [discovery, subscription]
+
+            - name: "Fail if Subscription does not report an installed CSV"
+              ansible.builtin.fail:
+                msg: |
+                  Subscription {{ _subscription_name }} in namespace {{ _operator_namespace }} does not have status.installedCSV/currentCSV yet.
+                  Verify the operator is installed and OLM has reconciled the Subscription.
+              when:
+                - _subscription_info.resources | length == 0 or _installed_csv_name | length == 0
+              tags: [validation, subscription]
+
+            - name: "Retrieve installed ClusterServiceVersion referenced by Subscription"
               kubernetes.core.k8s_info:
                 api_version: operators.coreos.com/v1alpha1
                 kind: ClusterServiceVersion
+                name: "{{ _installed_csv_name }}"
                 namespace: "{{ _operator_namespace }}"
-              register: _csvs_initial
+              register: _installed_csv_info
               no_log: false
               tags: [discovery, csv]
 
-            - name: "Determine current operator version from installed CSVs (prefer Succeeded phase)"
+            - name: "Set current CSV object from installed CSV lookup"
               ansible.builtin.set_fact:
-                _current_csv_obj: >-
-                  {{
-                    (
-                      _csvs_initial.resources
-                      | selectattr('status.phase', 'defined')
-                      | selectattr('status.phase', 'equalto', 'Succeeded')
-                      | sort(attribute='metadata.creationTimestamp')
-                      | last
-                    )
-                    if (_csvs_initial.resources | selectattr('status.phase', 'defined') | selectattr('status.phase', 'equalto', 'Succeeded') | list | length) > 0
-                    else (
-                      _csvs_initial.resources | sort(attribute='metadata.creationTimestamp') | last
-                    )
-                  }}
-              when: _csvs_initial.resources | length > 0
+                _current_csv_obj: "{{ _installed_csv_info.resources[0] }}"
+              when: _installed_csv_info.resources | length > 0
               no_log: false
               tags: [discovery, csv]
 
-            - name: "Fail if no ClusterServiceVersions exist in namespace (cannot determine baseline)"
+            - name: "Fail if installed CSV cannot be retrieved"
               ansible.builtin.fail:
-                msg: "No ClusterServiceVersions found in namespace {{ _operator_namespace }}. Cannot determine current operator version. Verify operator installation."
-              when: _csvs_initial.resources | length == 0
+                msg: |
+                  Installed CSV '{{ _installed_csv_name }}' (from Subscription status) was not found in namespace {{ _operator_namespace }}.
+                  Verify OLM resources and RBAC permissions.
+              when: _installed_csv_info.resources | length == 0
               tags: [validation, csv]
 
             - name: "Extract and set current version from CSV name"
               ansible.builtin.set_fact:
                 _version_match: "{{ _current_csv_obj.metadata.name | regex_search(_semver_regex, '\\1', '\\2', '\\3') }}"
+              no_log: false
+              tags: [parsing, csv]
+
+            - name: "Set current version numeric fields for comparison operations"
+              ansible.builtin.set_fact:
                 _current_major: "{{ _version_match[0] | int }}"
                 _current_minor: "{{ _version_match[1] | int }}"
                 _current_patch: "{{ _version_match[2] | int }}"
-              when: _version_match | length == 3
+              when:
+                - _version_match is defined
+                - _version_match | length == 3
               no_log: false
               tags: [parsing, csv]
 
@@ -157,7 +186,7 @@
               ansible.builtin.set_fact:
                 _upgrade_failure:
                   failure_time: "{{ ansible_date_time.iso8601 }}"
-                  current_version: "{{ _current_major }}.{{ _current_minor }}.{{ _current_patch }}"
+                  current_version: "{{ (_current_major | default('?')) }}.{{ (_current_minor | default('?')) }}.{{ (_current_patch | default('?')) }}"
                   target_version: "{{ _operator_target_version }}"
                   namespace: "{{ _operator_namespace }}"
                   subscription: "{{ _subscription_name }}"

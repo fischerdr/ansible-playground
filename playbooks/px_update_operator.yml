@@ -167,18 +167,26 @@
                   current_step: "initialization"
               tags: [state_tracking, monitoring]
 
+            - name: "Compute upgrade loop iterations (skip loop when already at target)"
+              ansible.builtin.set_fact:
+                _upgrade_iterations: >-
+                  {{
+                    []
+                    if (
+                      (_current_major | int == _target_major | int) and
+                      (_current_minor | int == _target_minor | int) and
+                      (_current_patch | int == _target_patch | int)
+                    )
+                    else (range(0, 200) | list)
+                  }}
+              tags: [upgrade, loop]
+
             - name: "Execute sequential operator upgrade steps until target version reached"
               ansible.builtin.include_tasks:
                 file: tasks/px_operator_upgrade_step.yml
-              loop: "{{ range(0, 200) | list }}"
+              loop: "{{ _upgrade_iterations }}"
               loop_control:
                 loop_var: _iteration
-              when: >
-                not (
-                  (_current_major | int == _target_major | int) and
-                  (_current_minor | int == _target_minor | int) and
-                  (_current_patch | int == _target_patch | int)
-                )
               tags: [upgrade, loop, critical]
 
           rescue:

@@ -1,0 +1,163 @@
+---
+# Sequential operator upgrade orchestrator
+# Manages the complete operator upgrade workflow with comprehensive error handling
+
+- name: Record operation start time
+  ansible.builtin.set_fact:
+    portworx_operator_operation_start: "{{ ansible_date_time.iso8601 }}"
+    portworx_operator_operation_start_epoch: "{{ ansible_date_time.epoch }}"
+    portworx_operator_iteration_count: 0
+    portworx_operator_steps_completed: []
+
+- name: Sequential operator upgrade
+  block:
+    - name: Validate operator upgrade configuration
+      ansible.builtin.assert:
+        that:
+          - portworx_operator_max_iterations | int >= 1
+          - portworx_operator_max_iterations | int <= 50
+          - portworx_operator_max_version_skew | int >= 1
+          - portworx_operator_max_version_skew | int <= 20
+        fail_msg: |
+          Invalid operator upgrade configuration:
+          - max_iterations: {{ portworx_operator_max_iterations }} (must be 1-50)
+          - max_version_skew: {{ portworx_operator_max_version_skew }} (must be 1-20)
+          Typical values: max_iterations=10, max_version_skew=10
+        success_msg: "Configuration validated (max_iterations={{ portworx_operator_max_iterations }}, max_version_skew={{ portworx_operator_max_version_skew }})"
+
+    - name: Display upgrade configuration
+      ansible.builtin.debug:
+        msg:
+          - "═══════════════════════════════════════════════════════════"
+          - "PORTWORX OPERATOR SEQUENTIAL UPGRADE"
+          - "═══════════════════════════════════════════════════════════"
+          - "Target version: {{ portworx_operator_target_version | default('latest available') }}"
+          - "Max version skew: {{ portworx_operator_max_version_skew }}"
+          - "Max iterations: {{ portworx_operator_max_iterations }}"
+          - "Per-step timeout: {{ portworx_operator_per_step_timeout }}s"
+          - "State tracking: {{ 'enabled' if portworx_operator_save_state else 'disabled' }}"
+
+    - name: Enforce manual approval mode
+      ansible.builtin.include_tasks: enforce_manual_mode.yml
+      when: portworx_operator_enforce_manual_approval
+
+    - name: Discover current operator version
+      ansible.builtin.include_tasks: discover_current_version.yml
+
+    - name: Determine target upgrade strategy
+      ansible.builtin.include_tasks: determine_target.yml
+
+    - name: Skip upgrade if not needed
+      when: portworx_operator_upgrade_strategy == 'skip'
+      block:
+        - name: Display skip message
+          ansible.builtin.debug:
+            msg:
+              - "Operator upgrade skipped"
+              - "Current version: {{ portworx_operator_current_version_string }}"
+              - "Reason: {{ portworx_operator_skip_reason | default('Strategy set to skip') }}"
+
+        - name: End play for this phase
+          ansible.builtin.meta: end_host
+
+    - name: Execute sequential upgrade loop
+      ansible.builtin.include_tasks: sequential_upgrade_loop.yml
+
+    - name: Finalize upgrade
+      ansible.builtin.include_tasks: finalize_upgrade.yml
+
+  rescue:
+    - name: Record failure details
+      ansible.builtin.set_fact:
+        portworx_operator_operation_end: "{{ ansible_date_time.iso8601 }}"
+        portworx_operator_operation_duration: "{{ ansible_date_time.epoch | int - portworx_operator_operation_start_epoch | int }}"
+        portworx_operator_upgrade_failed: true
+
+    - name: Save failure state to file
+      ansible.builtin.copy:
+        content: |
+          {
+            "operation_start": "{{ portworx_operator_operation_start }}",
+            "operation_end": "{{ portworx_operator_operation_end }}",
+            "operation_duration_seconds": {{ portworx_operator_operation_duration }},
+            "initial_version": "{{ portworx_operator_initial_version_string }}",
+            "target_version": "{{ portworx_operator_target_version_string | default('latest') }}",
+            "current_version": "{{ portworx_operator_current_version_string }}",
+            "steps_completed": {{ portworx_operator_steps_completed | default([]) | to_nice_json }},
+            "total_steps": {{ portworx_operator_iteration_count }},
+            "target_reached": false,
+            "failed": true,
+            "failure_reason": "{{ portworx_operator_failure_reason | default('Unknown error') }}",
+            "failure_csv": "{{ portworx_operator_failure_csv | default('') }}",
+            "failure_installplan": "{{ portworx_operator_failure_installplan | default('') }}"
+          }
+        dest: "{{ portworx_operator_state_file }}"
+        mode: "0644"
+      when: portworx_operator_save_state
+      changed_when: false
+
+    - name: Display comprehensive failure summary
+      ansible.builtin.debug:
+        msg:
+          - "═══════════════════════════════════════════════════════════"
+          - "OPERATOR UPGRADE FAILED"
+          - "═══════════════════════════════════════════════════════════"
+          - "Initial version: {{ portworx_operator_initial_version_string }}"
+          - "Current version: {{ portworx_operator_current_version_string }}"
+          - "Target version: {{ portworx_operator_target_version_string | default('latest') }}"
+          - "Steps completed: {{ portworx_operator_iteration_count }}"
+          - "Duration: {{ portworx_operator_operation_duration }}s"
+          - "State file: {{ portworx_operator_state_file }}"
+          - ""
+          - "FAILURE DETAILS:"
+          - "Reason: {{ portworx_operator_failure_reason | default('Unknown') }}"
+          - "Failed CSV: {{ portworx_operator_failure_csv | default('N/A') }}"
+          - "Failed InstallPlan: {{ portworx_operator_failure_installplan | default('N/A') }}"
+
+    - name: Re-raise the failure
+      ansible.builtin.fail:
+        msg: |
+          Portworx operator upgrade failed
+
+          See state file for details: {{ portworx_operator_state_file }}
+
+  always:
+    - name: Record operation end time
+      ansible.builtin.set_fact:
+        portworx_operator_operation_end: "{{ ansible_date_time.iso8601 }}"
+        portworx_operator_operation_duration: "{{ ansible_date_time.epoch | int - portworx_operator_operation_start_epoch | int }}"
+
+    - name: Save final state to file
+      ansible.builtin.copy:
+        content: |
+          {
+            "operation_start": "{{ portworx_operator_operation_start }}",
+            "operation_end": "{{ portworx_operator_operation_end }}",
+            "operation_duration_seconds": {{ portworx_operator_operation_duration }},
+            "initial_version": "{{ portworx_operator_initial_version_string }}",
+            "target_version": "{{ portworx_operator_target_version_string | default('latest') }}",
+            "current_version": "{{ portworx_operator_current_version_string }}",
+            "steps_completed": {{ portworx_operator_steps_completed | default([]) | to_nice_json }},
+            "total_steps": {{ portworx_operator_iteration_count }},
+            "target_reached": {{ portworx_operator_target_reached | default(false) }},
+            "failed": {{ portworx_operator_upgrade_failed | default(false) }},
+            "failure_reason": "{{ portworx_operator_failure_reason | default('') }}"
+          }
+        dest: "{{ portworx_operator_state_file }}"
+        mode: "0644"
+      when: portworx_operator_save_state
+      changed_when: false
+
+    - name: Display upgrade summary
+      ansible.builtin.debug:
+        msg:
+          - "═══════════════════════════════════════════════════════════"
+          - "OPERATOR UPGRADE SUMMARY"
+          - "═══════════════════════════════════════════════════════════"
+          - "Initial version: {{ portworx_operator_initial_version_string }}"
+          - "Final version: {{ portworx_operator_current_version_string }}"
+          - "Target version: {{ portworx_operator_target_version_string | default('latest') }}"
+          - "Steps completed: {{ portworx_operator_iteration_count }}"
+          - "Duration: {{ portworx_operator_operation_duration }}s ({{ (portworx_operator_operation_duration | int / 60) | round(1) }} min)"
+          - "Status: {{ 'SUCCESS' if not portworx_operator_upgrade_failed | default(false) else 'FAILED' }}"
+          - "State file: {{ portworx_operator_state_file }}"

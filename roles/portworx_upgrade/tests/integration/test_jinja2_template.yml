@@ -1,0 +1,231 @@
+---
+# Test the exact Jinja2 template used in discover_next_candidate.yml
+- name: Test Jinja2 Template Logic
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    portworx_operator_csv_prefix: "portworx-operator"
+    portworx_operator_current_version_tuple: (23, 10, 3)
+
+    # Mock InstallPlans (exactly as returned by k8s_info)
+    portworx_operator_installplans:
+      resources:
+        - metadata:
+            name: "install-plan-24-1-0"
+          spec:
+            clusterServiceVersionNames:
+              - "portworx-operator.v24.1.0"
+            approved: false
+        - metadata:
+            name: "install-plan-25-5-0"
+          spec:
+            clusterServiceVersionNames:
+              - "portworx-operator.v25.5.0"
+            approved: false
+        - metadata:
+            name: "install-plan-24-2-1"
+          spec:
+            clusterServiceVersionNames:
+              - "portworx-operator.v24.2.1"
+            approved: false
+
+  tasks:
+    - name: Test 1 - Basic candidate discovery (EXACT template from discover_next_candidate.yml)
+      ansible.builtin.set_fact:
+        portworx_operator_next_candidate: >-
+          {%- set candidates = [] -%}
+          {%- for ip in portworx_operator_installplans.resources -%}
+            {%- for csv_name in ip.spec.clusterServiceVersionNames -%}
+              {%- if csv_name.startswith(portworx_operator_csv_prefix) -%}
+                {%- set version_parsed = csv_name | parse_operator_version -%}
+                {%- if version_parsed.tuple > portworx_operator_current_version_tuple -%}
+                  {%- set _ = candidates.append({
+                        'installplan_name': ip.metadata.name,
+                        'csv_name': csv_name,
+                        'approved': ip.spec.approved | default(false),
+                        'version_tuple': version_parsed.tuple,
+                        'version_string': version_parsed.string,
+                        'version_major': version_parsed.major,
+                        'version_minor': version_parsed.minor,
+                        'version_patch': version_parsed.patch
+                      }) -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+          {%- endfor -%}
+          {{ candidates | sort(attribute='version_tuple') | first | default({}) }}
+
+    - name: Display discovered candidate
+      ansible.builtin.debug:
+        msg:
+          - "Current version: {{ portworx_operator_current_version_tuple }}"
+          - "Next candidate: {{ portworx_operator_next_candidate }}"
+
+    - name: Verify next candidate is correct
+      ansible.builtin.assert:
+        that:
+          - portworx_operator_next_candidate.csv_name is defined
+          - portworx_operator_next_candidate.csv_name == "portworx-operator.v24.1.0"
+          - portworx_operator_next_candidate.version_tuple == (24, 1, 0)
+          - portworx_operator_next_candidate.installplan_name == "install-plan-24-1-0"
+          - portworx_operator_next_candidate.approved == false
+        success_msg: "✓ PASS: Template correctly selected smallest version > current (24.1.0)"
+        fail_msg: "✗ FAIL: Template did not select correct candidate"
+
+    - name: Test 2 - No candidates scenario (current > all available)
+      ansible.builtin.set_fact:
+        portworx_operator_current_version_tuple: (26, 0, 0)  # Higher than all available
+        portworx_operator_next_candidate: >-
+          {%- set candidates = [] -%}
+          {%- for ip in portworx_operator_installplans.resources -%}
+            {%- for csv_name in ip.spec.clusterServiceVersionNames -%}
+              {%- if csv_name.startswith(portworx_operator_csv_prefix) -%}
+                {%- set version_parsed = csv_name | parse_operator_version -%}
+                {%- if version_parsed.tuple > portworx_operator_current_version_tuple -%}
+                  {%- set _ = candidates.append({
+                        'installplan_name': ip.metadata.name,
+                        'csv_name': csv_name,
+                        'approved': ip.spec.approved | default(false),
+                        'version_tuple': version_parsed.tuple,
+                        'version_string': version_parsed.string
+                      }) -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+          {%- endfor -%}
+          {{ candidates | sort(attribute='version_tuple') | first | default({}) }}
+
+    - name: Verify no candidates found returns empty dict
+      ansible.builtin.assert:
+        that:
+          - portworx_operator_next_candidate == {}
+        success_msg: "✓ PASS: Template correctly returns {} when no candidates"
+        fail_msg: "✗ FAIL: Expected empty dict for no candidates"
+
+    - name: Test 3 - Already approved InstallPlan
+      ansible.builtin.set_fact:
+        portworx_operator_current_version_tuple: (23, 10, 3)
+        portworx_operator_installplans:
+          resources:
+            - metadata:
+                name: "install-plan-24-1-0-approved"
+              spec:
+                clusterServiceVersionNames:
+                  - "portworx-operator.v24.1.0"
+                approved: true  # Already approved
+        portworx_operator_next_candidate: >-
+          {%- set candidates = [] -%}
+          {%- for ip in portworx_operator_installplans.resources -%}
+            {%- for csv_name in ip.spec.clusterServiceVersionNames -%}
+              {%- if csv_name.startswith(portworx_operator_csv_prefix) -%}
+                {%- set version_parsed = csv_name | parse_operator_version -%}
+                {%- if version_parsed.tuple > portworx_operator_current_version_tuple -%}
+                  {%- set _ = candidates.append({
+                        'installplan_name': ip.metadata.name,
+                        'csv_name': csv_name,
+                        'approved': ip.spec.approved | default(false),
+                        'version_tuple': version_parsed.tuple,
+                        'version_string': version_parsed.string
+                      }) -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+          {%- endfor -%}
+          {{ candidates | sort(attribute='version_tuple') | first | default({}) }}
+
+    - name: Verify approved flag is captured
+      ansible.builtin.assert:
+        that:
+          - portworx_operator_next_candidate.approved == true
+        success_msg: "✓ PASS: Template correctly captures approved status"
+        fail_msg: "✗ FAIL: Approved flag not captured correctly"
+
+    - name: Test 4 - Multiple CSVs in single InstallPlan (edge case)
+      ansible.builtin.set_fact:
+        portworx_operator_installplans:
+          resources:
+            - metadata:
+                name: "install-plan-multi"
+              spec:
+                clusterServiceVersionNames:
+                  - "other-operator.v1.0.0"
+                  - "portworx-operator.v24.1.0"
+                  - "another-operator.v2.0.0"
+                approved: false
+        portworx_operator_next_candidate: >-
+          {%- set candidates = [] -%}
+          {%- for ip in portworx_operator_installplans.resources -%}
+            {%- for csv_name in ip.spec.clusterServiceVersionNames -%}
+              {%- if csv_name.startswith(portworx_operator_csv_prefix) -%}
+                {%- set version_parsed = csv_name | parse_operator_version -%}
+                {%- if version_parsed.tuple > portworx_operator_current_version_tuple -%}
+                  {%- set _ = candidates.append({
+                        'installplan_name': ip.metadata.name,
+                        'csv_name': csv_name,
+                        'approved': ip.spec.approved | default(false),
+                        'version_tuple': version_parsed.tuple,
+                        'version_string': version_parsed.string
+                      }) -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+          {%- endfor -%}
+          {{ candidates | sort(attribute='version_tuple') | first | default({}) }}
+
+    - name: Verify filtering by prefix works
+      ansible.builtin.assert:
+        that:
+          - portworx_operator_next_candidate.csv_name == "portworx-operator.v24.1.0"
+        success_msg: "✓ PASS: Template correctly filters by CSV prefix"
+        fail_msg: "✗ FAIL: Prefix filtering failed"
+
+    - name: Test 5 - Missing approved field (default handling)
+      ansible.builtin.set_fact:
+        portworx_operator_installplans:
+          resources:
+            - metadata:
+                name: "install-plan-no-approved-field"
+              spec:
+                clusterServiceVersionNames:
+                  - "portworx-operator.v24.1.0"
+                # No 'approved' field at all
+        portworx_operator_next_candidate: >-
+          {%- set candidates = [] -%}
+          {%- for ip in portworx_operator_installplans.resources -%}
+            {%- for csv_name in ip.spec.clusterServiceVersionNames -%}
+              {%- if csv_name.startswith(portworx_operator_csv_prefix) -%}
+                {%- set version_parsed = csv_name | parse_operator_version -%}
+                {%- if version_parsed.tuple > portworx_operator_current_version_tuple -%}
+                  {%- set _ = candidates.append({
+                        'installplan_name': ip.metadata.name,
+                        'csv_name': csv_name,
+                        'approved': ip.spec.approved | default(false),
+                        'version_tuple': version_parsed.tuple,
+                        'version_string': version_parsed.string
+                      }) -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+          {%- endfor -%}
+          {{ candidates | sort(attribute='version_tuple') | first | default({}) }}
+
+    - name: Verify default false for missing approved field
+      ansible.builtin.assert:
+        that:
+          - portworx_operator_next_candidate.approved == false
+        success_msg: "✓ PASS: Template correctly defaults approved to false"
+        fail_msg: "✗ FAIL: Default approved value not correct"
+
+    - name: Test Summary
+      ansible.builtin.debug:
+        msg:
+          - "═══════════════════════════════════════"
+          - "All Jinja2 Template Tests PASSED"
+          - "═══════════════════════════════════════"
+          - "Tests:"
+          - "  1. Basic candidate discovery ✓"
+          - "  2. No candidates scenario ✓"
+          - "  3. Already approved InstallPlan ✓"
+          - "  4. Multiple CSVs in InstallPlan ✓"
+          - "  5. Missing approved field default ✓"

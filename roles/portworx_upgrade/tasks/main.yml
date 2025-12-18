@@ -46,7 +46,7 @@
 
 # Phase 2: Operator upgrade
 - name: "PHASE 2: Operator upgrade"
-  ansible.builtin.import_tasks: upgrade/operator.yml
+  ansible.builtin.import_tasks: upgrade/operator/main.yml
   when: not portworx_skip_operator_upgrade
   tags:
     - upgrade

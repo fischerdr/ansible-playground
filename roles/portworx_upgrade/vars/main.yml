@@ -25,6 +25,8 @@ portworx_stc_api_version: "core.libopenstorage.org/v1"
 # Operator resources
 portworx_operator_namespace: "portworx"
 portworx_operator_subscription: "portworx-certified"
+portworx_operator_semver_regex: 'v?([0-9]+)\.([0-9]+)\.([0-9]+)'
+portworx_operator_csv_prefix: "portworx-operator"
 
 # Auth secret
 portworx_auth_secret: "px-admin-token"

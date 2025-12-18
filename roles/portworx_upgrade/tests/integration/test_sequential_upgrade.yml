@@ -1,0 +1,245 @@
+---
+# Integration tests for sequential operator upgrade logic with mock OLM data
+- name: Test sequential operator upgrade logic
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    # Mock current CSV
+    mock_current_csv:
+      metadata:
+        name: "portworx-operator.v23.10.3"
+        creationTimestamp: "2024-01-01T00:00:00Z"
+      status:
+        phase: "Succeeded"
+
+    # Mock InstallPlans from OLM catalog
+    mock_installplans:
+      resources:
+        - metadata:
+            name: "install-plan-24-1-0"
+          spec:
+            clusterServiceVersionNames:
+              - "portworx-operator.v24.1.0"
+            approved: false
+        - metadata:
+            name: "install-plan-24-2-1"
+          spec:
+            clusterServiceVersionNames:
+              - "portworx-operator.v24.2.1"
+            approved: false
+        - metadata:
+            name: "install-plan-25-5-0"
+          spec:
+            clusterServiceVersionNames:
+              - "portworx-operator.v25.5.0"
+            approved: false
+
+    portworx_operator_target_version: "25.5.0"
+    portworx_operator_csv_prefix: "portworx-operator"
+
+  tasks:
+    - name: Test 1 - Parse current CSV version
+      block:
+        - name: Parse current operator version
+          ansible.builtin.set_fact:
+            parsed_current: "{{ mock_current_csv.metadata.name | parse_operator_version }}"
+
+        - name: Verify parsed version
+          ansible.builtin.assert:
+            that:
+              - parsed_current.major == 23
+              - parsed_current.minor == 10
+              - parsed_current.patch == 3
+              - parsed_current.tuple == (23, 10, 3)
+            success_msg: "✓ Current version parsed correctly {{ parsed_current.string }}"
+      tags: [parse]
+
+    - name: Test 2 - Discover next upgrade candidate
+      block:
+        - name: Build candidate list with parsed versions
+          ansible.builtin.set_fact:
+            all_candidates: >-
+              {{
+                mock_installplans.resources | map('combine', {
+                  'version_parsed': item.spec.clusterServiceVersionNames[0] | parse_operator_version,
+                  'installplan_name': item.metadata.name,
+                  'csv_name': item.spec.clusterServiceVersionNames[0]
+                }) | list
+              }}
+
+        - name: Add version_tuple to candidates
+          ansible.builtin.set_fact:
+            candidates_with_tuples: >-
+              {{
+                all_candidates | map('combine', {
+                  'version_tuple': item.version_parsed.tuple
+                }) | list
+              }}
+
+        - name: Filter candidates greater than current
+          ansible.builtin.set_fact:
+            valid_candidates: "{{ candidates_with_tuples | filter_greater_versions(parsed_current.tuple) }}"
+
+        - name: Sort candidates and select next
+          ansible.builtin.set_fact:
+            sorted_candidates: "{{ valid_candidates | sort_versions }}"
+            next_candidate: "{{ (valid_candidates | sort_versions) | first }}"
+
+        - name: Verify next candidate selection
+          ansible.builtin.assert:
+            that:
+              - next_candidate.csv_name == "portworx-operator.v24.1.0"
+              - next_candidate.version_tuple == (24, 1, 0)
+            success_msg: "✓ Next candidate selected correctly {{ next_candidate.csv_name }}"
+      tags: [discover]
+
+    - name: Test 3 - Sequential upgrade path calculation
+      block:
+        - name: Calculate full upgrade path
+          ansible.builtin.set_fact:
+            upgrade_path: >-
+              {{
+                (candidates_with_tuples | filter_greater_versions(parsed_current.tuple) | sort_versions)
+                | map(attribute='csv_name')
+                | list
+              }}
+
+        - name: Display upgrade path
+          ansible.builtin.debug:
+            msg:
+              - "Current version {{ parsed_current.string }}"
+              - "Target version {{ portworx_operator_target_version }}"
+              - "Upgrade path {{ upgrade_path }}"
+
+        - name: Verify upgrade path
+          ansible.builtin.assert:
+            that:
+              - upgrade_path | length == 3
+              - upgrade_path[0] == "portworx-operator.v24.1.0"
+              - upgrade_path[1] == "portworx-operator.v24.2.1"
+              - upgrade_path[2] == "portworx-operator.v25.5.0"
+            success_msg: "✓ Upgrade path calculated correctly"
+      tags: [path]
+
+    - name: Test 4 - Target version reached detection
+      block:
+        - name: Parse target version
+          ansible.builtin.set_fact:
+            parsed_target: "{{ ('portworx-operator.v' + portworx_operator_target_version) | parse_operator_version }}"
+
+        - name: Simulate reaching target
+          ansible.builtin.set_fact:
+            simulated_current: (25, 5, 0)
+
+        - name: Check if target reached
+          ansible.builtin.set_fact:
+            target_reached: "{{ simulated_current == parsed_target.tuple }}"
+
+        - name: Verify target detection
+          ansible.builtin.assert:
+            that:
+              - target_reached | bool
+            success_msg: "✓ Target reached detection works correctly"
+      tags: [target]
+
+    - name: Test 5 - No candidates scenario
+      block:
+        - name: Filter with current > all available
+          ansible.builtin.set_fact:
+            no_candidates: "{{ candidates_with_tuples | filter_greater_versions((26, 0, 0)) }}"
+
+        - name: Verify empty result
+          ansible.builtin.assert:
+            that:
+              - no_candidates | length == 0
+            success_msg: "✓ No candidates scenario handled correctly"
+      tags: [edge]
+
+    - name: Test 6 - Version skew validation
+      block:
+        - name: Calculate upgrade path length
+          ansible.builtin.set_fact:
+            path_length: >-
+              {{
+                candidates_with_tuples
+                | calculate_upgrade_path_length(parsed_current.tuple, parsed_target.tuple, 10)
+              }}
+
+        - name: Verify path length is within skew
+          ansible.builtin.assert:
+            that:
+              - path_length | int == 3
+              - path_length | int <= 10
+            success_msg: "✓ Version skew validation passed ({{ path_length }} steps <= 10)"
+      tags: [skew]
+
+    - name: Test 7 - Inline Jinja2 candidate discovery
+      block:
+        - name: Test inline discovery template (mimics discover_next_candidate.yml)
+          ansible.builtin.set_fact:
+            inline_next_candidate: >-
+              {%- set candidates = [] -%}
+              {%- for ip in mock_installplans.resources -%}
+                {%- for csv_name in ip.spec.clusterServiceVersionNames -%}
+                  {%- if csv_name.startswith(portworx_operator_csv_prefix) -%}
+                    {%- set version_parsed = csv_name | parse_operator_version -%}
+                    {%- if version_parsed.tuple > parsed_current.tuple -%}
+                      {%- set _ = candidates.append({
+                            'installplan_name': ip.metadata.name,
+                            'csv_name': csv_name,
+                            'version_tuple': version_parsed.tuple
+                          }) -%}
+                    {%- endif -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endfor -%}
+              {{ candidates | sort(attribute='version_tuple') | first | default({}) }}
+
+        - name: Verify inline template result
+          ansible.builtin.assert:
+            that:
+              - inline_next_candidate.csv_name == "portworx-operator.v24.1.0"
+              - inline_next_candidate.installplan_name == "install-plan-24-1-0"
+            success_msg: "✓ Inline Jinja2 candidate discovery works"
+      tags: [jinja2]
+
+    - name: Test 8 - Version skew exceeds limit
+      block:
+        - name: Create candidates with excessive skew
+          ansible.builtin.set_fact:
+            excessive_candidates: >-
+              {%- set candidates = [] -%}
+              {%- for i in range(15) -%}
+                {%- set _ = candidates.append({'version_tuple': (24, i, 0)}) -%}
+              {%- endfor -%}
+              {{ candidates }}
+
+        - name: Attempt to calculate excessive path
+          ansible.builtin.set_fact:
+            should_fail: "{{ excessive_candidates | calculate_upgrade_path_length((24, 0, 0), (24, 14, 0), 10) }}"
+          register: skew_test
+          ignore_errors: true
+
+        - name: Verify skew validation failed
+          ansible.builtin.assert:
+            that:
+              - skew_test is failed
+            success_msg: "✓ Version skew validation correctly rejects excessive jumps"
+      tags: [skew-limit]
+
+    - name: Test Summary
+      ansible.builtin.debug:
+        msg:
+          - "═══════════════════════════════════════"
+          - "All operator upgrade logic tests PASSED"
+          - "═══════════════════════════════════════"
+          - "Tests executed:"
+          - "  1. Parse current CSV version"
+          - "  2. Discover next upgrade candidate"
+          - "  3. Sequential upgrade path calculation"
+          - "  4. Target version reached detection"
+          - "  5. No candidates scenario"
+          - "  6. Version skew validation"
+          - "  7. Inline Jinja2 candidate discovery"
+          - "  8. Version skew exceeds limit"

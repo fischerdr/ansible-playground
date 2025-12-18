@@ -1,0 +1,50 @@
+---
+# Finalize operator upgrade
+# Performs post-upgrade validation and cleanup
+
+- name: Verify upgrade completion
+  ansible.builtin.assert:
+    that:
+      - portworx_operator_target_reached | bool
+      - not portworx_operator_upgrade_failed | default(false)
+    success_msg: "Operator upgrade completed successfully"
+    fail_msg: "Upgrade did not reach target or failed"
+
+- name: Display upgrade completion
+  ansible.builtin.debug:
+    msg: |
+      ═══════════════════════════════════════════════════════════
+      OPERATOR UPGRADE COMPLETED
+      ═══════════════════════════════════════════════════════════
+      Initial version: {{ portworx_operator_initial_version_string }}
+      Final version: {{ portworx_operator_current_version_string }}
+      Total steps: {{ portworx_operator_iteration_count }}
+      Steps completed:
+      {% for step in portworx_operator_steps_completed %}
+        {{ loop.index }}. {{ step.version }} ({{ step.duration_seconds }}s)
+      {% endfor %}
+
+- name: Get final CSV status
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    namespace: "{{ portworx_operator_namespace }}"
+    label_selectors:
+      - "operators.coreos.com/portworx-certified.{{ portworx_operator_namespace }}"
+  register: portworx_operator_final_csv
+  no_log: true
+
+- name: Verify final CSV is in Succeeded phase
+  ansible.builtin.assert:
+    that:
+      - portworx_operator_final_csv.resources | length > 0
+      - portworx_operator_final_csv.resources | selectattr('status.phase', 'equalto', 'Succeeded') | list | length > 0
+    success_msg: "Final CSV is in Succeeded phase"
+    fail_msg: "Final CSV is not in Succeeded phase"
+
+- name: Display final CSV details
+  ansible.builtin.debug:
+    msg:
+      - "Final CSV: {{ (portworx_operator_final_csv.resources | selectattr('status.phase', 'equalto', 'Succeeded') | first).metadata.name }}"
+      - "Phase: {{ (portworx_operator_final_csv.resources | selectattr('status.phase', 'equalto', 'Succeeded') | first).status.phase }}"
+      - "Operator upgrade finalized successfully"

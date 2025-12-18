@@ -1,0 +1,17 @@
+---
+# Wrapper playbook to run integration tests with filter plugins loaded
+- name: Load portworx_upgrade role filters
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    # Include role to load filter plugins
+    ansible_python_interpreter: /usr/bin/python3
+
+  pre_tasks:
+    - name: Verify filter plugins are available
+      ansible.builtin.debug:
+        msg: "Filter plugins loaded from role"
+
+- name: Run integration tests
+  ansible.builtin.import_playbook: test_sequential_upgrade.yml

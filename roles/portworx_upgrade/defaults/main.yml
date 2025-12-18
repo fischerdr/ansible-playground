@@ -13,6 +13,17 @@ portworx_namespace: "portworx"
 portworx_operator_auto_approve: true  # Auto-approve operator install plans
 portworx_operator_update_timeout: 600  # Seconds to wait for operator upgrade (10 min)
 
+# Sequential operator upgrade configuration
+portworx_operator_target_version: ""  # Optional: Explicit target version (e.g., "25.5.0")
+portworx_operator_auto_upgrade_to_latest: true  # Auto-upgrade to latest if no target specified
+portworx_operator_max_iterations: 10  # Typical: 5-10 steps (version skew shouldn't exceed this)
+portworx_operator_per_step_timeout: 900  # Seconds (15 min) - timeout per CSV upgrade step
+portworx_operator_installplan_poll_interval: 120  # Seconds (2 min) - wait for OLM to create next InstallPlan
+portworx_operator_enforce_manual_approval: true  # Force Manual approval mode for controlled upgrades
+portworx_operator_max_version_skew: 10  # Maximum allowed version steps in single upgrade run
+portworx_operator_save_state: true  # Save upgrade state to JSON for recovery
+portworx_operator_state_file: "{{ portworx_report_dir }}/operator_upgrade_state.json"
+
 # Monitoring and timeouts
 portworx_pod_upgrade_timeout: 1500  # Seconds (25 minutes) - timeout for single pod upgrade
 portworx_global_inactivity_timeout: 2100  # Seconds (35 minutes) - timeout for no upgrade activity

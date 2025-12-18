@@ -1,0 +1,44 @@
+---
+# Enforce manual approval mode for Subscription
+# Ensures controlled sequential upgrades with explicit InstallPlan approval
+
+- name: Get Portworx operator Subscription by name
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    name: "{{ portworx_operator_subscription }}"
+    namespace: "{{ portworx_operator_namespace }}"
+  register: portworx_operator_subscription_info
+  no_log: true
+
+- name: Verify Subscription exists
+  ansible.builtin.assert:
+    that:
+      - portworx_operator_subscription_info.resources | length > 0
+    fail_msg: "Subscription {{ portworx_operator_subscription }} not found in namespace {{ portworx_operator_namespace }}"
+    success_msg: "Subscription {{ portworx_operator_subscription }} found"
+
+- name: Set current approval mode
+  ansible.builtin.set_fact:
+    portworx_operator_current_approval_mode: "{{ portworx_operator_subscription_info.resources[0].spec.installPlanApproval | default('Automatic') }}"
+
+- name: Display current approval mode
+  ansible.builtin.debug:
+    msg:
+      - "Subscription: {{ portworx_operator_subscription }}"
+      - "Current installPlanApproval: {{ portworx_operator_current_approval_mode }}"
+
+- name: Set Subscription to Manual approval mode
+  kubernetes.core.k8s:
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    namespace: "{{ portworx_operator_namespace }}"
+    name: "{{ portworx_operator_subscription }}"
+    definition:
+      spec:
+        installPlanApproval: Manual
+  when: portworx_operator_current_approval_mode != "Manual"
+
+- name: Confirm Manual approval mode
+  ansible.builtin.debug:
+    msg: "Subscription set to Manual approval mode for controlled upgrades"

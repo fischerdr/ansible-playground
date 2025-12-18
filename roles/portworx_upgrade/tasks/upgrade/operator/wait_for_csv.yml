@@ -1,0 +1,26 @@
+---
+# Wait for ClusterServiceVersion to reach Succeeded phase
+# Validates CSV status with timeout handling
+
+- name: Wait for CSV {{ portworx_operator_target_csv_name }} to reach Succeeded phase
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    name: "{{ portworx_operator_target_csv_name }}"
+    namespace: "{{ portworx_operator_namespace }}"
+  register: portworx_operator_csv_status
+  until:
+    - portworx_operator_csv_status.resources | length > 0
+    - portworx_operator_csv_status.resources[0].status.phase is defined
+    - portworx_operator_csv_status.resources[0].status.phase == "Succeeded"
+  retries: "{{ (portworx_operator_per_step_timeout / 10) | int }}"
+  delay: 10
+  no_log: true
+
+- name: Display CSV status result
+  ansible.builtin.debug:
+    msg:
+      - "CSV: {{ portworx_operator_target_csv_name }}"
+      - "Phase: {{ portworx_operator_csv_status.resources[0].status.phase }}"
+      - "Message: {{ portworx_operator_csv_status.resources[0].status.message | default('N/A') }}"
+  when: portworx_detailed_logging

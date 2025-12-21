@@ -1,0 +1,261 @@
+---
+# Integration tests for volume health validation logic
+# Tests text parsing and volume counting by status
+
+- name: Test Volume Health Validation Logic
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    # ==========================================
+    # POSITIVE TEST CASE - All Volumes Healthy
+    # ==========================================
+
+    - name: Test Case 1 - All volumes up and attached
+      block:
+        - name: Set mock volume list output (healthy)
+          ansible.builtin.set_fact:
+            mock_volume_list:
+              stdout_lines:
+                - "ID                                      NAME                SIZE    HA  SHARED  STATUS"
+                - "123456789012345678901234567890123456    pvc-test-1          10 GiB  3   no      up - attached on node1"
+                - "234567890123456789012345678901234567    pvc-test-2          20 GiB  3   no      up - attached on node2"
+                - "345678901234567890123456789012345678    pvc-test-3          15 GiB  3   no      up - attached on node3"
+
+        - name: Count volumes by status
+          ansible.builtin.set_fact:
+            test_total_volumes: >-
+              {{ mock_volume_list.stdout_lines |
+                 select('match', '^[0-9]') |
+                 list |
+                 length }}
+            test_volumes_up_attached: >-
+              {{ mock_volume_list.stdout_lines |
+                 select('match', '^[0-9]') |
+                 select('search', '(?i)up.*-.*attached') |
+                 list |
+                 length }}
+            test_volumes_down: >-
+              {{ mock_volume_list.stdout_lines |
+                 select('match', '^[0-9]') |
+                 select('search', '(?i)down.*-') |
+                 list |
+                 length }}
+            test_volumes_degraded: >-
+              {{ mock_volume_list.stdout_lines |
+                 select('match', '^[0-9]') |
+                 select('search', '(?i)degraded') |
+                 list |
+                 length }}
+
+        - name: Verify results - Test Case 1
+          ansible.builtin.assert:
+            that:
+              - test_total_volumes | int == 3
+              - test_volumes_up_attached | int == 3
+              - test_volumes_down | int == 0
+              - test_volumes_degraded | int == 0
+            success_msg: "PASS: Test Case 1 - All volumes healthy"
+            fail_msg: "FAIL: Test Case 1 - Volume counting incorrect"
+
+    # ==========================================
+    # POSITIVE TEST CASE - Mixed Status
+    # ==========================================
+
+    - name: Test Case 2 - Mixed volume states (detached volumes)
+      block:
+        - name: Set mock volume list output (mixed)
+          ansible.builtin.set_fact:
+            mock_volume_list:
+              stdout_lines:
+                - "ID                                      NAME                SIZE    HA  SHARED  STATUS"
+                - "123456789012345678901234567890123456    pvc-test-1          10 GiB  3   no      up - attached on node1"
+                - "234567890123456789012345678901234567    pvc-test-2          20 GiB  3   no      up - detached"
+                - "345678901234567890123456789012345678    pvc-test-3          15 GiB  3   no      up - detached"
+                - "456789012345678901234567890123456789    pvc-test-4          25 GiB  3   no      up - attached on node2"
+
+        - name: Count volumes by status
+          ansible.builtin.set_fact:
+            test_total_volumes: >-
+              {{ mock_volume_list.stdout_lines |
+                 select('match', '^[0-9]') |
+                 list |
+                 length }}
+            test_volumes_up_attached: >-
+              {{ mock_volume_list.stdout_lines |
+                 select('match', '^[0-9]') |
+                 select('search', '(?i)up.*-.*attached') |
+                 list |
+                 length }}
+            test_volumes_up_detached: >-
+              {{ mock_volume_list.stdout_lines |
+                 select('match', '^[0-9]') |
+                 select('search', '(?i)up.*-.*detached') |
+                 list |
+                 length }}
+
+        - name: Verify results - Test Case 2
+          ansible.builtin.assert:
+            that:
+              - test_total_volumes | int == 4
+              - test_volumes_up_attached | int == 2
+              - test_volumes_up_detached | int == 2
+            success_msg: "PASS: Test Case 2 - Mixed states detected correctly"
+            fail_msg: "FAIL: Test Case 2 - Volume state parsing failed"
+
+    # ==========================================
+    # NEGATIVE TEST CASE - Down Volumes
+    # ==========================================
+
+    - name: Test Case 3 - Volumes in down state
+      block:
+        - name: Set mock volume list output (down volumes)
+          ansible.builtin.set_fact:
+            mock_volume_list:
+              stdout_lines:
+                - "ID                                      NAME                SIZE    HA  SHARED  STATUS"
+                - "123456789012345678901234567890123456    pvc-test-1          10 GiB  3   no      up - attached on node1"
+                - "234567890123456789012345678901234567    pvc-test-2          20 GiB  3   no      down - detached"
+                - "345678901234567890123456789012345678    pvc-test-3          15 GiB  3   no      down - detached"
+
+        - name: Count volumes by status
+          ansible.builtin.set_fact:
+            test_total_volumes: >-
+              {{ mock_volume_list.stdout_lines |
+                 select('match', '^[0-9]') |
+                 list |
+                 length }}
+            test_volumes_up_attached: >-
+              {{ mock_volume_list.stdout_lines |
+                 select('match', '^[0-9]') |
+                 select('search', '(?i)up.*-.*attached') |
+                 list |
+                 length }}
+            test_volumes_down: >-
+              {{ mock_volume_list.stdout_lines |
+                 select('match', '^[0-9]') |
+                 select('search', '(?i)down.*-') |
+                 list |
+                 length }}
+
+        - name: Verify results - Test Case 3
+          ansible.builtin.assert:
+            that:
+              - test_total_volumes | int == 3
+              - test_volumes_up_attached | int == 1
+              - test_volumes_down | int == 2
+            success_msg: "PASS: Test Case 3 - Down volumes detected"
+            fail_msg: "FAIL: Test Case 3 - Down volume detection failed"
+
+    # ==========================================
+    # NEGATIVE TEST CASE - Degraded Volumes
+    # ==========================================
+
+    - name: Test Case 4 - Degraded volumes
+      block:
+        - name: Set mock volume list output (degraded)
+          ansible.builtin.set_fact:
+            mock_volume_list:
+              stdout_lines:
+                - "ID                                      NAME                SIZE    HA  SHARED  STATUS"
+                - "123456789012345678901234567890123456    pvc-test-1          10 GiB  3   no      up - attached on node1"
+                - "234567890123456789012345678901234567    pvc-test-2          20 GiB  3   no      up - attached on node2 (degraded)"
+                - "345678901234567890123456789012345678    pvc-test-3          15 GiB  3   no      up - attached on node3 (degraded)"
+
+        - name: Count volumes by status
+          ansible.builtin.set_fact:
+            test_total_volumes: >-
+              {{ mock_volume_list.stdout_lines |
+                 select('match', '^[0-9]') |
+                 list |
+                 length }}
+            test_volumes_degraded: >-
+              {{ mock_volume_list.stdout_lines |
+                 select('match', '^[0-9]') |
+                 select('search', '(?i)degraded') |
+                 list |
+                 length }}
+
+        - name: Verify results - Test Case 4
+          ansible.builtin.assert:
+            that:
+              - test_total_volumes | int == 3
+              - test_volumes_degraded | int == 2
+            success_msg: "PASS: Test Case 4 - Degraded volumes detected"
+            fail_msg: "FAIL: Test Case 4 - Degraded volume detection failed"
+
+    # ==========================================
+    # EDGE CASE - Empty Volume List
+    # ==========================================
+
+    - name: Test Case 5 - No volumes
+      block:
+        - name: Set mock volume list output (empty)
+          ansible.builtin.set_fact:
+            mock_volume_list:
+              stdout_lines:
+                - "ID                                      NAME                SIZE    HA  SHARED  STATUS"
+
+        - name: Count volumes
+          ansible.builtin.set_fact:
+            test_total_volumes: >-
+              {{ mock_volume_list.stdout_lines |
+                 select('match', '^[0-9]') |
+                 list |
+                 length }}
+
+        - name: Verify results - Test Case 5
+          ansible.builtin.assert:
+            that:
+              - test_total_volumes | int == 0
+            success_msg: "PASS: Test Case 5 - Empty volume list handled"
+            fail_msg: "FAIL: Test Case 5 - Empty list handling failed"
+
+    # ==========================================
+    # EDGE CASE - Case Insensitive Matching
+    # ==========================================
+
+    - name: Test Case 6 - Case insensitive status matching
+      block:
+        - name: Set mock volume list output (mixed case)
+          ansible.builtin.set_fact:
+            mock_volume_list:
+              stdout_lines:
+                - "ID                                      NAME                SIZE    HA  SHARED  STATUS"
+                - "123456789012345678901234567890123456    pvc-test-1          10 GiB  3   no      UP - ATTACHED on node1"
+                - "234567890123456789012345678901234567    pvc-test-2          20 GiB  3   no      Down - detached"
+                - "345678901234567890123456789012345678    pvc-test-3          15 GiB  3   no      Up - ATTACHED on node2 (DEGRADED)"
+
+        - name: Count volumes by status
+          ansible.builtin.set_fact:
+            test_volumes_up_attached: >-
+              {{ mock_volume_list.stdout_lines |
+                 select('match', '^[0-9]') |
+                 select('search', '(?i)up.*-.*attached') |
+                 list |
+                 length }}
+            test_volumes_down: >-
+              {{ mock_volume_list.stdout_lines |
+                 select('match', '^[0-9]') |
+                 select('search', '(?i)down.*-') |
+                 list |
+                 length }}
+            test_volumes_degraded: >-
+              {{ mock_volume_list.stdout_lines |
+                 select('match', '^[0-9]') |
+                 select('search', '(?i)degraded') |
+                 list |
+                 length }}
+
+        - name: Verify results - Test Case 6
+          ansible.builtin.assert:
+            that:
+              - test_volumes_up_attached | int == 2
+              - test_volumes_down | int == 1
+              - test_volumes_degraded | int == 1
+            success_msg: "PASS: Test Case 6 - Case insensitive matching works"
+            fail_msg: "FAIL: Test Case 6 - Case sensitivity issue detected"
+
+    - name: All volume validation tests passed
+      ansible.builtin.debug:
+        msg: "✅ All volume validation tests PASSED"

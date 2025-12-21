@@ -48,6 +48,61 @@ FINAL CLUSTER STATUS:
   Version Consistency: Consistent
   STC Status Version: {{ portworx_stc_status_version }}
 
+========================================
+DETAILED VALIDATION RESULTS
+========================================
+
+Storage Pool Health:
+  Status: {{ portworx_validation_results.storage_pools.status | default('Not checked') | upper }}
+  Total Storage Nodes: {{ portworx_validation_results.storage_pools.total_storage_nodes | default('N/A') }}
+  Pools Online: {{ portworx_validation_results.storage_pools.pools_online | default('N/A') }}
+  Pools Degraded: {{ portworx_validation_results.storage_pools.pools_degraded | default('N/A') }}
+  Average Capacity: {{ portworx_validation_results.storage_pools.average_capacity_percent | default('N/A') }}%
+  Nodes > 80% Full: {{ portworx_validation_results.storage_pools.nodes_over_80_percent | default('0') }}
+
+Volume Health:
+  Status: {{ portworx_validation_results.volumes.status | default('Not checked') | upper }}
+  Total Volumes: {{ portworx_validation_results.volumes.total_volumes | default('N/A') }}
+  Up + Attached: {{ portworx_validation_results.volumes.up_attached | default('N/A') }}
+  Up + Detached: {{ portworx_validation_results.volumes.up_detached | default('N/A') }}
+  Down: {{ portworx_validation_results.volumes.down | default('N/A') }}
+  Degraded: {{ portworx_validation_results.volumes.degraded | default('N/A') }}
+
+StorageCluster Conditions:
+  Total Conditions: {{ portworx_validation_results.stc_conditions.total_conditions | default('N/A') }}
+  Status True: {{ portworx_validation_results.stc_conditions.true_conditions | default('N/A') }}
+  Status False: {{ portworx_validation_results.stc_conditions.false_conditions | default('N/A') }}
+  Status Unknown: {{ portworx_validation_results.stc_conditions.unknown_conditions | default('N/A') }}
+  Available: {{ portworx_validation_results.stc_conditions.available_status | default('N/A') }}
+  Update: {{ portworx_validation_results.stc_conditions.update_status | default('N/A') }}
+  Migration: {{ portworx_validation_results.stc_conditions.migration_status | default('N/A') }}
+
+Node Statistics:
+  Status: {{ portworx_validation_results.nodes.status | default('Not checked') | upper }}
+  Total Nodes: {{ portworx_validation_results.nodes.total_nodes | default('N/A') }}
+  Storage Nodes: {{ portworx_validation_results.nodes.storage_nodes | default('N/A') }}
+  Storageless Nodes: {{ portworx_validation_results.nodes.storageless_nodes | default('N/A') }}
+  Online: {{ portworx_validation_results.nodes.online_nodes | default('N/A') }}
+  Offline: {{ portworx_validation_results.nodes.offline_nodes | default('N/A') }}
+  Degraded: {{ portworx_validation_results.nodes.degraded_nodes | default('N/A') }}
+  Wrong Version: {{ portworx_validation_results.nodes.wrong_version_nodes | default('N/A') }}
+
+Troubleshooting Commands:
+{% if portworx_validation_results.volumes.down | default(0) | int > 0 %}
+  DOWN VOLUMES DETECTED:
+    oc exec -n {{ portworx_namespace }} -it <portworx-pod> -- /opt/pwx/bin/pxctl volume list | grep -i down
+{% endif %}
+{% if portworx_validation_results.storage_pools.pools_degraded | default(0) | int > 0 %}
+  DEGRADED POOLS DETECTED:
+    oc exec -n {{ portworx_namespace }} -it <portworx-pod> -- /opt/pwx/bin/pxctl cluster provision-status
+{% endif %}
+{% if portworx_validation_results.nodes.offline_nodes | default(0) | int > 0 %}
+  OFFLINE NODES DETECTED:
+    oc exec -n {{ portworx_namespace }} -it <portworx-pod> -- /opt/pwx/bin/pxctl status | grep -v Online
+{% endif %}
+
+========================================
+
 TIMING BREAKDOWN:
   Pre-flight Checks: {{ portworx_preflight_duration | default(0) }}s
   Operator Upgrade: {{ portworx_operator_duration | default(0) }}s

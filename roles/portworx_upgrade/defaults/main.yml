@@ -52,6 +52,16 @@ portworx_fail_on_unhealthy_pods: true  # Fail immediately if pods are unhealthy
 portworx_fail_on_degraded_cluster: true  # Fail immediately if cluster is degraded
 portworx_fail_on_invalid_updatestrategy: true  # Fail if STC updateStrategy is not configured correctly
 
+# Phase 7: Enhanced Validation Configuration
+portworx_validation_check_storage_pools: true  # Validate storage pool capacity and health
+portworx_validation_check_volumes: true  # Validate volume health and replication
+portworx_validation_fail_on_pool_issues: true  # Fail if storage pools are degraded or over capacity
+portworx_validation_fail_on_down_volumes: true  # Fail if any volumes are in DOWN state
+portworx_validation_fail_on_degraded_volumes: true  # Fail if any volumes are DEGRADED
+portworx_validation_fail_on_stc_unavailable: false  # Fail if StorageCluster Available!=True (warn only by default)
+portworx_validation_pool_capacity_threshold: 90  # Fail if average pool capacity exceeds this percentage
+portworx_create_json_report: true  # Generate JSON validation report for monitoring system integration
+
 # Backup configuration
 portworx_backup_resources: true  # Backup StorageCluster before upgrade
 portworx_backup_dir: "{{ portworx_report_dir }}/backups"

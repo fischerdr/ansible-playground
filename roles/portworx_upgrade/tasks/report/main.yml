@@ -3,3 +3,7 @@
 
 - name: Include summary generation
   ansible.builtin.import_tasks: generate_summary.yml
+
+- name: Include JSON report generation
+  ansible.builtin.import_tasks: generate_detailed_json.yml
+  when: portworx_create_json_report | default(false)

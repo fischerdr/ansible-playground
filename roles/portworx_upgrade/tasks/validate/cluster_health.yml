@@ -82,7 +82,7 @@
       Found: {{ portworx_cluster_versions.stdout_lines }}
     success_msg: "All nodes running version {{ portworx_target_version }}"
 
-- name: Capture full pxctl status for final report
+- name: Capture full pxctl status for validation and final report
   kubernetes.core.k8s_exec:
     namespace: "{{ portworx_namespace }}"
     pod: "{{ portworx_pxctl_pod.metadata.name }}"
@@ -90,7 +90,6 @@
   register: portworx_final_pxctl_status
   changed_when: false
   no_log: "{{ not portworx_detailed_logging }}"
-  when: portworx_detailed_logging
 
 - name: Display final pxctl status
   ansible.builtin.debug:

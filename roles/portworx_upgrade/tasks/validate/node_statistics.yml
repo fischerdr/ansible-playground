@@ -1,0 +1,154 @@
+---
+# Aggregate node statistics validation
+
+- name: Ensure pxctl status output is available
+  ansible.builtin.assert:
+    that:
+      - portworx_final_pxctl_status is defined
+      - portworx_final_pxctl_status.stdout is defined
+    fail_msg: |
+      pxctl status output not available. This validation depends on cluster_health.yml running first.
+      Ensure portworx_detailed_logging=true or cluster_health.yml captures pxctl status output.
+
+- name: Display pxctl status (verbose logging only)
+  ansible.builtin.debug:
+    msg: "{{ portworx_final_pxctl_status.stdout_lines }}"
+  when: portworx_detailed_logging
+
+- name: Count total nodes
+  ansible.builtin.set_fact:
+    portworx_total_nodes: >-
+      {{ portworx_final_pxctl_status.stdout_lines |
+         select('match', '^[0-9]+\\.[0-9]+') |
+         list |
+         length }}
+
+- name: Count storage vs storageless nodes
+  ansible.builtin.set_fact:
+    portworx_storage_node_count: >-
+      {{ portworx_final_pxctl_status.stdout_lines |
+         select('match', '^[0-9]+\\.[0-9]+') |
+         select('search', '\\s+true\\s+') |
+         list |
+         length }}
+    portworx_storageless_node_count: >-
+      {{ portworx_final_pxctl_status.stdout_lines |
+         select('match', '^[0-9]+\\.[0-9]+') |
+         select('search', '\\s+false\\s+') |
+         list |
+         length }}
+
+- name: Count nodes by status
+  ansible.builtin.set_fact:
+    portworx_online_node_count: >-
+      {{ portworx_final_pxctl_status.stdout_lines |
+         select('match', '^[0-9]+\\.[0-9]+') |
+         select('search', '\\s+Online\\s+') |
+         list |
+         length }}
+    portworx_offline_node_count: >-
+      {{ portworx_final_pxctl_status.stdout_lines |
+         select('match', '^[0-9]+\\.[0-9]+') |
+         select('search', '\\s+Offline\\s+') |
+         list |
+         length }}
+    portworx_degraded_node_count: >-
+      {{ portworx_final_pxctl_status.stdout_lines |
+         select('match', '^[0-9]+\\.[0-9]+') |
+         select('search', '\\s+Degraded\\s+') |
+         list |
+         length }}
+
+- name: Count nodes on wrong version
+  ansible.builtin.set_fact:
+    portworx_wrong_version_count: >-
+      {{ portworx_final_pxctl_status.stdout_lines |
+         select('match', '^[0-9]+\\.[0-9]+') |
+         reject('search', portworx_target_version) |
+         list |
+         length }}
+
+- name: Display node statistics
+  ansible.builtin.debug:
+    msg:
+      - "Node Statistics:"
+      - "  Total nodes: {{ portworx_total_nodes }}"
+      - "  Storage nodes: {{ portworx_storage_node_count }}"
+      - "  Storageless nodes: {{ portworx_storageless_node_count }}"
+      - "  Online: {{ portworx_online_node_count }}"
+      - "  Offline: {{ portworx_offline_node_count }}"
+      - "  Degraded: {{ portworx_degraded_node_count }}"
+      - "  Wrong version: {{ portworx_wrong_version_count }}"
+
+- name: Assert all nodes are online
+  ansible.builtin.assert:
+    that:
+      - portworx_offline_node_count | int == 0
+      - portworx_degraded_node_count | int == 0
+    fail_msg: |
+      Found {{ portworx_offline_node_count }} offline and {{ portworx_degraded_node_count }} degraded nodes!
+
+      Troubleshooting:
+      1. Check full status:
+         oc exec -n {{ portworx_namespace }} {{ portworx_pxctl_pod.metadata.name }} -- /opt/pwx/bin/pxctl status
+      2. Filter non-online nodes:
+         oc exec -n {{ portworx_namespace }} {{ portworx_pxctl_pod.metadata.name }} -- /opt/pwx/bin/pxctl status | grep -v Online
+      3. Check pod status:
+         oc get pods -n {{ portworx_namespace }} -l {{ portworx_pod_selector }} -o wide
+      4. Check OpenShift node status:
+         oc get nodes
+      5. Check node events:
+         oc get events -n {{ portworx_namespace }} --sort-by='.lastTimestamp' | tail -50
+      6. Inspect specific node:
+         oc exec -n {{ portworx_namespace }} <pod-on-node> -- /opt/pwx/bin/pxctl cluster inspect <node-id>
+    success_msg: "All {{ portworx_total_nodes }} nodes are Online"
+
+- name: Assert all nodes are on target version
+  ansible.builtin.assert:
+    that:
+      - portworx_wrong_version_count | int == 0
+    fail_msg: |
+      Found {{ portworx_wrong_version_count }} nodes NOT on target version {{ portworx_target_version }}!
+
+      This indicates the upgrade did not complete successfully on all nodes.
+
+      Troubleshooting:
+      1. Check version distribution:
+         oc exec -n {{ portworx_namespace }} {{ portworx_pxctl_pod.metadata.name }} -- /opt/pwx/bin/pxctl status | grep -v {{ portworx_target_version }}
+      2. Check pod images:
+         oc get pods -n {{ portworx_namespace }} -l {{ portworx_pod_selector }} -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}'
+      3. Verify StorageCluster image:
+         oc get storagecluster {{ portworx_stc_name }} -n {{ portworx_namespace }} -o jsonpath='{.spec.image}'
+      4. Check for stuck pods:
+         oc get pods -n {{ portworx_namespace }} -l {{ portworx_pod_selector }} --field-selector=status.phase!=Running
+      5. Review operator logs:
+         oc logs -n {{ portworx_namespace }} -l name=portworx-operator --tail=100
+    success_msg: "All {{ portworx_total_nodes }} nodes running version {{ portworx_target_version }}"
+
+- name: Warn about node type distribution
+  ansible.builtin.debug:
+    msg: |
+      INFO: Node Distribution
+      - Storage nodes: {{ portworx_storage_node_count }}
+      - Storageless nodes: {{ portworx_storageless_node_count }}
+      - Total: {{ portworx_total_nodes }}
+
+      Recommended ratio: 1 storage node per 5-10 storageless nodes for most workloads.
+  when: portworx_detailed_logging
+
+- name: Collect node statistics for reporting
+  ansible.builtin.set_fact:
+    portworx_validation_node_summary:
+      total_nodes: "{{ portworx_total_nodes | int }}"
+      storage_nodes: "{{ portworx_storage_node_count | int }}"
+      storageless_nodes: "{{ portworx_storageless_node_count | int }}"
+      online_nodes: "{{ portworx_online_node_count | int }}"
+      offline_nodes: "{{ portworx_offline_node_count | int }}"
+      degraded_nodes: "{{ portworx_degraded_node_count | int }}"
+      wrong_version_nodes: "{{ portworx_wrong_version_count | int }}"
+      status: "{{ 'healthy' if (portworx_offline_node_count | int == 0 and portworx_degraded_node_count | int == 0 and portworx_wrong_version_count | int == 0) else 'degraded' }}"
+      timestamp: "{{ ansible_date_time.epoch }}"
+
+- name: Node statistics validation complete
+  ansible.builtin.debug:
+    msg: "Node validation complete - {{ portworx_total_nodes }} nodes ({{ portworx_storage_node_count }} storage, {{ portworx_storageless_node_count }} storageless, {{ portworx_offline_node_count }} offline, {{ portworx_wrong_version_count }} wrong version)"

@@ -5,19 +5,99 @@
   ansible.builtin.set_fact:
     portworx_validation_start_time: "{{ ansible_date_time.epoch }}"
 
+# ==============================================
+# EXISTING VALIDATIONS
+# ==============================================
+
 - name: Include final pod validation
   ansible.builtin.import_tasks: final_pod_validation.yml
+  tags:
+    - pod_validation
 
 - name: Include cluster health validation
   ansible.builtin.import_tasks: cluster_health.yml
+  tags:
+    - cluster_health
 
 - name: Include version consistency validation
   ansible.builtin.import_tasks: version_consistency.yml
+  tags:
+    - version_consistency
+
+# ==============================================
+# NEW ENHANCED VALIDATIONS
+# ==============================================
+
+- name: Include storage pool health validation
+  ansible.builtin.import_tasks: storage_pool_health.yml
+  when: portworx_validation_check_storage_pools | default(true)
+  tags:
+    - storage_pools
+
+- name: Include volume health validation
+  ansible.builtin.import_tasks: volume_health.yml
+  when: portworx_validation_check_volumes | default(true)
+  tags:
+    - volumes
+
+- name: Include enhanced STC condition analysis
+  ansible.builtin.import_tasks: stc_conditions.yml
+  tags:
+    - stc_conditions
+
+- name: Include node statistics validation
+  ansible.builtin.import_tasks: node_statistics.yml
+  tags:
+    - node_statistics
+
+# ==============================================
+# CONSOLIDATE RESULTS
+# ==============================================
+
+- name: Consolidate validation results
+  ansible.builtin.set_fact:
+    portworx_validation_results:
+      pod_validation:
+        total_pods: "{{ portworx_final_pods.resources | length }}"
+        kvdb_pods: "{{ portworx_final_kvdb_pods.resources | length }}"
+        status: "passed"
+      cluster_health:
+        operational: true
+        offline_nodes: 0
+        status: "passed"
+      version_consistency:
+        stc_version: "{{ portworx_stc_status_version }}"
+        pod_version: "{{ portworx_target_version }}"
+        status: "passed"
+      storage_pools: "{{ portworx_validation_pool_summary | default({'status': 'skipped'}) }}"
+      volumes: "{{ portworx_validation_volume_summary | default({'status': 'skipped'}) }}"
+      stc_conditions: "{{ portworx_validation_stc_summary | default({'status': 'skipped'}) }}"
+      nodes: "{{ portworx_validation_node_summary | default({'status': 'skipped'}) }}"
+      validation_duration: "{{ (ansible_date_time.epoch | int) - (portworx_validation_start_time | int) }}"
 
 - name: Record validation end time
   ansible.builtin.set_fact:
     portworx_validation_end_time: "{{ ansible_date_time.epoch }}"
 
+- name: Display comprehensive validation summary
+  ansible.builtin.debug:
+    msg:
+      - "============================================"
+      - "===  VALIDATION COMPLETE  ==="
+      - "============================================"
+      - "Duration: {{ portworx_validation_results.validation_duration }}s"
+      - ""
+      - "PODS: {{ portworx_validation_results.pod_validation.status | upper }}"
+      - "CLUSTER: {{ portworx_validation_results.cluster_health.status | upper }}"
+      - "VERSION: {{ portworx_validation_results.version_consistency.status | upper }}"
+      - ""
+      - "STORAGE POOLS: {{ portworx_validation_results.storage_pools.status | upper }} ({{ portworx_validation_results.storage_pools.total_storage_nodes | default('N/A') }} nodes, {{ portworx_validation_results.storage_pools.pools_degraded | default('0') }} degraded)"
+      - "VOLUMES: {{ portworx_validation_results.volumes.status | upper }} ({{ portworx_validation_results.volumes.total_volumes | default('N/A') }} total, {{ portworx_validation_results.volumes.down | default('0') }} down, {{ portworx_validation_results.volumes.degraded | default('0') }} degraded)"
+      - "STC CONDITIONS: {{ portworx_validation_results.stc_conditions.available_status | default('SKIPPED') }} ({{ portworx_validation_results.stc_conditions.total_conditions | default('N/A') }} conditions)"
+      - "NODES: {{ portworx_validation_results.nodes.status | upper }} ({{ portworx_validation_results.nodes.total_nodes | default('N/A') }} total, {{ portworx_validation_results.nodes.offline_nodes | default('0') }} offline, {{ portworx_validation_results.nodes.wrong_version_nodes | default('0') }} wrong version)"
+      - ""
+      - "============================================"
+
 - name: Final validation complete
   ansible.builtin.debug:
-    msg: "All final validations passed successfully"
+    msg: "All validations passed successfully"

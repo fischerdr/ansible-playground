@@ -1,0 +1,22 @@
+---
+# Generate JSON validation report for monitoring system integration
+
+- name: Ensure report directory exists
+  ansible.builtin.file:
+    path: "{{ portworx_report_dir }}"
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+
+- name: Generate JSON validation report
+  ansible.builtin.copy:
+    content: "{{ portworx_validation_results | to_nice_json }}"
+    dest: "{{ portworx_report_dir }}/validation-details-{{ ansible_date_time.epoch }}.json"
+    mode: '0644'
+  delegate_to: localhost
+  when: portworx_create_json_report | default(false)
+
+- name: Display JSON report location
+  ansible.builtin.debug:
+    msg: "JSON validation report: {{ portworx_report_dir }}/validation-details-{{ ansible_date_time.epoch }}.json"
+  when: portworx_create_json_report | default(false)

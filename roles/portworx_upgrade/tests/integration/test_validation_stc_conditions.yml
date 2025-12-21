@@ -1,0 +1,282 @@
+---
+# Integration tests for STC conditions validation logic
+# Tests condition extraction, categorization, and analysis
+
+- name: Test STC Conditions Validation Logic
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    # ==========================================
+    # POSITIVE TEST CASE - All Conditions Healthy
+    # ==========================================
+
+    - name: Test Case 1 - All conditions True (healthy cluster)
+      block:
+        - name: Set mock STC conditions (healthy)
+          ansible.builtin.set_fact:
+            mock_stc_conditions:
+              - type: "Available"
+                status: "True"
+                reason: "StorageClusterReady"
+                message: "Storage cluster is ready"
+                lastTransitionTime: "2025-12-19T10:00:00Z"
+              - type: "Update"
+                status: "True"
+                reason: "UpdateCompleted"
+                message: "Update completed successfully"
+                lastTransitionTime: "2025-12-19T10:05:00Z"
+              - type: "Migration"
+                status: "False"
+                reason: "NoMigrationInProgress"
+                message: "No migration in progress"
+                lastTransitionTime: "2025-12-19T09:00:00Z"
+
+        - name: Categorize conditions by status
+          ansible.builtin.set_fact:
+            test_true_count: >-
+              {{ mock_stc_conditions |
+                 selectattr('status', 'equalto', 'True') |
+                 list |
+                 length }}
+            test_false_count: >-
+              {{ mock_stc_conditions |
+                 selectattr('status', 'equalto', 'False') |
+                 list |
+                 length }}
+            test_unknown_count: >-
+              {{ mock_stc_conditions |
+                 selectattr('status', 'equalto', 'Unknown') |
+                 list |
+                 length }}
+
+        - name: Extract Available condition
+          ansible.builtin.set_fact:
+            test_available_condition: >-
+              {{ mock_stc_conditions |
+                 selectattr('type', 'equalto', 'Available') |
+                 list |
+                 first |
+                 default({'type': 'Available', 'status': 'N/A', 'reason': 'NotFound'}) }}
+
+        - name: Verify results - Test Case 1
+          ansible.builtin.assert:
+            that:
+              - mock_stc_conditions | length == 3
+              - test_true_count | int == 2
+              - test_false_count | int == 1
+              - test_unknown_count | int == 0
+              - test_available_condition.status == 'True'
+              - test_available_condition.reason == 'StorageClusterReady'
+            success_msg: "PASS: Test Case 1 - Healthy conditions parsed correctly"
+            fail_msg: "FAIL: Test Case 1 - Condition parsing failed"
+
+    # ==========================================
+    # NEGATIVE TEST CASE - Available=False
+    # ==========================================
+
+    - name: Test Case 2 - Available condition False (unhealthy)
+      block:
+        - name: Set mock STC conditions (unavailable)
+          ansible.builtin.set_fact:
+            mock_stc_conditions:
+              - type: "Available"
+                status: "False"
+                reason: "StorageNodesNotReady"
+                message: "Some storage nodes are not ready"
+                lastTransitionTime: "2025-12-19T10:00:00Z"
+              - type: "Update"
+                status: "True"
+                reason: "UpdateCompleted"
+                message: "Update completed"
+                lastTransitionTime: "2025-12-19T10:05:00Z"
+              - type: "Degraded"
+                status: "True"
+                reason: "StoragePoolDegraded"
+                message: "Storage pool is degraded"
+                lastTransitionTime: "2025-12-19T10:10:00Z"
+
+        - name: Extract conditions
+          ansible.builtin.set_fact:
+            test_available_condition: >-
+              {{ mock_stc_conditions |
+                 selectattr('type', 'equalto', 'Available') |
+                 list |
+                 first }}
+            test_degraded_condition: >-
+              {{ mock_stc_conditions |
+                 selectattr('type', 'equalto', 'Degraded') |
+                 list |
+                 first |
+                 default({'type': 'Degraded', 'status': 'N/A', 'reason': 'NotFound'}) }}
+
+        - name: Verify results - Test Case 2
+          ansible.builtin.assert:
+            that:
+              - test_available_condition.status == 'False'
+              - test_available_condition.reason == 'StorageNodesNotReady'
+              - test_degraded_condition.status == 'True'
+              - test_degraded_condition.reason == 'StoragePoolDegraded'
+            success_msg: "PASS: Test Case 2 - Unhealthy conditions detected"
+            fail_msg: "FAIL: Test Case 2 - Unhealthy condition detection failed"
+
+    # ==========================================
+    # NEGATIVE TEST CASE - Unknown Status
+    # ==========================================
+
+    - name: Test Case 3 - Conditions with Unknown status
+      block:
+        - name: Set mock STC conditions (unknown)
+          ansible.builtin.set_fact:
+            mock_stc_conditions:
+              - type: "Available"
+                status: "Unknown"
+                reason: "ProbeTimeout"
+                message: "Health probe timed out"
+                lastTransitionTime: "2025-12-19T10:00:00Z"
+              - type: "Migration"
+                status: "Unknown"
+                reason: "MigrationStatusUnavailable"
+                message: "Cannot determine migration status"
+                lastTransitionTime: "2025-12-19T10:05:00Z"
+
+        - name: Count unknown conditions
+          ansible.builtin.set_fact:
+            test_unknown_count: >-
+              {{ mock_stc_conditions |
+                 selectattr('status', 'equalto', 'Unknown') |
+                 list |
+                 length }}
+
+        - name: Verify results - Test Case 3
+          ansible.builtin.assert:
+            that:
+              - test_unknown_count | int == 2
+            success_msg: "PASS: Test Case 3 - Unknown conditions detected"
+            fail_msg: "FAIL: Test Case 3 - Unknown condition detection failed"
+
+    # ==========================================
+    # EDGE CASE - Missing Condition Type
+    # ==========================================
+
+    - name: Test Case 4 - Extract non-existent condition
+      block:
+        - name: Set mock STC conditions (minimal)
+          ansible.builtin.set_fact:
+            mock_stc_conditions:
+              - type: "Available"
+                status: "True"
+                reason: "Ready"
+
+        - name: Extract non-existent condition with default
+          ansible.builtin.set_fact:
+            test_migration_condition: >-
+              {{ mock_stc_conditions |
+                 selectattr('type', 'equalto', 'Migration') |
+                 list |
+                 first |
+                 default({'type': 'Migration', 'status': 'N/A', 'reason': 'NotFound'}) }}
+
+        - name: Verify results - Test Case 4
+          ansible.builtin.assert:
+            that:
+              - test_migration_condition.status == 'N/A'
+              - test_migration_condition.reason == 'NotFound'
+            success_msg: "PASS: Test Case 4 - Missing condition handled with default"
+            fail_msg: "FAIL: Test Case 4 - Default value not applied"
+
+    # ==========================================
+    # EDGE CASE - Empty Conditions List
+    # ==========================================
+
+    - name: Test Case 5 - Empty conditions array
+      block:
+        - name: Set empty conditions
+          ansible.builtin.set_fact:
+            mock_stc_conditions: []
+
+        - name: Count conditions
+          ansible.builtin.set_fact:
+            test_total_conditions: "{{ mock_stc_conditions | length }}"
+            test_true_count: >-
+              {{ mock_stc_conditions |
+                 selectattr('status', 'equalto', 'True') |
+                 list |
+                 length }}
+
+        - name: Verify results - Test Case 5
+          ansible.builtin.assert:
+            that:
+              - test_total_conditions | int == 0
+              - test_true_count | int == 0
+            success_msg: "PASS: Test Case 5 - Empty conditions handled"
+            fail_msg: "FAIL: Test Case 5 - Empty list handling failed"
+
+    # ==========================================
+    # POSITIVE TEST CASE - Multiple Conditions
+    # ==========================================
+
+    - name: Test Case 6 - Complex conditions mix
+      block:
+        - name: Set mock STC conditions (complex)
+          ansible.builtin.set_fact:
+            mock_stc_conditions:
+              - type: "Available"
+                status: "True"
+                reason: "Ready"
+              - type: "Progressing"
+                status: "True"
+                reason: "RollingUpdate"
+              - type: "Degraded"
+                status: "False"
+                reason: "NoDegradation"
+              - type: "Update"
+                status: "True"
+                reason: "UpdateComplete"
+              - type: "Migration"
+                status: "False"
+                reason: "NoMigration"
+              - type: "StorageNodesReady"
+                status: "True"
+                reason: "AllNodesReady"
+
+        - name: Categorize all conditions
+          ansible.builtin.set_fact:
+            test_true_count: >-
+              {{ mock_stc_conditions |
+                 selectattr('status', 'equalto', 'True') |
+                 list |
+                 length }}
+            test_false_count: >-
+              {{ mock_stc_conditions |
+                 selectattr('status', 'equalto', 'False') |
+                 list |
+                 length }}
+
+        - name: Extract specific conditions
+          ansible.builtin.set_fact:
+            test_available: >-
+              {{ mock_stc_conditions |
+                 selectattr('type', 'equalto', 'Available') |
+                 list |
+                 first }}
+            test_update: >-
+              {{ mock_stc_conditions |
+                 selectattr('type', 'equalto', 'Update') |
+                 list |
+                 first }}
+
+        - name: Verify results - Test Case 6
+          ansible.builtin.assert:
+            that:
+              - mock_stc_conditions | length == 6
+              - test_true_count | int == 4
+              - test_false_count | int == 2
+              - test_available.status == 'True'
+              - test_update.status == 'True'
+            success_msg: "PASS: Test Case 6 - Complex conditions parsed correctly"
+            fail_msg: "FAIL: Test Case 6 - Complex parsing failed"
+
+    - name: All STC conditions validation tests passed
+      ansible.builtin.debug:
+        msg: "✅ All STC conditions validation tests PASSED"

@@ -25,13 +25,21 @@
     - name: "Validate required variables are defined"
       ansible.builtin.assert:
         that:
+          - OC_BIN is defined
           - mustgather_output_dir is defined
           - mustgather_collection_dir is defined
         fail_msg: |
           Required variables missing or invalid:
+          - OC_BIN: Path to oc binary (provided: {{ OC_BIN | default('UNDEFINED') }})
           - mustgather_output_dir: Top-level output directory (provided: {{ mustgather_output_dir | default('UNDEFINED') }})
           - mustgather_collection_dir: Must-gather collection subdirectory (provided: {{ mustgather_collection_dir | default('UNDEFINED') }})
         success_msg: "Required variables validated successfully"
+
+    - name: "Verify oc CLI binary exists and is executable"
+      ansible.builtin.stat:
+        path: "{{ OC_BIN }}"
+      register: oc_binary_stat
+      failed_when: not oc_binary_stat.stat.exists or not oc_binary_stat.stat.executable
 
     - name: "Validate Red Hat SFTP authentication credentials from HashiCorp Vault"
       ansible.builtin.assert:
@@ -60,6 +68,7 @@
         msg: |
           Pre-execution validation failed. Verify:
           - All required variables are defined in defaults/main.yml or extra_vars
+          - OC_BIN points to valid oc binary in execution environment
           - Red Hat SFTP credentials populated from HashiCorp Vault:
             * rh_sftp_user: Red Hat Customer Portal username
             * rh_sftp_token: SFTP authentication token (generate at https://access.redhat.com/support/secure-ftp)
@@ -489,7 +498,7 @@
       register: sftp_test
       changed_when: false
       failed_when: sftp_test.rc != 0
-      no_log: true
+      no_log: false
 
     - name: "Initialize upload tracking variables"
       ansible.builtin.set_fact:
@@ -545,7 +554,7 @@
       register: sftp_upload_results
       changed_when: sftp_upload_results.rc == 0
       failed_when: false
-      no_log: true
+      no_log: false
 
     - name: "Process upload results and count successes/failures"
       ansible.builtin.set_fact:

@@ -9,8 +9,7 @@
 must_gather_version: "4.14"
 
 # Dynamic mirror endpoint selection based on cloud provider
-# Configure per-environment in inventory or group_vars
-amex_mirror_endpoint: ""
+amex_mirror_endpoint: "{%- if aws.region is defined and aws.region != None -%}awsrepo.aexp.com{%- elif gcp.region is defined and gcp.region != None -%}gcprepo.aexp.com{%- elif azure.region is defined and azure.region != None -%}azurerepo.aexp.com{%- else -%}artifactory.aexp.com{%- endif -%}"
 
 # ==============================================================================
 # Directory Configuration (Managed Host)
@@ -88,9 +87,9 @@ rh_sftp_token: ""  # SFTP authentication token (generate via web UI or API)
 # Used for SFTP connections via HTTP CONNECT proxy
 # Example lookup pattern:
 #   proxy_http: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/proxy:http_proxy') }}"
-#
-# Format: http://proxy.example.com:8080
-proxy_http: ""
+proxy_http: "http://proxy-appgw.aexp.com:9090"
+proxy_https: "http://proxy-appgw.aexp.com:9090"
+proxy_no: ".americanexpress.com,.aexp.com,localhost,127.0.0.1"
 
 # ==============================================================================
 # Timeouts and Retry Configuration
@@ -104,62 +103,3 @@ timeout_seconds: 300
 # SFTP upload behavior configuration
 # Note: SFTP has no file size limit - archives are created as single files
 rh_upload_fail_on_partial: false  # Not applicable for single file uploads (kept for compatibility)
-
-# ==============================================================================
-# Operational Notes
-# ==============================================================================
-
-# Authentication (REQUIRED - sourced from HashiCorp Vault):
-#   These variables should be populated using community.hashi_vault lookups
-#   in your inventory or playbook vars. Examples:
-#
-#   # In group_vars/all/main.yml or playbook vars:
-#   rh_sftp_user: "{{ lookup('community.hashi_vault.hashi_vault',
-#                     'secret=secret/data/redhat:sftp_user') }}"
-#   rh_sftp_token: "{{ lookup('community.hashi_vault.hashi_vault',
-#                      'secret=secret/data/redhat:sftp_token') }}"
-#
-#   Generate SFTP token:
-#   - Web UI: https://access.redhat.com/support/secure-ftp
-#   - API: curl -X POST https://api.access.redhat.com/support/v2/sftp/token
-#
-# Proxy Configuration (optional - from HashiCorp Vault or inventory):
-#   proxy_http: "{{ lookup('community.hashi_vault.hashi_vault',
-#               'secret=secret/data/proxy:http_proxy') }}"
-#
-#   Format: http://proxy.example.com:8080
-#   The proxy is used for SFTP connections via HTTP CONNECT tunnel
-#
-# HashiCorp Vault Authentication:
-#   The community.hashi_vault collection supports multiple auth methods:
-#   - Token (VAULT_TOKEN environment variable)
-#   - AppRole (role_id/secret_id)
-#   - Kubernetes (service account)
-#   - AWS IAM
-#   - See: https://docs.ansible.com/ansible/latest/collections/community/hashi_vault/
-#
-# OC_BIN variable:
-#   - Must be defined in calling playbook
-#   - Should point to oc binary path in execution environment
-#   - Example: OC_BIN: "/usr/local/bin/oc"
-#
-# Archive handling and upload:
-#   - Must-gather collection is compressed into a single tar.gz archive
-#   - Archive is uploaded via SFTP to sftp.access.redhat.com
-#   - Files are named with Red Hat convention: CASEID_filename
-#   - Files auto-attach to case within minutes of upload
-#   - SFTP has no file size limit (supports very large archives)
-#   - Uploads use sshpass for authentication and nc for proxy tunneling
-#   - Upload success/failure tracking with detailed error reporting
-#
-# System requirements:
-#   - sshpass: For non-interactive SFTP authentication
-#   - nc (netcat): For HTTP proxy tunneling (if proxy is used)
-#   - These should be installed in the execution environment
-#
-# Security:
-#   - Never hardcode credentials in playbook vars or group_vars
-#   - Always use HashiCorp Vault lookups for sensitive data
-#   - Configure Vault authentication via environment variables or AAP credentials
-#   - Use appropriate Vault policies to limit secret access
-#   - SFTP token is single-use and time-limited (generate new for each upload)

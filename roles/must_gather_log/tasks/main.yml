@@ -485,14 +485,22 @@
   tags: [preserve]
   when: not mustgather_upload_enabled
   block:
+    - name: "Copy archive to permanent storage directory"
+      ansible.builtin.copy:
+        src: "{{ mustgather_output_dir }}/must-gather.tar.gz"
+        dest: "{{ mustgather_archive_dir }}/{{ cluster_name | default('cluster') }}-nocase-{{ ansible_date_time.epoch }}-must-gather.tar.gz"
+        remote_src: true
+        mode: '0644'
+      register: archive_copy
+
     - name: "Display archive preservation information"
       ansible.builtin.debug:
         msg: |
           ===================================================================
           Must-Gather Archive Created (No Upload)
           ===================================================================
-          Archive preserved at: {{ mustgather_output_dir }}
-          - must-gather.tar.gz: {{ (archive_files.files[0].size / 1024 / 1024) | round(2) }} MB
+          Archive preserved at: {{ mustgather_archive_dir }}
+          - {{ cluster_name | default('cluster') }}-nocase-{{ ansible_date_time.epoch }}-must-gather.tar.gz: {{ (archive_files.files[0].size / 1024 / 1024) | round(2) }} MB
 
           Reason: No Red Hat case number provided (rh_case variable not set)
 
@@ -644,6 +652,17 @@
           ===================================================================
       when: upload_status is defined
 
+    - name: "Preserve archive locally after successful upload"
+      ansible.builtin.copy:
+        src: "{{ mustgather_output_dir }}/must-gather.tar.gz"
+        dest: "{{ mustgather_archive_dir }}/{{ cluster_name | default('cluster') }}-case{{ rh_case }}-{{ ansible_date_time.epoch }}-must-gather.tar.gz"
+        remote_src: true
+        mode: '0644'
+      when:
+        - upload_status is defined
+        - upload_status.status == 'success'
+      register: upload_archive_copy
+
     - name: "Log successful upload completion"
       ansible.builtin.debug:
         msg: |
@@ -651,6 +670,7 @@
           SFTP Server: {{ rh_sftp_host }}
           File will auto-attach to case within minutes
           Upload logs available at: {{ mustgather_upload_logs }}
+          Archive also preserved locally at: {{ mustgather_archive_dir }}
       when:
         - upload_status is defined
         - upload_status.status == 'success'
@@ -707,10 +727,19 @@
           2. Manually attach the archive from {{ mustgather_output_dir }}
           ===================================================================
 
+    - name: "Preserve archive locally after failed upload"
+      ansible.builtin.copy:
+        src: "{{ mustgather_output_dir }}/must-gather.tar.gz"
+        dest: "{{ mustgather_archive_dir }}/{{ cluster_name | default('cluster') }}-case{{ rh_case }}-{{ ansible_date_time.epoch }}-must-gather.tar.gz"
+        remote_src: true
+        mode: '0644'
+      register: failed_upload_archive_copy
+      failed_when: false
+
     - name: "Set upload failure flag and preserve path"
       ansible.builtin.set_fact:
         upload_failed: true
-        preserved_archive_path: "{{ mustgather_output_dir }}"
+        preserved_archive_path: "{{ mustgather_archive_dir if failed_upload_archive_copy.changed else mustgather_output_dir }}"
         upload_failure_details: "{{ upload_status | default({}) }}"
 
     - name: "Fail playbook after SFTP upload error"

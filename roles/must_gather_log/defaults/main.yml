@@ -33,6 +33,26 @@ mustgather_archive_retention_days: 30  # Keep archives for 30 days (0 = keep for
 mustgather_archive_retention_count: 10  # Keep last N archives (0 = unlimited)
 
 # ==============================================================================
+# Working Directory Retention Policy
+# ==============================================================================
+
+# Working directory retention for must-gather-<timestamp> directories
+# These are the temporary collection directories (not the archived files)
+mustgather_workdir_retention_days: 7  # Keep working directories for 7 days (0 = keep forever)
+
+# NOTE: This is separate from archive retention
+# - mustgather_workdir_retention_days: Controls must-gather-<timestamp>/ cleanup
+# - mustgather_archive_retention_days: Controls must-gather-archives/*.tar.gz cleanup (already exists)
+
+# ==============================================================================
+# Operational Logging Configuration
+# ==============================================================================
+
+# Operational logging directory for must-gather operations
+mustgather_operation_log_dir: "{{ WORK_DIR | default('/tmp') }}/must-gather-operation-logs"
+mustgather_operation_log_file: "{{ mustgather_operation_log_dir }}/must-gather-operations-{{ ansible_date_time.epoch }}.log"
+
+# ==============================================================================
 # Red Hat Case Configuration
 # ==============================================================================
 

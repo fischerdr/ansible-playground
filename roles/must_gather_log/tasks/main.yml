@@ -1,6 +1,101 @@
 ---
 # Purpose: Collect OpenShift must-gather diagnostics and upload to Red Hat support case
 # Variables: See defaults/main.yml for required and optional variables
+
+# ==============================================================================
+# Cleanup Old Working Directories (Before Creating New Ones)
+# ==============================================================================
+
+- name: "Clean up old must-gather working directories with retention policy"
+  tags: [preparation, always]
+  block:
+    - name: "Find old must-gather working directories from previous runs (respecting retention)"
+      ansible.builtin.find:
+        paths: "{{ WORK_DIR | default('/tmp') }}"
+        patterns: "must-gather-[0-9]*"
+        file_type: directory
+        age: "{{ mustgather_workdir_retention_days | default(7) }}d"
+      register: old_work_dirs
+      when: mustgather_workdir_retention_days | default(7) | int > 0
+
+    - name: "Remove old working directories older than {{ mustgather_workdir_retention_days | default(7) }} days"
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_work_dirs.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      when:
+        - mustgather_workdir_retention_days | default(7) | int > 0
+        - old_work_dirs is defined
+        - old_work_dirs.matched > 0
+
+    - name: "Display cleanup summary"
+      ansible.builtin.debug:
+        msg: |
+          Cleaned up {{ old_work_dirs.matched | default(0) }} old must-gather working director{{ 'y' if old_work_dirs.matched | default(0) == 1 else 'ies' }}
+          (older than {{ mustgather_workdir_retention_days | default(7) }} days)
+      when:
+        - old_work_dirs is defined
+        - old_work_dirs.matched > 0
+
+    - name: "Display no cleanup message"
+      ansible.builtin.debug:
+        msg: |
+          No old working directories found to clean up (retention: {{ mustgather_workdir_retention_days | default(7) }} days)
+      when:
+        - old_work_dirs is defined
+        - old_work_dirs.matched == 0
+
+  rescue:
+    - name: "Log cleanup failure (non-fatal)"
+      ansible.builtin.debug:
+        msg: "Warning: Failed to clean up old working directories. Continuing anyway."
+      failed_when: false
+
+# ==============================================================================
+# Directory Creation (Ensure all required directories exist)
+# ==============================================================================
+
+- name: "Ensure all must-gather directories exist"
+  tags: [preparation, always]
+  block:
+    - name: "Create must-gather working directories"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - "{{ mustgather_output_dir }}"
+        - "{{ mustgather_collection_dir }}"
+        - "{{ mustgather_archive_dir }}"
+        - "{{ mustgather_upload_logs }}"
+
+    - name: "Create operation log directory on localhost"
+      ansible.builtin.file:
+        path: "{{ mustgather_operation_log_dir }}"
+        state: directory
+        mode: '0755'
+      delegate_to: localhost
+      failed_when: false
+
+  rescue:
+    - name: "Log directory creation failure"
+      ansible.builtin.debug:
+        msg: |
+          Failed to create required must-gather directories.
+          Verify filesystem permissions and available disk space.
+          Required directories:
+          - Output: {{ mustgather_output_dir }}
+          - Collection: {{ mustgather_collection_dir }}
+          - Archive: {{ mustgather_archive_dir }}
+          - Upload logs: {{ mustgather_upload_logs }}
+          - Operation logs: {{ mustgather_operation_log_dir }}
+
+    - name: "Fail after directory creation error"
+      ansible.builtin.fail:
+        msg: "Unable to create required must-gather directories"
+
 # ==============================================================================
 # Pre-Execution Validation
 # ==============================================================================
@@ -177,18 +272,6 @@
 - name: "Prepare must-gather directories and preserve existing archives"
   tags: [preparation]
   block:
-    - name: "Create archive preservation directory if it does not exist"
-      ansible.builtin.file:
-        path: "{{ mustgather_archive_dir }}"
-        state: directory
-        mode: '0755'
-
-    - name: "Create upload logging directory if it does not exist"
-      ansible.builtin.file:
-        path: "{{ mustgather_upload_logs }}"
-        state: directory
-        mode: '0755'
-
     - name: "Check for existing must-gather archives to preserve"
       ansible.builtin.find:
         paths: "{{ WORK_DIR | default('/tmp') }}"
@@ -250,34 +333,6 @@
       when:
         - mustgather_archive_retention_count | int > 0
         - all_archived_files.matched > mustgather_archive_retention_count | int
-
-    - name: "Remove existing must-gather working directories for clean state"
-      ansible.builtin.find:
-        paths: "{{ WORK_DIR | default('/tmp') }}"
-        patterns: "must-gather-*"
-        file_type: directory
-      register: existing_work_dirs
-
-    - name: "Clean up old working directories"
-      ansible.builtin.file:
-        path: "{{ item.path }}"
-        state: absent
-      loop: "{{ existing_work_dirs.files }}"
-      loop_control:
-        label: "{{ item.path | basename }}"
-      when: existing_work_dirs.matched > 0
-
-    - name: "Create must-gather output directory"
-      ansible.builtin.file:
-        path: "{{ mustgather_output_dir }}"
-        state: directory
-        mode: '0755'
-
-    - name: "Create must-gather collection subdirectory"
-      ansible.builtin.file:
-        path: "{{ mustgather_collection_dir }}"
-        state: directory
-        mode: '0755'
 
   rescue:
     - name: "Log directory preparation failure"
@@ -693,7 +748,7 @@
 
     - name: "Record must-gather operation to persistent log"
       ansible.builtin.lineinfile:
-        path: "/var/log/ansible-must-gather.log"
+        path: "{{ mustgather_operation_log_file }}"
         line: |
           {{ ansible_date_time.iso8601 }} | Host: {{ inventory_hostname }} | Cluster: {{ cluster_name | default('unknown') }} | Status: {{ 'FAILED' if upload_failed | default(false) else 'SUCCESS' }} | Case: {{ rh_case | default('N/A') }} | Archive: {{ 'LOCAL_ONLY' if not mustgather_upload_enabled else ('PRESERVED' if upload_failed | default(false) else 'UPLOADED') }}
         create: true

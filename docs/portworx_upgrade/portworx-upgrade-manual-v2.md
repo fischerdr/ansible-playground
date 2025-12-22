@@ -1,6 +1,8 @@
 # Portworx Upgrade Documentation
 
-This document covers the steps needed for upgrading Portworx clusters on OpenShift 4.18.
+This document covers the manual steps needed for upgrading Portworx clusters on OpenShift 4.18.
+
+**Note:** For automated upgrades using Ansible, see the `portworx_upgrade` role documentation in `roles/portworx_upgrade/README.md` or the quick start guide at `docs/portworx_upgrade/QUICKSTART.md`.
 
 **Important:** These procedures apply to operator-managed Portworx upgrades where the operator controls the rolling upgrade process.
 

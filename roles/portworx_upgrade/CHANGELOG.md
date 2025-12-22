@@ -5,6 +5,65 @@ All notable changes to the Portworx Upgrade role will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2025-12-21
+
+### Added
+
+- Phase 7 Validation Enhancements:
+  - Storage pool health validation module (`tasks/validate/storage_pool_health.yml`)
+  - Volume health validation module (`tasks/validate/volume_health.yml`)
+  - StorageCluster conditions analysis module (`tasks/validate/stc_conditions.yml`)
+  - Node statistics validation module (`tasks/validate/node_statistics.yml`)
+- Integration testing suite with 17+ test cases
+- JSON reporting capability (`tasks/report/generate_detailed_json.yml`)
+- Comprehensive integration test suite:
+  - Storage pool health tests (4 test cases)
+  - Volume health tests (6 test cases)
+  - STC conditions tests (6 test cases)
+  - Node statistics tests (1 test case)
+  - Master test runner script (`tests/integration/run_validation_tests.sh`)
+
+### Enhanced
+
+- Validation modules now use specialized parsing strategies:
+  - JSON parsing for storage pool provision status
+  - Text parsing with regex for volume lists
+  - Kubernetes API queries for StorageCluster conditions
+  - IP-based node identification for statistics
+- Enhanced upgrade summary template with detailed validation results
+- Detailed troubleshooting guidance in all validation modules
+
+### Fixed
+
+- Critical volume health regex patterns (issue with "up - attached" format detection)
+- Node statistics IP regex (simplified from full IPv4 pattern to flexible partial match)
+- Validation logic for degraded volumes and storage pools
+
+### Configuration
+
+New validation configuration variables:
+
+- `portworx_validation_fail_on_pool_issues: true` - Fail on degraded storage pools
+- `portworx_validation_pool_capacity_threshold: 90` - Capacity warning threshold
+- `portworx_validation_fail_on_down_volumes: true` - Fail on down volumes
+- `portworx_validation_fail_on_degraded_volumes: true` - Fail on degraded volumes
+- `portworx_validation_fail_on_stc_unavailable: false` - Fail on unavailable STC
+- `portworx_create_json_report: false` - Generate machine-readable JSON report
+
+### Documentation
+
+- Added TESTING.md - Integration test suite documentation
+- Added LAB_TESTING.md - Lab testing procedures and checklist
+- Updated README.md with Phase 7 validation module details
+- Updated all session context documentation
+
+### Testing
+
+- All integration tests passing (17+ test cases)
+- Mock data validation for all parsing strategies
+- Ansible-lint compliance verified
+- Regex patterns validated with positive and negative test cases
+
 ## [1.0.0] - 2025-12-11
 
 ### Added

@@ -92,6 +92,12 @@ ansible-playbook upgrade.yml -e portworx_impatient_mode=true
 | `portworx_skip_operator_upgrade` | `false` | Skip operator upgrade phase |
 | `portworx_detailed_logging` | `true` | Enable detailed debug logging |
 | `portworx_work_dir` | `/tmp/ansible-workdir` | Base directory for reports and logs |
+| `portworx_validation_fail_on_pool_issues` | `true` | Fail on degraded storage pools |
+| `portworx_validation_pool_capacity_threshold` | `90` | Storage pool capacity warning threshold (percent) |
+| `portworx_validation_fail_on_down_volumes` | `true` | Fail validation on down volumes |
+| `portworx_validation_fail_on_degraded_volumes` | `true` | Fail validation on degraded volumes |
+| `portworx_validation_fail_on_stc_unavailable` | `false` | Fail if StorageCluster Available != True |
+| `portworx_create_json_report` | `false` | Generate machine-readable JSON report |
 
 See `defaults/main.yml` for complete variable list.
 
@@ -131,6 +137,10 @@ The role executes in 8 sequential phases:
    - Final pod validation
    - Cluster health verification
    - Version consistency check
+   - Storage pool health validation (JSON-based)
+   - Volume health validation (text parsing with regex)
+   - StorageCluster conditions analysis (Kubernetes API)
+   - Node statistics validation (IP-based counting)
 
 8. **Generate Reports** (tag: `report`)
    - Generates upgrade summary report
@@ -325,6 +335,30 @@ If impatient mode fails:
 ### Custom Modules
 
 - `library/pxctl_status.py`: Executes pxctl commands with auth token handling and structured output
+
+## Testing
+
+### Integration Test Suite
+
+The role includes a comprehensive integration test suite with 17+ test cases covering all validation modules:
+
+- Storage pool health validation (4 test cases)
+- Volume health validation (6 test cases)
+- StorageCluster conditions validation (6 test cases)
+- Node statistics validation (1 test case)
+
+Run all integration tests:
+
+```bash
+cd roles/portworx_upgrade/tests/integration
+./run_validation_tests.sh
+```
+
+For detailed testing documentation, see `docs/portworx_upgrade/TESTING.md`.
+
+### Lab Testing
+
+For lab environment testing procedures and checklists, see `docs/portworx_upgrade/LAB_TESTING.md`.
 
 ## License
 

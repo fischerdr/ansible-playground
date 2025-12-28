@@ -1,0 +1,178 @@
+---
+- name: E2E headless test service-account -> v2 SFTP token -> upload
+  hosts: localhost
+  gather_facts: true
+  become: false
+
+  pre_tasks:
+    - name: Setup Kubernetes environment for each cluster
+      ansible.builtin.include_role:
+        name: setup_env
+
+    - name: Set app paths (idempotent)
+      ansible.builtin.set_fact:
+        OC_BIN: "/usr/local/bin/oc"
+        KUBECTL_BIN: "/usr/local/bin/kubectl"
+        WORK_DIR: "/apps/persistence/clusters/{{ cluster_name | default('unknown-cluster') }}"
+        OCP_INSTALLDIR: "/apps/persistence/clustersinstall/{{ cluster_name | default('unknown-cluster') }}"
+
+    - name: Display setup completion status (masked)
+      ansible.builtin.debug:
+        msg: |
+          SUCCESS: Successfully configured Kubernetes environment for {{ cluster_name | default('unknown-cluster') }}
+          Kubeconfig location: {{ kubeconfig_path | default('unset') }}
+          SSH Key location: {{ ssh_key_path | default('unset') }}
+          OC bin path: {{ OC_BIN }}
+          kubectl bin path: {{ KUBECTL_BIN }}
+          workdir: {{ WORK_DIR }}
+          ocp cluster install dir: {{ OCP_INSTALLDIR }}
+    - name: Set client id and password from vault_parameters
+      ansible.builtin.set_fact:
+        # Service account credentials: supply via EE env or Vault mount into EE
+        _client_id: "{{ lookup('community.hashi_vault.hashi_vault', '{{ vault_parameters }} secret=static_secrets/data/env/{{ cluster_user }}/redhat/serviceaccount')['svc.user'] | trim }}"
+        _client_secret: "{{ lookup('community.hashi_vault.hashi_vault', '{{ vault_parameters }} secret=static_secrets/data/env/{{ cluster_user }}/redhat/serviceaccount')['svc.password'] | trim }}"
+        # Endpoints (override via EE env or inventory if needed)
+        _sso_token_endpoint: "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token"
+        _sftp_token_endpoint: "https://access.redhat.com/hydra/rest/v2/sftp/token"
+        # SFTP target and optional proxy settings (override in inventory or env)
+        sftp_host: "sftp.access.redhat.com"
+        sftp_port: 22
+        sftp_user: ""               # will be populated from v2 response
+        _proxy_host: "proxy-appgw.aexp.com"
+        _proxy_port: "9090"
+        # Requested expiry for SFTP token (0-90 days). Set to null to use server default.
+        expiry_in_days: 30
+  tasks:
+    - name: Test all token functions
+      environment:
+        http_proxy: "{{ _proxy_host }}:{{ _proxy_port }}"
+        https_proxy: "{{ _proxy_host }}:{{ _proxy_port }}"
+        no_proxy: ".americanexpress.com,.aexp.com,localhost,127.0.0.1"
+      block:
+        - name: "Assert required service-account credentials are present"
+          ansible.builtin.assert:
+            that:
+              - _client_id | length > 0
+              - _client_secret | length > 0
+            fail_msg: >
+              "RH_SSO_CLIENT_ID and RH_SSO_CLIENT_SECRET must be provided (EE env or Vault)."
+          no_log: false
+        - name: Assert SSO endpoint and credentials present
+          ansible.builtin.assert:
+            that:
+              - _sso_token_endpoint | length > 0
+              - _client_id | length > 0
+              - _client_secret | length > 0
+            fail_msg: "Set _sso_token_endpoint, _client_id and _client_secret (env, extra-vars or EE secrets)."
+          no_log: false
+
+        - name: Obtain bearer token (client_credentials)
+          ansible.builtin.uri:
+            url: "{{ _sso_token_endpoint }}"
+            method: POST
+            headers:
+              Content-Type: "application/x-www-form-urlencoded"
+            body:
+              grant_type: client_credentials
+              client_id: "{{ _client_id }}"
+              client_secret: "{{ _client_secret }}"
+              scope: "{{ lookup('env', 'RH_SSO_SCOPE') | default(omit) }}"
+            body_format: form-urlencoded
+            return_content: true
+            status_code: 200
+          register: _sso_response
+          no_log: false
+
+        - name: "Parse bearer token from SSO response"
+          ansible.builtin.set_fact:
+            _access_token: "{{ _sso_response.json.access_token | default('') }}"
+          no_log: false
+
+        - name: "Fail if access_token missing"
+          ansible.builtin.fail:
+            msg: "SSO token response did not include access_token; check client credentials and scope."
+          when: _access_token == ""
+          no_log: false
+
+        - name: "Request v2 SFTP token (exchange bearer for sftp token)"
+          ansible.builtin.uri:
+            url: "{{ _sftp_token_endpoint }}"
+            method: POST
+            headers:
+              Content-Type: "application/json"
+              Authorization: "Bearer {{ _access_token }}"
+            body: "{{ ({'expiryInDays': expiry_in_days} if expiry_in_days is not none else {}) | to_json }}"
+            body_format: json
+            return_content: true
+            status_code: 200
+          register: _sftp_response
+          no_log: false
+          failed_when: _sftp_response.status not in [200]
+
+        - name: "Validate v2 response contains token and username"
+          ansible.builtin.assert:
+            that:
+              - "'token' in _sftp_response.json"
+              - "'username' in _sftp_response.json"
+              - "_sftp_response.json.token | length > 0"
+              - "_sftp_response.json.username | length > 0"
+            fail_msg: "v2 SFTP token response missing required fields (token, username)."
+          no_log: false
+
+        - name: "Set SFTP credentials from v2 response"
+          ansible.builtin.set_fact:
+            _sftp_token: "{{ _sftp_response.json.token }}"
+            sftp_user: "{{ _sftp_response.json.username }}"
+            _sftp_expiry: "{{ _sftp_response.json.expiryDate | default('') }}"
+          no_log: false
+
+        - name: "Create local test file to upload"
+          ansible.builtin.copy:
+            dest: "/tmp/ansible_sftp_test_{{ ansible_date_time.epoch }}"
+            content: "Ansible E2E SFTP test - {{ ansible_date_time.iso8601 }}\n"
+            mode: '0600'
+          register: _local_testfile
+          changed_when: true
+          no_log: false
+
+        - name: "Build SFTP command (sshpass + sftp). Do not expose secrets."
+          ansible.builtin.set_fact:
+            _sftp_command: >-
+              sshpass -p "{{ _sftp_token }}" sftp
+              -o StrictHostKeyChecking=no
+              -o UserKnownHostsFile=/dev/null
+              -o "ProxyCommand=nc --proxy {{ _proxy_host }}:{{ _proxy_port }} --proxy-type http %h %p"
+              -P {{ sftp_port }} {{ sftp_user }}@{{ sftp_host }}
+          no_log: false
+
+        - name: "Run SFTP put (headless) - upload test file"
+          ansible.builtin.shell: |
+            set -o pipefail
+            {{ _sftp_command }} <<'EOF'
+            put {{ _local_testfile.dest }}
+            quit
+            EOF
+          register: _sftp_put_result
+          no_log: false
+          changed_when: "'Uploading' in (_sftp_put_result.stdout | default('')) or _sftp_put_result.rc == 0"
+          failed_when: _sftp_put_result.rc != 0
+
+        - name: "Report success (non-sensitive)"
+          ansible.builtin.debug:
+            msg:
+              - "SFTP upload completed. local_file={{ _local_testfile.dest }} remote_user={{ sftp_user }} host={{ sftp_host }}"
+              - "sftp_token_expires={{ _sftp_expiry | default('unknown') }}"
+          no_log: false
+
+        - name: "Cleanup local test file"
+          ansible.builtin.file:
+            path: "{{ _local_testfile.dest }}"
+            state: absent
+          changed_when: true
+          no_log: false
+
+      rescue:
+        - name: "Report failure of SFTP E2E test"
+          ansible.builtin.debug:
+            msg: "E2E SFTP test failed for cluster {{ cluster_name | default('unknown-cluster') }}."
+          no_log: false

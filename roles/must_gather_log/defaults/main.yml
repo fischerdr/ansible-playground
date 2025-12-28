@@ -61,9 +61,6 @@ mustgather_operation_log_file: "{{ mustgather_operation_log_dir }}/must-gather-o
 # When rh_case is not provided: must-gather is collected ONLY and preserved locally
 rh_case: ""
 
-# Upload description (customize as needed)
-rh_upload_description: "must-gather for {{ inventory_hostname }}"
-
 # ==============================================================================
 # Node Selection Configuration
 # ==============================================================================
@@ -112,14 +109,46 @@ proxy_https: "http://proxy-appgw.aexp.com:9090"
 proxy_no: ".americanexpress.com,.aexp.com,localhost,127.0.0.1"
 
 # ==============================================================================
-# Timeouts and Retry Configuration
+# Red Hat SSO Device Authorization for SFTP Token Generation
 # ==============================================================================
 
-# Conservative defaults - tune from EE or role vars as appropriate
-command_retries: 1
-command_delay: 3
-timeout_seconds: 300
+# Enable automatic SFTP token generation via OAuth2 device authorization flow
+rh_sftp_token_auto_generate: false
 
-# SFTP upload behavior configuration
-# Note: SFTP has no file size limit - archives are created as single files
-rh_upload_fail_on_partial: false  # Not applicable for single file uploads (kept for compatibility)
+# SFTP token expiry (30-90 days supported by Red Hat)
+rh_sftp_token_expiry_days: 30
+
+# Token expiry check threshold (days)
+# Tokens expiring within this many days will be automatically refreshed
+rh_sftp_token_refresh_threshold_days: 7
+
+# Red Hat SSO and API endpoints
+rh_sso_device_auth_endpoint: "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/auth/device"
+rh_sso_token_endpoint: "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token"
+rh_sftp_token_endpoint: "https://access.redhat.com/hydra/rest/v2/sftp/token"
+
+# Red Hat account credentials (for device authorization)
+# These are used ONLY if rh_sftp_token is not provided
+# IMPORTANT: Red Hat account MUST NOT have 2FA enabled for automated approval
+# Example: Source from Vault or extra_vars
+#   rh_account_username: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:username') }}"
+#   rh_account_password: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:password') }}"
+rh_account_username: ""
+rh_account_password: ""
+
+# ==============================================================================
+# HashiCorp Vault Integration for Token Storage
+# ==============================================================================
+
+# Enable storing generated SFTP tokens in Vault
+vault_store_tokens: false
+
+# Vault connection details (required if vault_store_tokens is true)
+vault_addr: ""  # Example: "https://vault.example.com:8200"
+vault_token: ""  # Vault authentication token
+vault_namespace: ""  # Optional: Vault namespace (leave empty if not using namespaces)
+vault_validate_certs: true
+
+# Vault secret path configuration
+vault_mount_path: "static_secrets"  # KV2 mount path
+vault_secret_path: "env/{{ cluster_user | default('default') }}/redhat"  # Secret path within mount

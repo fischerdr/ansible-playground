@@ -1,0 +1,174 @@
+---
+# ==============================================================================
+# Must-Gather Cleanup Tasks
+# ==============================================================================
+#
+# Purpose: Cleanup old archives and working directories, maintain retention policy
+#
+# Prerequisites:
+#   - mustgather_archive_dir: Archive preservation directory
+#   - mustgather_archive_retention_days: Age-based retention (days)
+#   - mustgather_archive_retention_count: Count-based retention
+#   - mustgather_workdir_retention_days: Working directory retention (days)
+#   - WORK_DIR: Temporary working directory base path
+#
+# Tags:
+#   - cleanup: Cleanup operations
+#   - always: Always execute cleanup tasks
+#
+# ==============================================================================
+
+# ==============================================================================
+# Old Working Directory Cleanup (Before Creating New Ones)
+# ==============================================================================
+
+- name: "Clean up old must-gather working directories with retention policy"
+  tags: [preparation, cleanup, always]
+  block:
+    - name: "Find old must-gather working directories from previous runs (respecting retention)"
+      ansible.builtin.find:
+        paths: "{{ WORK_DIR | default('/tmp') }}"
+        patterns: "must-gather-[0-9]*"
+        file_type: directory
+        age: "{{ mustgather_workdir_retention_days | default(7) }}d"
+      register: old_work_dirs
+      when: mustgather_workdir_retention_days | default(7) | int > 0
+
+    - name: "Remove old working directories older than {{ mustgather_workdir_retention_days | default(7) }} days"
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_work_dirs.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      when:
+        - mustgather_workdir_retention_days | default(7) | int > 0
+        - old_work_dirs is defined
+        - old_work_dirs.matched > 0
+
+    - name: "Display cleanup summary"
+      ansible.builtin.debug:
+        msg: |
+          Cleaned up {{ old_work_dirs.matched | default(0) }} old must-gather working director{{ 'y' if old_work_dirs.matched | default(0) == 1 else 'ies' }}
+          (older than {{ mustgather_workdir_retention_days | default(7) }} days)
+      when:
+        - old_work_dirs is defined
+        - old_work_dirs.matched > 0
+
+    - name: "Display no cleanup message"
+      ansible.builtin.debug:
+        msg: |
+          No old working directories found to clean up (retention: {{ mustgather_workdir_retention_days | default(7) }} days)
+      when:
+        - old_work_dirs is defined
+        - old_work_dirs.matched == 0
+
+  rescue:
+    - name: "Log cleanup failure (non-fatal)"
+      ansible.builtin.debug:
+        msg: "Warning: Failed to clean up old working directories. Continuing anyway."
+      failed_when: false
+
+# ==============================================================================
+# Archive Retention Policy - Age-Based
+# ==============================================================================
+
+- name: "Apply age-based archive retention policy"
+  tags: [cleanup, always]
+  block:
+    - name: "Find archives older than retention period"
+      ansible.builtin.find:
+        paths: "{{ mustgather_archive_dir }}"
+        age: "{{ mustgather_archive_retention_days }}d"
+        file_type: file
+      register: old_archives
+      when: mustgather_archive_retention_days | int > 0
+
+    - name: "Delete archives older than {{ mustgather_archive_retention_days }} days"
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_archives.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      when:
+        - mustgather_archive_retention_days | int > 0
+        - old_archives.matched > 0
+
+    - name: "Display age-based cleanup summary"
+      ansible.builtin.debug:
+        msg: "Deleted {{ old_archives.matched | default(0) }} archive(s) older than {{ mustgather_archive_retention_days }} days"
+      when:
+        - mustgather_archive_retention_days | int > 0
+        - old_archives.matched > 0
+
+  rescue:
+    - name: "Log age-based cleanup failure (non-fatal)"
+      ansible.builtin.debug:
+        msg: "Warning: Failed to apply age-based archive retention policy. Continuing anyway."
+      failed_when: false
+
+# ==============================================================================
+# Archive Retention Policy - Count-Based
+# ==============================================================================
+
+- name: "Apply count-based archive retention policy"
+  tags: [cleanup, always]
+  block:
+    - name: "Find all archives in archive directory"
+      ansible.builtin.find:
+        paths: "{{ mustgather_archive_dir }}"
+        file_type: file
+      register: all_archived_files
+      when: mustgather_archive_retention_count | int > 0
+
+    - name: "Delete excess archives beyond retention count (keep {{ mustgather_archive_retention_count }} most recent)"
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ (all_archived_files.files | sort(attribute='mtime') | reverse)[mustgather_archive_retention_count:] }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      when:
+        - mustgather_archive_retention_count | int > 0
+        - all_archived_files.matched > mustgather_archive_retention_count | int
+
+    - name: "Display count-based cleanup summary"
+      ansible.builtin.debug:
+        msg: |
+          Deleted {{ (all_archived_files.matched - mustgather_archive_retention_count) if all_archived_files.matched > mustgather_archive_retention_count else 0 }} excess archive(s)
+          (keeping {{ mustgather_archive_retention_count }} most recent archives)
+      when:
+        - mustgather_archive_retention_count | int > 0
+        - all_archived_files.matched > mustgather_archive_retention_count | int
+
+  rescue:
+    - name: "Log count-based cleanup failure (non-fatal)"
+      ansible.builtin.debug:
+        msg: "Warning: Failed to apply count-based archive retention policy. Continuing anyway."
+      failed_when: false
+
+# ==============================================================================
+# Current Must-Gather Directory Cleanup
+# ==============================================================================
+
+- name: "Remove current must-gather working directory"
+  tags: [cleanup, always]
+  block:
+    - name: "Remove must-gather output directory from managed host"
+      ansible.builtin.file:
+        path: "{{ mustgather_output_dir }}"
+        state: absent
+      when: not (skip_mustgather_deletion | default(false) | bool)
+
+    - name: "Display cleanup status"
+      ansible.builtin.debug:
+        msg: "Must-gather working directory {{ 'preserved (skip_mustgather_deletion=true)' if (skip_mustgather_deletion | default(false) | bool) else 'removed' }}"
+
+  rescue:
+    - name: "Log directory cleanup failure (non-fatal)"
+      ansible.builtin.debug:
+        msg: |
+          Warning: Failed to cleanup must-gather working directory: {{ mustgather_output_dir }}
+          Manual cleanup may be required.
+      failed_when: false

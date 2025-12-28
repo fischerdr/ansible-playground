@@ -33,12 +33,6 @@
       environment:
         KUBECONFIG: "{{ kubeconfig_path | default(lookup('env', 'KUBECONFIG') | default('')) }}"
       block:
-        - name: Setup must-gather rhuser and rh password
-          ansible.builtin.set_fact:
-            rh_sftp_user: "{{ lookup('community.hashi_vault.hashi_vault', '{{ vault_parameters }} secret=static_secrets/data/env/{{ cluster_user }}/redhat')['user'] | trim }}"
-            rh_sftp_token: "{{ lookup('community.hashi_vault.hashi_vault', '{{ vault_parameters }} secret=static_secrets/data/env/{{ cluster_user }}/redhat')['token'] | trim }}"
-          no_log: true
-
         - name: Running must gather log role
           ansible.builtin.include_role:
             name: must_gather_log

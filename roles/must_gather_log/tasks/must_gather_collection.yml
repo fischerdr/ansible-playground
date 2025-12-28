@@ -1,0 +1,85 @@
+---
+# ==============================================================================
+# Must-Gather Collection Tasks
+# ==============================================================================
+#
+# Purpose: Execute OpenShift must-gather diagnostics collection
+#
+# Prerequisites:
+#   - OC_BIN: Path to oc binary
+#   - mustgather_output_dir: Top-level output directory
+#   - mustgather_collection_dir: Collection subdirectory
+#   - mustgather_label_selector: Node selector label
+#
+# Outputs:
+#   - must_gather_output: Find results with file count
+#   - collection_size_bytes: Size of collection in bytes
+#
+# Tags:
+#   - collection: Must-gather collection execution
+#
+# ==============================================================================
+
+- name: "Execute OpenShift must-gather collection"
+  tags: [collection]
+  block:
+    - name: "Run oc adm must-gather command"
+      ansible.builtin.command:
+        cmd: >-
+          {{ OC_BIN }} adm must-gather
+          {% if must_gather_version is defined and must_gather_version | string | length > 0 %}
+          --image={{ amex_mirror_endpoint }}/ocp-quay-proxy/openshift/origin-must-gather:{{ must_gather_version }}
+          {% endif %}
+          --node-selector={{ mustgather_label_selector }}
+          --dest-dir={{ mustgather_collection_dir }}
+      args:
+        chdir: "{{ mustgather_output_dir }}"
+      register: must_gather_exec
+      changed_when: must_gather_exec.rc == 0
+      failed_when: must_gather_exec.rc != 0
+
+    - name: "Validate must-gather collection output was created"
+      ansible.builtin.find:
+        paths: "{{ mustgather_collection_dir }}"
+        patterns: "*"
+        file_type: any
+        recurse: true
+      register: must_gather_output
+      failed_when: must_gather_output.matched == 0
+
+    - name: "Calculate collection directory size"
+      ansible.builtin.shell:
+        cmd: "set -euo pipefail && du -sb {{ mustgather_collection_dir }} | awk '{print $1}'"
+        executable: /bin/bash
+      register: collection_size
+      changed_when: false
+
+    - name: "Set collection size fact"
+      ansible.builtin.set_fact:
+        collection_size_bytes: "{{ collection_size.stdout | int }}"
+
+    - name: "Display must-gather collection statistics"
+      ansible.builtin.debug:
+        msg: |
+          Must-gather collection completed successfully
+          Files collected: {{ must_gather_output.matched }}
+          Collection size: {{ (collection_size_bytes | int / 1024 / 1024) | round(2) }} MB
+          Collection directory: {{ mustgather_collection_dir }}
+
+  rescue:
+    - name: "Log must-gather execution failure"
+      ansible.builtin.debug:
+        msg: |
+          Must-gather collection failed:
+          - OC binary: {{ OC_BIN }}
+          - Collection directory: {{ mustgather_collection_dir }}
+          - Image: {{ amex_mirror_endpoint }}/ocp-quay-proxy/openshift/origin-must-gather:{{ must_gather_version | default('default') }}
+          - Error: {{ must_gather_exec.stderr | default('Unknown error') }}
+          Troubleshooting:
+          - Verify cluster authentication is valid
+          - Ensure must-gather image is accessible from cluster
+          - Check node selector matches labeled node
+
+    - name: "Fail after must-gather execution error"
+      ansible.builtin.fail:
+        msg: "Must-gather collection failed. Review debug output above."

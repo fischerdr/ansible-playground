@@ -1,0 +1,211 @@
+---
+# ==============================================================================
+# Red Hat SFTP Token Generation via OAuth2 Device Authorization Flow
+# ==============================================================================
+#
+# This task file implements the complete workflow for generating Red Hat SFTP
+# tokens using OAuth2 device authorization grant type.
+#
+# Flow:
+#   1. Request device code from Red Hat SSO
+#   2. Approve device authorization (automated via custom module)
+#   3. Exchange device code for bearer token
+#   4. Generate SFTP token from bearer token
+#
+# Tags:
+#   - redhat_sftp_token: All token generation tasks
+#   - token_generation: Alias for redhat_sftp_token
+#
+# Variables Required:
+#   - rh_account_username: Red Hat Customer Portal username
+#   - rh_account_password: Red Hat Customer Portal password
+#   - rh_sso_device_auth_endpoint: Device authorization endpoint
+#   - rh_sso_token_endpoint: Token exchange endpoint
+#   - rh_sftp_token_endpoint: SFTP token generation endpoint
+#   - rh_sftp_token_expiry_days: SFTP token validity (30-90 days)
+#   - proxy_http: HTTP proxy (optional)
+#   - proxy_https: HTTPS proxy (optional)
+#   - proxy_no: No proxy list (optional)
+#
+# Variables Set:
+#   - rh_sftp_user: Red Hat SFTP username
+#   - rh_sftp_token: Red Hat SFTP authentication token
+#   - _sftp_token_expiry: Token expiration date
+#
+# ==============================================================================
+
+# Step 1: Request device authorization code
+# ==============================================================================
+
+- name: Request device authorization code from Red Hat SSO
+  ansible.builtin.uri:
+    url: "{{ rh_sso_device_auth_endpoint }}"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      client_id: redhat-support-tool
+      scope: "api.access.redhat.com openid"
+    validate_certs: false
+    return_content: true
+  environment:
+    http_proxy: "{{ proxy_http | default('') }}"
+    https_proxy: "{{ proxy_https | default('') }}"
+    no_proxy: "{{ proxy_no | default('') }}"
+  register: device_code_response
+  tags:
+    - redhat_sftp_token
+    - token_generation
+
+- name: Extract device code details
+  ansible.builtin.set_fact:
+    _device_code: "{{ device_code_response.json.device_code }}"
+    _user_code: "{{ device_code_response.json.user_code }}"
+    _verification_uri: "{{ device_code_response.json.verification_uri_complete }}"
+    _expires_in: "{{ device_code_response.json.expires_in }}"
+  tags:
+    - redhat_sftp_token
+    - token_generation
+
+- name: Display device authorization details
+  ansible.builtin.debug:
+    msg: |
+      Device Code: {{ _device_code }}
+      User Code: {{ _user_code }}
+      Verification URI: {{ _verification_uri }}
+      Expires in: {{ _expires_in }} seconds
+  tags:
+    - redhat_sftp_token
+    - token_generation
+
+# Step 2: Approve device authorization
+# ==============================================================================
+
+- name: Approve device authorization via custom module
+  redhat_sso_device_auth:
+    verification_uri: "{{ _verification_uri }}"
+    username: "{{ rh_account_username }}"
+    password: "{{ rh_account_password }}"
+    proxy: "{{ proxy_http | default(omit) }}"
+  register: approval_result
+  no_log: true
+  tags:
+    - redhat_sftp_token
+    - token_generation
+
+- name: Verify approval succeeded
+  ansible.builtin.assert:
+    that:
+      - approval_result.success | bool
+    fail_msg: "Device authorization approval failed: {{ approval_result.msg }}"
+  tags:
+    - redhat_sftp_token
+    - token_generation
+
+- name: Display approval result
+  ansible.builtin.debug:
+    msg: "Device authorization approved successfully"
+  tags:
+    - redhat_sftp_token
+    - token_generation
+
+# Step 3: Exchange device code for bearer token
+# ==============================================================================
+
+- name: Exchange device code for bearer token
+  ansible.builtin.uri:
+    url: "{{ rh_sso_token_endpoint }}"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      grant_type: "urn:ietf:params:oauth:grant-type:device_code"
+      client_id: redhat-support-tool
+      device_code: "{{ _device_code }}"
+    validate_certs: false
+    return_content: true
+    status_code: [200, 400]
+  environment:
+    http_proxy: "{{ proxy_http | default('') }}"
+    https_proxy: "{{ proxy_https | default('') }}"
+    no_proxy: "{{ proxy_no | default('') }}"
+  register: bearer_token_response
+  retries: 3
+  delay: 5
+  until: bearer_token_response.status == 200
+  tags:
+    - redhat_sftp_token
+    - token_generation
+
+- name: Verify bearer token exchange succeeded
+  ansible.builtin.assert:
+    that:
+      - bearer_token_response.status == 200
+      - bearer_token_response.json.access_token is defined
+    fail_msg: "Bearer token exchange failed: {{ bearer_token_response.json.error | default('Unknown error') }}"
+  tags:
+    - redhat_sftp_token
+    - token_generation
+
+- name: Extract bearer token
+  ansible.builtin.set_fact:
+    _bearer_token: "{{ bearer_token_response.json.access_token }}"
+  no_log: true
+  tags:
+    - redhat_sftp_token
+    - token_generation
+
+# Step 4: Generate SFTP token
+# ==============================================================================
+
+- name: Generate Red Hat SFTP token from bearer token
+  ansible.builtin.uri:
+    url: "{{ rh_sftp_token_endpoint }}"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ _bearer_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      durationDays: "{{ rh_sftp_token_expiry_days }}"
+    validate_certs: false
+    return_content: true
+  environment:
+    http_proxy: "{{ proxy_http | default('') }}"
+    https_proxy: "{{ proxy_https | default('') }}"
+    no_proxy: "{{ proxy_no | default('') }}"
+  register: sftp_token_response
+  no_log: true
+  tags:
+    - redhat_sftp_token
+    - token_generation
+
+- name: Verify SFTP token generation succeeded
+  ansible.builtin.assert:
+    that:
+      - sftp_token_response.status == 200
+      - sftp_token_response.json.username is defined
+      - sftp_token_response.json.token is defined
+    fail_msg: "SFTP token generation failed"
+  tags:
+    - redhat_sftp_token
+    - token_generation
+
+- name: Extract SFTP credentials and store in facts
+  ansible.builtin.set_fact:
+    rh_sftp_user: "{{ sftp_token_response.json.username }}"
+    rh_sftp_token: "{{ sftp_token_response.json.token }}"
+    _sftp_token_expiry: "{{ sftp_token_response.json.expirationDate }}"
+  no_log: true
+  tags:
+    - redhat_sftp_token
+    - token_generation
+
+- name: Display SFTP token generation result
+  ansible.builtin.debug:
+    msg: |
+      SFTP Token generated successfully
+      Username: {{ rh_sftp_user }}
+      Expires: {{ _sftp_token_expiry }}
+      Duration: {{ rh_sftp_token_expiry_days }} days
+  tags:
+    - redhat_sftp_token
+    - token_generation

@@ -146,6 +146,106 @@ Red Hat SFTP tokens are time-limited and should be generated fresh for each uplo
 | `mustgather_label_value` | `"true"` | Label value for node selection |
 | `rh_sftp_host` | `"sftp.access.redhat.com"` | Red Hat SFTP server hostname |
 
+## Internal Architecture
+
+The role uses a modular orchestrator pattern for maintainability and testability.
+
+### Task File Structure
+
+The role is organized into specialized task files, each handling a specific workflow component:
+
+```text
+roles/must_gather_log/tasks/
+├── main.yml                              # Main orchestrator (delegates to specialized tasks)
+├── cleanup.yml                           # Old directory and archive retention management
+├── sftp_credential_management.yml        # SFTP credential lifecycle orchestrator
+├── vault_retrieve_sftp_credentials.yml   # HashiCorp Vault credential retrieval
+├── check_token_expiry.yml                # Token expiry validation and refresh logic
+├── redhat_sftp_token_generation.yml      # OAuth2 device authorization token generation
+├── vault_store_sftp_token.yml            # Store generated tokens in Vault
+├── must_gather_collection.yml            # OpenShift must-gather execution
+└── must_gather_upload.yml                # Archive creation and SFTP upload
+```
+
+### Execution Workflow
+
+The `main.yml` orchestrator executes these phases in order:
+
+1. **Phase 1: Cleanup and Preparation**
+   - Applies retention policies to old working directories and archives
+   - Creates required directory structure
+   - Validates environment and required variables
+
+2. **Phase 2: SFTP Credential Management** (when upload enabled)
+   - Retrieves credentials from HashiCorp Vault (if `vault_parameters` provided)
+   - Checks token expiry and calculates days until expiration
+   - Generates new token via OAuth2 if: auto-generation enabled OR missing OR expired
+   - Stores generated token in Vault (if `vault_store_tokens` enabled)
+   - Validates final credentials exist
+
+3. **Phase 3: Node Selection and Labeling**
+   - Queries for nodes with `must_gather` label using Kubernetes API
+   - Selects candidate node from available infra nodes
+   - Labels node for must-gather collection (idempotent)
+
+4. **Phase 4: Directory Preparation**
+   - Preserves existing archives before cleanup
+   - Prepares clean working directories
+
+5. **Phase 5: Must-Gather Collection**
+   - Executes `oc adm must-gather` on selected node
+   - Validates collection output
+   - Calculates collection size
+
+6. **Phase 6: Archive and Upload**
+   - Creates compressed tar.gz archive
+   - Tests SFTP connectivity (when upload enabled)
+   - Uploads to Red Hat support via SFTP (when upload enabled)
+   - Preserves archive locally with retention policy
+   - Detailed operation logging
+
+7. **Phase 7: Cleanup and Reporting**
+   - Records operation to persistent log
+   - Displays comprehensive operation summary
+
+### Credential Management Flow
+
+The role supports three credential sourcing methods (in priority order):
+
+1. **HashiCorp Vault Retrieval**: Automatic retrieval using `vault_parameters` from `setup_env` role
+2. **Automatic Token Generation**: OAuth2 device authorization flow when `rh_sftp_token_auto_generate: true`
+3. **Manual Credentials**: Direct variable assignment via extra vars or group_vars
+
+Token refresh logic:
+
+```yaml
+# Token regeneration triggers if ANY condition is true:
+- rh_sftp_token_auto_generate: true          # Force refresh
+- rh_sftp_token is undefined or empty        # Missing token
+- Token expires within threshold days        # Expiring soon (default: 7 days)
+```
+
+### Modular Execution
+
+Individual task files can be called directly for specific workflows:
+
+```yaml
+# Example: Refresh SFTP token only (no must-gather collection)
+- name: Refresh SFTP credentials
+  ansible.builtin.include_role:
+    name: must_gather_log
+    tasks_from: sftp_credential_management.yml
+  vars:
+    rh_sftp_token_auto_generate: true
+    vault_store_tokens: true
+```
+
+This enables:
+
+- Standalone token refresh without must-gather collection
+- Independent testing of credential management
+- Reusable credential workflows in other roles
+
 ## Configuration Examples
 
 ### Complete Example with Vault and Proxy
@@ -431,6 +531,157 @@ mustgather_archive_retention_count: 10  # Keep last 10 archives (0 = unlimited)
 ```
 
 Archives are deleted oldest-first when retention limits are exceeded.
+
+## Red Hat SFTP Credential Management
+
+The role supports three methods for providing Red Hat SFTP credentials, evaluated in this order:
+
+1. **Extra Variables**: Credentials passed directly via `-e` or defined in inventory
+2. **HashiCorp Vault Retrieval**: Automatic retrieval from Vault (if configured)
+3. **Auto-Generation**: OAuth2 device authorization flow (if enabled)
+
+### Method 1: HashiCorp Vault Retrieval
+
+The role can automatically retrieve stored SFTP credentials from HashiCorp Vault if they exist.
+
+**Configuration**:
+
+The role uses the standard `vault_parameters` variable pattern established by the `setup_env` role:
+
+```yaml
+# Vault connection string (format: url=<vault_url> token=<token> [namespace=<ns>])
+vault_parameters: "url=https://vault.example.com:8200 token=s.xxxxx namespace=my-namespace"
+```
+
+**Expected Vault Secret Structure**:
+
+```yaml
+# Path: static_secrets/data/env/{cluster_user}/redhat
+sftp_user: "rhn-support-username"
+sftp_token: "your-sftp-token"
+sftp_token_expiry: "2025-02-15T12:00:00Z"  # Optional
+rh_account_username: "username@redhat.com"  # For auto-generation fallback
+rh_account_password: "password"  # For auto-generation fallback
+```
+
+**Behavior**:
+
+- If `vault_parameters` is defined, the role attempts Vault retrieval
+- Uses path: `static_secrets/data/env/{cluster_user}/redhat`
+- If credentials exist in Vault, they are used (auto-generation is skipped)
+- If Vault lookup fails, the role proceeds to auto-generation (if enabled)
+- This ensures backward compatibility with existing Vault-based deployments
+
+### Method 2: Automatic Token Generation
+
+The role supports automatic generation of Red Hat SFTP tokens via OAuth2 device authorization flow.
+
+#### Requirements
+
+- Red Hat Customer Portal account credentials (username/password)
+- **Red Hat account MUST NOT have 2FA enabled** for automated approval
+- Network access to Red Hat SSO and API endpoints
+- Corporate proxy configuration (if applicable)
+
+### Configuration
+
+Enable automatic token generation in `defaults/main.yml` or via extra vars:
+
+```yaml
+# Enable auto-generation
+rh_sftp_token_auto_generate: true
+rh_sftp_token_expiry_days: 30  # 30-90 days supported
+
+# Red Hat account credentials
+rh_account_username: "username@redhat.com"
+rh_account_password: "password"
+
+# Optional: Store generated tokens in HashiCorp Vault
+vault_store_tokens: true
+vault_addr: "https://vault.example.com:8200"
+vault_token: "s.xxxxx"
+vault_mount_path: "static_secrets"
+vault_secret_path: "env/prod/redhat"
+```
+
+### Usage
+
+#### Option 1: Automatic (within must-gather playbook)
+
+```bash
+ansible-playbook -i inventory/prod.yml playbooks/must-gather-ocp-logs.yml \
+  -e rh_sftp_token_auto_generate=true \
+  -e rh_account_username=username@redhat.com \
+  -e rh_account_password=password
+```
+
+#### Option 2: Tag-based (token generation only)
+
+```bash
+ansible-playbook -i inventory/prod.yml playbooks/redhat-sftp-token-refresh.yml \
+  -e rh_account_username=username@redhat.com \
+  -e rh_account_password=password \
+  -e vault_store_tokens=true
+```
+
+### Token Storage in Vault
+
+Generated tokens are automatically stored in HashiCorp Vault when `vault_store_tokens: true`:
+
+```yaml
+Path: {vault_mount_path}/data/{vault_secret_path}
+Data:
+  sftp_user: "rhn-support-username"
+  sftp_token: "generated-token"
+  sftp_token_expiry: "2025-02-15T12:00:00Z"
+  generated_at: "2025-01-15T12:00:00Z"
+  generated_by: "ansible@hostname"
+  cluster_name: "prod-cluster"
+  cluster_user: "production"
+```
+
+### How It Works
+
+The token generation process follows OAuth2 device authorization flow:
+
+1. **Request Device Code**: Role requests device code from Red Hat SSO
+2. **Automated Approval**: Custom Ansible module (`redhat_sso_device_auth`) automatically approves the device via HTTP
+3. **Exchange for Bearer Token**: Device code is exchanged for OAuth2 bearer token
+4. **Generate SFTP Token**: Bearer token is used to generate SFTP token with configured expiry
+5. **Store in Vault** (optional): SFTP credentials are written to HashiCorp Vault for reuse
+
+### Limitations
+
+- **No 2FA Support**: Red Hat account CANNOT have two-factor authentication enabled
+- **Token Expiry**: Tokens valid for 30-90 days (configurable via `rh_sftp_token_expiry_days`)
+- **Proxy Requirements**: Corporate proxies must allow access to Red Hat SSO endpoints
+- **Rate Limiting**: Red Hat may throttle excessive token generation requests
+
+### Troubleshooting
+
+**Problem**: "2FA/MFA detected" error
+
+```text
+Solution: Disable two-factor authentication on Red Hat Customer Portal account
+```
+
+**Problem**: Token generation fails with "login error"
+
+```text
+Solution: Verify rh_account_username and rh_account_password are correct
+```
+
+**Problem**: "Could not find form action URL"
+
+```text
+Solution: Red Hat may have changed their SSO page structure - file issue for module update
+```
+
+**Problem**: Vault storage fails
+
+```text
+Solution: Verify vault_addr, vault_token, and vault_mount_path are correct
+```
 
 ## Security Considerations
 

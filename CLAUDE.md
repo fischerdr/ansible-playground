@@ -113,6 +113,7 @@ ansible-playbook -i <inventory> <playbook>.yml -vvv
 The project includes custom Python modules embedded within roles:
 
 - **`roles/defrag_etcd_db/library/defrag_etcd.py`**: Defragments etcd databases in OpenShift
+- **`roles/must_gather_log/library/redhat_sso_device_auth.py`**: Automates Red Hat SSO device authorization via OAuth2 flow
 - **`roles/pxbackup/filter_plugins/lookup_helpers.py`**: Custom Jinja2 filters for Portworx backup operations
 - **`roles/portworx_upgrade/library/pxctl_status.py`**: Executes pxctl commands in Portworx pods
 
@@ -466,6 +467,40 @@ Common patterns:
 - Group related tasks in separate files and use `include_tasks` or `import_tasks`
 - Use tags for task organization and selective execution
 - Use `changed_when` to accurately report changes
+
+**Modular Role Architecture Pattern:**
+
+The project uses a modular orchestrator pattern for complex roles (see `must_gather_log` role as reference implementation):
+
+- **Orchestrator Pattern**: Main task file (`tasks/main.yml`) delegates to specialized task files
+- **Separation of Concerns**: Each workflow component is a separate task file with single responsibility
+- **Reusable Components**: Task files can be included individually using `tasks_from` parameter
+- **Independent Testing**: Each component is independently testable and maintainable
+
+Example structure:
+
+```yaml
+# tasks/main.yml - Simple orchestrator
+- name: "Phase 1: Preparation"
+  ansible.builtin.include_tasks: cleanup.yml
+  tags: [preparation, cleanup]
+
+- name: "Phase 2: Credential Management"
+  ansible.builtin.include_tasks: sftp_credential_management.yml
+  when: credentials_required | default(true) | bool
+  tags: [credentials]
+
+- name: "Phase 3: Main Operation"
+  ansible.builtin.include_tasks: main_operation.yml
+  tags: [execute]
+```
+
+Benefits:
+
+- Clear workflow visualization in main.yml
+- Reduced file size (easier code review)
+- Components can be called directly: `ansible.builtin.include_role: name=role_name tasks_from=specific_task.yml`
+- Simplified testing with targeted tag execution
 
 **Kubernetes/OpenShift Operations:**
 

@@ -42,13 +42,43 @@ When working on this role, always reference the specification document for exact
 
 ## Development Commands
 
-### Python Environment
+## Python and Ansible Execution Environment
 
-**IMPORTANT:** Always use the Python virtual environment located at `.venv` at the top of the project directory
+### Authoritative Execution Boundary
 
-All Python commands, pip installations, and tool executions must be run using the virtual environment Python interpreter at `.venv/bin/python`.
+**IMPORTANT:** All Python and Ansible tooling for this repository MUST execute from the project-local virtual environment located at `.venv` in the repository root. The virtual environment is the single supported runtime boundary for development, automation, and CI.
 
-### Setup and Installation
+System Python, system Ansible, or globally installed tools are not supported.
+
+### Virtual Environment Usage Model
+
+The authoritative interpreters and binaries are those located under:
+
+- `.venv/bin/python`
+- `.venv/bin/pip`
+- `.venv/bin/ansible`
+- `.venv/bin/ansible-playbook`
+- `.venv/bin/ansible-galaxy`
+
+Shell activation (`source .venv/bin/activate`) is permitted for interactive developer workflows, but correctness is defined by the resolved binary path, not shell state. Scripts, automation, and CI pipelines MUST invoke tools explicitly from `.venv/bin/`.
+
+### Initial Environment Setup
+
+If the virtual environment does not exist, create it using the provided setup script:
+
+```bash
+# Unix / Linux / macOS
+./setup.sh
+
+# Windows
+setup.bat
+````
+
+This step is mandatory before running any Python or Ansible commands.
+
+### Dependency and Tool Installation
+
+All dependency installation must be performed using the virtual environment:
 
 ```bash
 # Install Python dependencies
@@ -57,35 +87,66 @@ All Python commands, pip installations, and tool executions must be run using th
 # Install Ansible collections
 .venv/bin/ansible-galaxy collection install -r requirements.yml
 
-# Build execution environment
+# Build the execution environment artifact
 chmod +x build.sh && ./build.sh
 ```
 
-### Testing and Quality
+No dependency installation is permitted outside `.venv`.
 
-**IMPORTANT:** All linting and formatting tools must be run using the virtual environment.
+### Running Python Code
 
-Available tools via `.venv/bin/`: `black`, `isort`, `flake8`, `mypy`, `ansible-lint`, `yamllint`, `pytest`, `tox`
+All Python execution MUST use the virtual environment interpreter:
 
-**Automatic Quality Checks:**
+```bash
+.venv/bin/python src/dialogs/about_dialog.py
+.venv/bin/python tools/extract_dfm_images.py delphi-source/forms/fmAbout.dfm
+```
 
-When modifying files, automatically run appropriate tools:
+### Linting, Testing, and Quality Gates
 
-- **Python files** (`.py`, custom modules in `roles/*/library/`, filter plugins in `roles/*/filter_plugins/`): Run black, isort, flake8
-- **Ansible files** (playbooks `*.yml`, roles, tasks): Run ansible-lint
+All quality and verification tools MUST be executed from `.venv/bin/`.
 
-### Running Playbooks
+Available tools include:
+
+- `black`
+- `isort`
+- `flake8`
+- `mypy`
+- `pytest`
+- `tox`
+- `ansible-lint`
+- `yamllint`
+
+When modifying files, the following checks are required:
+
+- Python files (`.py`, custom modules under `roles/*/library/`, filter plugins under `roles/*/filter_plugins/`):
+
+  - `black`
+  - `isort`
+  - `flake8`
+
+- Ansible content (playbooks, roles, tasks, handlers):
+
+  - `ansible-lint`
+
+Local execution is expected to match CI behavior.
+
+### Running Ansible Playbooks
+
+All Ansible commands MUST resolve to binaries under `.venv/bin/`.
 
 ```bash
 # Basic execution
-ansible-playbook -i inventory/<inventory-file> playbooks/<playbook-name>.yml
+.venv/bin/ansible-playbook -i inventory/<inventory-file> playbooks/<playbook-name>.yml
 
-# Syntax check / Dry run / View changes / Verbose
-ansible-playbook --syntax-check <playbook>.yml
-ansible-playbook -i <inventory> <playbook>.yml --check
-ansible-playbook -i <inventory> <playbook>.yml --diff
-ansible-playbook -i <inventory> <playbook>.yml -vvv
+# Validation and inspection
+.venv/bin/ansible-playbook --syntax-check <playbook>.yml
+.venv/bin/ansible-playbook -i <inventory> <playbook>.yml --check
+.venv/bin/ansible-playbook -i <inventory> <playbook>.yml --diff
+.venv/bin/ansible-playbook -i <inventory> <playbook>.yml -vvv
 ```
+
+Any deviation from this execution model is considered unsupported and may lead to non-reproducible behavior.
 
 ### Role Testing Workflow
 
@@ -724,3 +785,50 @@ Add etcd defragmentation monitoring
 Implements health check validation before and after defrag operations
 to ensure cluster stability.
 ```
+
+---
+
+## Markdown Code Block Language Specification
+
+**Rule**: All fenced code blocks MUST have a language identifier specified to comply with MD040/fenced-code-language linting rules.
+
+### Requirements
+
+- Every code block using triple backticks (```) MUST include a language identifier
+- If no specific language applies, use `text` as the default language identifier
+- Never create code blocks with opening ``` without a language specifier
+
+### Examples
+
+**Correct**:
+
+```python
+print("Hello World")
+```
+
+```bash
+echo "Hello World"
+```
+
+```text
+This is plain text content
+No specific language applies
+```
+
+**Incorrect**:
+
+```
+This violates MD040
+```
+
+### Common Language Identifiers
+
+- Programming: `python`, `bash`, `javascript`, `java`, `yaml`, `json`, `xml`
+- Output/Logs: `text`, `console`, `log`
+- Documentation: `markdown`, `html`, `css`
+- Configuration: `ini`, `toml`, `conf`
+- When in doubt: `text`
+
+This rule is clear, actionable, and includes examples of both correct and incorrect usage. It fits well with your existing Ansible documentation standards and will prevent MD040 violations in any markdown files Claude creates for you.
+
+---

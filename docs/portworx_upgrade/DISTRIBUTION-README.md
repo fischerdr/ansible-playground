@@ -17,7 +17,8 @@ sha256sum -c portworx-upgrade-role-1.0.0.tar.gz.sha256
 ```
 
 Expected output:
-```
+
+```text
 portworx-upgrade-role-1.0.0.tar.gz: OK
 ```
 
@@ -61,18 +62,21 @@ ansible-playbook playbooks/px_upgrade.yml -e portworx_target_version=3.5.0
 The tarball contains a complete, self-contained Ansible role with:
 
 ### Documentation
+
 - `README.md` - Comprehensive role documentation
 - `INSTALL.md` - Detailed installation guide
 - `CHANGELOG.md` - Version history and changes
 - `LICENSE` - MIT license
 
 ### Configuration Files
+
 - `.gitignore` - Git ignore patterns
 - `.ansible-lint` - Ansible-lint configuration (production profile)
 - `requirements.yml` - Ansible collection requirements
 - `requirements.txt` - Python requirements
 
 ### Role Files
+
 - `defaults/main.yml` - Default variables (50 variables)
 - `vars/main.yml` - Internal constants
 - `meta/main.yml` - Galaxy metadata
@@ -80,6 +84,7 @@ The tarball contains a complete, self-contained Ansible role with:
 - `example-playbook.yml` - Example usage playbook
 
 ### Task Files (30 files)
+
 - `tasks/main.yml` - Main orchestration (8 phases)
 - `tasks/preflight/*.yml` - Pre-flight validation (6 files)
 - `tasks/upgrade/*.yml` - Upgrade execution (4 files)
@@ -88,9 +93,11 @@ The tarball contains a complete, self-contained Ansible role with:
 - `tasks/report/*.yml` - Report generation (2 files)
 
 ### Templates
+
 - `templates/upgrade_summary.j2` - Upgrade summary report template
 
 ### Version Files
+
 - `files/versions/README.md` - Version file documentation
 - `files/versions/versions-3.4.0.1` - Example version file
 
@@ -114,7 +121,7 @@ The tarball contains a complete, self-contained Ansible role with:
 - Portworx 3.4.0+ (source version)
 - Cluster admin access
 
-## Documentation
+## Documentation - review
 
 After extraction, review these files in order:
 
@@ -142,7 +149,7 @@ For issues, questions, or contributions:
 
 ## What's Included
 
-```
+```text
 portworx-upgrade-role/
 ├── README.md                    # Complete documentation
 ├── INSTALL.md                   # Installation guide
@@ -174,6 +181,7 @@ portworx-upgrade-role/
 ## Testing
 
 The role has been tested with:
+
 - ✅ ansible-lint (production profile)
 - ✅ ansible-playbook --syntax-check
 - ✅ OpenShift 4.18

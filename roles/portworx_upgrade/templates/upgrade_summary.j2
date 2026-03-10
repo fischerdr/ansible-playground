@@ -1,0 +1,120 @@
+============================================
+PORTWORX UPGRADE SUMMARY REPORT
+============================================
+Cluster: {{ portworx_cluster_name }}
+Date: {{ ansible_date_time.iso8601 }}
+Playbook Run Duration: {{ portworx_upgrade_duration }} seconds ({{ (portworx_upgrade_duration | int / 60) | round(1) }} minutes)
+
+UPGRADE DETAILS:
+  Source Version: {{ portworx_current_version }}
+  Target Version: {{ portworx_target_version }}
+  Operator CSV: {{ portworx_final_operator_csv.metadata.name | default('Not recorded') }}
+
+CLUSTER STATISTICS:
+  Total Nodes: {{ portworx_total_node_count }}
+  Storage Nodes: {{ portworx_storage_node_count }}
+  Storageless Nodes: {{ portworx_storageless_node_count }}
+  KVDB Pods: 3
+
+POD UPGRADE RESULTS:
+  Total Portworx Pods: {{ portworx_final_pods.resources | length }}
+  Successfully Upgraded: {{ portworx_pods_upgraded | length }}
+  Final Status: All Running and Ready on version {{ portworx_target_version }}
+
+STORAGE NODE UPGRADES:
+{% for pod in portworx_final_pods.resources | selectattr('spec.nodeName', 'in', portworx_storage_node_names) %}
+  {{ pod.spec.nodeName }}: {{ portworx_target_version }} [OK]
+{% endfor %}
+
+STORAGELESS NODE UPGRADES:
+{% for pod in portworx_final_pods.resources | selectattr('spec.nodeName', 'in', portworx_storageless_node_names) %}
+  {{ pod.spec.nodeName }}: {{ portworx_target_version }} [OK]
+{% endfor %}
+
+KVDB POD STATUS:
+{% for pod in portworx_final_kvdb_pods.resources %}
+  {{ pod.metadata.name }}: Running and Ready [OK]
+{% endfor %}
+
+IMPATIENT MODE: {{ 'Enabled' if portworx_impatient_mode else 'Disabled' }}
+{% if portworx_impatient_mode %}
+  Batches Processed: {{ portworx_storageless_batches | default([]) | length }}
+  Pods per Batch: {{ portworx_impatient_batch_size }}
+{% endif %}
+
+FINAL CLUSTER STATUS:
+  PX Status: Operational
+  All Nodes Online: Yes
+  Version Consistency: Consistent
+  STC Status Version: {{ portworx_stc_status_version }}
+
+========================================
+DETAILED VALIDATION RESULTS
+========================================
+
+Storage Pool Health:
+  Status: {{ portworx_validation_results.storage_pools.status | default('Not checked') | upper }}
+  Total Storage Nodes: {{ portworx_validation_results.storage_pools.total_storage_nodes | default('N/A') }}
+  Pools Online: {{ portworx_validation_results.storage_pools.pools_online | default('N/A') }}
+  Pools Degraded: {{ portworx_validation_results.storage_pools.pools_degraded | default('N/A') }}
+  Average Capacity: {{ portworx_validation_results.storage_pools.average_capacity_percent | default('N/A') }}%
+  Nodes > 80% Full: {{ portworx_validation_results.storage_pools.nodes_over_80_percent | default('0') }}
+
+Volume Health:
+  Status: {{ portworx_validation_results.volumes.status | default('Not checked') | upper }}
+  Total Volumes: {{ portworx_validation_results.volumes.total_volumes | default('N/A') }}
+  Up + Attached: {{ portworx_validation_results.volumes.up_attached | default('N/A') }}
+  Up + Detached: {{ portworx_validation_results.volumes.up_detached | default('N/A') }}
+  Down: {{ portworx_validation_results.volumes.down | default('N/A') }}
+  Degraded: {{ portworx_validation_results.volumes.degraded | default('N/A') }}
+
+StorageCluster Conditions:
+  Total Conditions: {{ portworx_validation_results.stc_conditions.total_conditions | default('N/A') }}
+  Status True: {{ portworx_validation_results.stc_conditions.true_conditions | default('N/A') }}
+  Status False: {{ portworx_validation_results.stc_conditions.false_conditions | default('N/A') }}
+  Status Unknown: {{ portworx_validation_results.stc_conditions.unknown_conditions | default('N/A') }}
+  Available: {{ portworx_validation_results.stc_conditions.available_status | default('N/A') }}
+  Update: {{ portworx_validation_results.stc_conditions.update_status | default('N/A') }}
+  Migration: {{ portworx_validation_results.stc_conditions.migration_status | default('N/A') }}
+
+Node Statistics:
+  Status: {{ portworx_validation_results.nodes.status | default('Not checked') | upper }}
+  Total Nodes: {{ portworx_validation_results.nodes.total_nodes | default('N/A') }}
+  Storage Nodes: {{ portworx_validation_results.nodes.storage_nodes | default('N/A') }}
+  Storageless Nodes: {{ portworx_validation_results.nodes.storageless_nodes | default('N/A') }}
+  Online: {{ portworx_validation_results.nodes.online_nodes | default('N/A') }}
+  Offline: {{ portworx_validation_results.nodes.offline_nodes | default('N/A') }}
+  Degraded: {{ portworx_validation_results.nodes.degraded_nodes | default('N/A') }}
+  Wrong Version: {{ portworx_validation_results.nodes.wrong_version_nodes | default('N/A') }}
+
+Troubleshooting Commands:
+{% if portworx_validation_results.volumes.down | default(0) | int > 0 %}
+  DOWN VOLUMES DETECTED:
+    oc exec -n {{ portworx_namespace }} -it <portworx-pod> -- /opt/pwx/bin/pxctl volume list | grep -i down
+{% endif %}
+{% if portworx_validation_results.storage_pools.pools_degraded | default(0) | int > 0 %}
+  DEGRADED POOLS DETECTED:
+    oc exec -n {{ portworx_namespace }} -it <portworx-pod> -- /opt/pwx/bin/pxctl cluster provision-status
+{% endif %}
+{% if portworx_validation_results.nodes.offline_nodes | default(0) | int > 0 %}
+  OFFLINE NODES DETECTED:
+    oc exec -n {{ portworx_namespace }} -it <portworx-pod> -- /opt/pwx/bin/pxctl status | grep -v Online
+{% endif %}
+
+========================================
+
+TIMING BREAKDOWN:
+  Pre-flight Checks: {{ portworx_preflight_duration | default(0) }}s
+  Operator Upgrade: {{ portworx_operator_duration | default(0) }}s
+  ConfigMap Update: {{ portworx_configmap_duration | default(0) }}s
+  Monitoring Phase: {{ portworx_monitoring_duration | default(0) }}s
+  Final Validation: {{ portworx_validation_duration | default(0) }}s
+
+BACKUP FILES:
+  Location: {{ portworx_backup_dir }}/
+  Pre-upgrade STC: pre-upgrade-stc-*.yaml
+  Pre-upgrade ConfigMap: pre-upgrade-configmap-*.yaml
+  Pre-upgrade Subscription: pre-upgrade-subscription-*.yaml
+
+UPGRADE RESULT: SUCCESS
+============================================

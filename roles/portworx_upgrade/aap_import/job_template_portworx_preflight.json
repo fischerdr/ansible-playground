@@ -1,0 +1,106 @@
+{
+  "job_templates": [
+    {
+      "name": "Portworx Upgrade - Preflight Check",
+      "description": "Preflight validation for Portworx cluster upgrade. Runs environment, node, pod, cluster status, and STC configuration checks.",
+      "job_type": "run",
+      "inventory": null,
+      "playbook": "playbooks/px_upgrade.yml",
+      "scm_branch": "",
+      "forks": 0,
+      "limit": "",
+      "verbosity": 1,
+      "extra_vars": "---\nportworx_target_version: \"\"\nportworx_detailed_logging: true",
+      "job_tags": "preflight",
+      "force_handlers": false,
+      "skip_tags": "",
+      "start_at_task": "",
+      "timeout": 0,
+      "use_fact_cache": false,
+      "host_config_key": "",
+      "ask_scm_branch_on_launch": false,
+      "ask_diff_mode_on_launch": false,
+      "ask_variables_on_launch": true,
+      "ask_limit_on_launch": false,
+      "ask_tags_on_launch": false,
+      "ask_skip_tags_on_launch": false,
+      "ask_job_type_on_launch": false,
+      "ask_verbosity_on_launch": false,
+      "ask_inventory_on_launch": true,
+      "ask_credential_on_launch": false,
+      "ask_execution_environment_on_launch": false,
+      "ask_labels_on_launch": false,
+      "ask_forks_on_launch": false,
+      "ask_job_slice_count_on_launch": false,
+      "ask_timeout_on_launch": false,
+      "ask_instance_groups_on_launch": false,
+      "survey_enabled": true,
+      "become_enabled": false,
+      "diff_mode": false,
+      "allow_simultaneous": true,
+      "job_slice_count": 1,
+      "webhook_service": "",
+      "webhook_credential": null,
+      "prevent_instance_group_fallback": false,
+      "opa_query_path": "",
+      "project": {
+        "organization": {
+          "name": "Default",
+          "type": "organization"
+        },
+        "name": "Portworx Automation",
+        "type": "project"
+      },
+      "execution_environment": {
+        "name": "Portworx EE",
+        "type": "execution_environment"
+      },
+      "related": {
+        "labels": [],
+        "credentials": [],
+        "schedules": [],
+        "notification_templates_started": [],
+        "notification_templates_success": [],
+        "notification_templates_error": [],
+        "survey_spec": {
+          "name": "Preflight Check Parameters",
+          "description": "Configure parameters for preflight validation",
+          "spec": [
+            {
+              "question_name": "Target Portworx Version",
+              "question_description": "Target Portworx OCI version to validate against (e.g., 3.5.0)",
+              "required": true,
+              "type": "text",
+              "variable": "portworx_target_version",
+              "min": 0,
+              "max": 1024,
+              "default": "",
+              "choices": "",
+              "new_question": true
+            },
+            {
+              "question_name": "Cluster Name",
+              "question_description": "Name of the cluster for reporting",
+              "required": false,
+              "type": "text",
+              "variable": "portworx_cluster_name",
+              "min": 0,
+              "max": 256,
+              "default": "",
+              "choices": "",
+              "new_question": true
+            }
+          ]
+        }
+      },
+      "natural_key": {
+        "organization": {
+          "name": "Default",
+          "type": "organization"
+        },
+        "name": "Portworx Upgrade - Preflight Check",
+        "type": "job_template"
+      }
+    }
+  ]
+}

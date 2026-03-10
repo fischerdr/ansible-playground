@@ -1,0 +1,181 @@
+---
+# Enhanced StorageCluster condition analysis
+
+- name: Get StorageCluster with full status
+  kubernetes.core.k8s_info:
+    api_version: "{{ portworx_stc_api_version }}"
+    kind: "{{ portworx_stc_kind }}"
+    name: "{{ portworx_stc_name }}"
+    namespace: "{{ portworx_namespace }}"
+  register: portworx_stc_conditions_raw
+
+- name: Extract all STC conditions
+  ansible.builtin.set_fact:
+    portworx_stc_all_conditions: "{{ portworx_stc_conditions_raw.resources[0].status.conditions | default([]) }}"
+
+- name: Categorize conditions by status
+  ansible.builtin.set_fact:
+    portworx_stc_true_count: >-
+      {{ portworx_stc_all_conditions |
+         selectattr('status', 'equalto', 'True') |
+         list |
+         length }}
+    portworx_stc_false_count: >-
+      {{ portworx_stc_all_conditions |
+         selectattr('status', 'equalto', 'False') |
+         list |
+         length }}
+    portworx_stc_unknown_count: >-
+      {{ portworx_stc_all_conditions |
+         selectattr('status', 'equalto', 'Unknown') |
+         list |
+         length }}
+
+- name: Extract key condition types
+  ansible.builtin.set_fact:
+    portworx_stc_update_condition: >-
+      {{ portworx_stc_all_conditions |
+         selectattr('type', 'equalto', 'Update') |
+         list |
+         first |
+         default({'type': 'Update', 'status': 'N/A', 'reason': 'NotFound'}) }}
+    portworx_stc_available_condition: >-
+      {{ portworx_stc_all_conditions |
+         selectattr('type', 'equalto', 'Available') |
+         list |
+         first |
+         default({'type': 'Available', 'status': 'N/A', 'reason': 'NotFound'}) }}
+    portworx_stc_migration_condition: >-
+      {{ portworx_stc_all_conditions |
+         selectattr('type', 'equalto', 'Migration') |
+         list |
+         first |
+         default({'type': 'Migration', 'status': 'N/A', 'reason': 'NotFound'}) }}
+    portworx_stc_degraded_condition: >-
+      {{ portworx_stc_all_conditions |
+         selectattr('type', 'equalto', 'Degraded') |
+         list |
+         first |
+         default({'type': 'Degraded', 'status': 'N/A', 'reason': 'NotFound'}) }}
+
+- name: Display condition summary
+  ansible.builtin.debug:
+    msg:
+      - "StorageCluster Condition Summary:"
+      - "  Total conditions: {{ portworx_stc_all_conditions | length }}"
+      - "  Status=True: {{ portworx_stc_true_count }}"
+      - "  Status=False: {{ portworx_stc_false_count }}"
+      - "  Status=Unknown: {{ portworx_stc_unknown_count }}"
+      - ""
+      - "Key Conditions:"
+      - "  Available: {{ portworx_stc_available_condition.status }} ({{ portworx_stc_available_condition.reason | default('N/A') }})"
+      - "  Update: {{ portworx_stc_update_condition.status }} ({{ portworx_stc_update_condition.reason | default('N/A') }})"
+      - "  Migration: {{ portworx_stc_migration_condition.status }} ({{ portworx_stc_migration_condition.reason | default('N/A') }})"
+      - "  Degraded: {{ portworx_stc_degraded_condition.status }} ({{ portworx_stc_degraded_condition.reason | default('N/A') }})"
+
+- name: Display all conditions (verbose logging only)
+  ansible.builtin.debug:
+    msg: "{{ portworx_stc_all_conditions | to_nice_yaml }}"
+  when: portworx_detailed_logging
+
+- name: Check Available condition
+  ansible.builtin.assert:
+    that:
+      - portworx_stc_available_condition.status == 'True'
+    fail_msg: |
+      StorageCluster Available={{ portworx_stc_available_condition.status }}!
+
+      Condition Details:
+        Type: {{ portworx_stc_available_condition.type }}
+        Status: {{ portworx_stc_available_condition.status }}
+        Reason: {{ portworx_stc_available_condition.reason | default('Unknown') }}
+        Message: {{ portworx_stc_available_condition.message | default('No message available') }}
+
+      Troubleshooting:
+      1. Describe StorageCluster:
+         oc describe storagecluster {{ portworx_stc_name }} -n {{ portworx_namespace }}
+      2. Check recent events:
+         oc get events -n {{ portworx_namespace }} --field-selector involvedObject.name={{ portworx_stc_name }} --sort-by='.lastTimestamp' | tail -20
+      3. Check operator logs:
+         oc logs -n {{ portworx_namespace }} -l name=portworx-operator --tail=100
+      4. Check Portworx pod logs:
+         oc logs -n {{ portworx_namespace }} -l {{ portworx_pod_selector }} --tail=50
+      5. Verify all pods are running:
+         oc get pods -n {{ portworx_namespace }} -l {{ portworx_pod_selector }}
+    success_msg: "StorageCluster Available=True - cluster is ready"
+  when: portworx_validation_fail_on_stc_unavailable | default(false)
+
+- name: Warn if Available condition is not True
+  ansible.builtin.debug:
+    msg: |
+      WARNING: StorageCluster Available={{ portworx_stc_available_condition.status }}
+      Reason: {{ portworx_stc_available_condition.reason | default('Unknown') }}
+      Message: {{ portworx_stc_available_condition.message | default('No message') }}
+
+      This may indicate the cluster is not fully ready.
+      Review with: oc describe storagecluster {{ portworx_stc_name }} -n {{ portworx_namespace }}
+  when:
+    - portworx_stc_available_condition.status != 'True'
+    - not (portworx_validation_fail_on_stc_unavailable | default(false))
+
+- name: List conditions with Status=False
+  ansible.builtin.debug:
+    msg: |
+      WARNING: {{ portworx_stc_false_count }} conditions with Status=False detected:
+      {% for condition in portworx_stc_all_conditions %}
+      {% if condition.status == 'False' %}
+        - {{ condition.type }}: {{ condition.reason | default('Unknown') }} - {{ condition.message | default('No message') }}
+      {% endif %}
+      {% endfor %}
+
+      Review all conditions with: oc describe storagecluster {{ portworx_stc_name }} -n {{ portworx_namespace }}
+  when: portworx_stc_false_count | int > 0
+
+- name: List conditions with Status=Unknown
+  ansible.builtin.debug:
+    msg: |
+      INFO: {{ portworx_stc_unknown_count }} conditions with Status=Unknown detected:
+      {% for condition in portworx_stc_all_conditions %}
+      {% if condition.status == 'Unknown' %}
+        - {{ condition.type }}: {{ condition.reason | default('Unknown') }} - {{ condition.message | default('No message') }}
+      {% endif %}
+      {% endfor %}
+
+      Note: Unknown conditions may indicate transient states during cluster operations.
+  when: portworx_stc_unknown_count | int > 0
+
+- name: Check for Degraded condition
+  ansible.builtin.debug:
+    msg: |
+      WARNING: StorageCluster Degraded condition detected!
+      Status: {{ portworx_stc_degraded_condition.status }}
+      Reason: {{ portworx_stc_degraded_condition.reason | default('Unknown') }}
+      Message: {{ portworx_stc_degraded_condition.message | default('No message') }}
+
+      Action required: Investigate cluster degradation immediately.
+  when:
+    - portworx_stc_degraded_condition.status is defined
+    - portworx_stc_degraded_condition.status != 'N/A'
+    - portworx_stc_degraded_condition.status == 'True'
+
+- name: Collect STC conditions for reporting
+  ansible.builtin.set_fact:
+    portworx_validation_stc_summary:
+      total_conditions: "{{ portworx_stc_all_conditions | length }}"
+      true_conditions: "{{ portworx_stc_true_count | int }}"
+      false_conditions: "{{ portworx_stc_false_count | int }}"
+      unknown_conditions: "{{ portworx_stc_unknown_count | int }}"
+      update_status: "{{ portworx_stc_update_condition.status }}"
+      update_reason: "{{ portworx_stc_update_condition.reason | default('N/A') }}"
+      available_status: "{{ portworx_stc_available_condition.status }}"
+      available_reason: "{{ portworx_stc_available_condition.reason | default('N/A') }}"
+      migration_status: "{{ portworx_stc_migration_condition.status }}"
+      migration_reason: "{{ portworx_stc_migration_condition.reason | default('N/A') }}"
+      degraded_status: "{{ portworx_stc_degraded_condition.status }}"
+      degraded_reason: "{{ portworx_stc_degraded_condition.reason | default('N/A') }}"
+      status: "{{ 'healthy' if (portworx_stc_available_condition.status == 'True' and portworx_stc_false_count | int == 0) else 'warning' }}"
+      timestamp: "{{ ansible_date_time.epoch }}"
+
+- name: STC condition analysis complete
+  ansible.builtin.debug:
+    msg: "STC conditions analyzed - {{ portworx_stc_all_conditions | length }} total ({{ portworx_stc_true_count }} True, {{ portworx_stc_false_count }} False, {{ portworx_stc_unknown_count }} Unknown)"

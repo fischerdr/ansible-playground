@@ -1,0 +1,120 @@
+---
+# Update version state after successful upgrade step
+# Records step completion and updates current version facts
+
+- name: Re-query Subscription to confirm version update (authoritative)
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    name: "{{ portworx_operator_subscription }}"
+    namespace: "{{ portworx_operator_namespace }}"
+  register: portworx_operator_subscription_recheck
+  no_log: true
+
+- name: Extract updated CSV name from Subscription status
+  ansible.builtin.set_fact:
+    portworx_operator_updated_csv_name: >-
+      {{
+        portworx_operator_subscription_recheck.resources[0].status.installedCSV
+        | default(portworx_operator_subscription_recheck.resources[0].status.currentCSV | default(''))
+      }}
+
+- name: Verify Subscription reports updated CSV
+  ansible.builtin.assert:
+    that:
+      - portworx_operator_subscription_recheck.resources | length > 0
+      - portworx_operator_updated_csv_name | length > 0
+      - portworx_operator_updated_csv_name == portworx_operator_target_csv_name
+    fail_msg: |
+      Subscription does not confirm updated CSV.
+      Expected: {{ portworx_operator_target_csv_name }}
+      Actual: {{ portworx_operator_updated_csv_name | default('None') }}
+    success_msg: "Subscription confirmed CSV update: {{ portworx_operator_updated_csv_name }}"
+
+- name: Retrieve updated CSV to validate phase
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    name: "{{ portworx_operator_updated_csv_name }}"
+    namespace: "{{ portworx_operator_namespace }}"
+  register: portworx_operator_updated_csv_info
+  no_log: true
+
+- name: Verify updated CSV is Succeeded
+  ansible.builtin.assert:
+    that:
+      - portworx_operator_updated_csv_info.resources | length > 0
+      - portworx_operator_updated_csv_info.resources[0].status.phase == 'Succeeded'
+    fail_msg: "Updated CSV not in Succeeded phase (current: {{ portworx_operator_updated_csv_info.resources[0].status.phase | default('unknown') }})"
+    success_msg: "Updated CSV {{ portworx_operator_updated_csv_name }} is in Succeeded phase"
+
+- name: Parse new operator version
+  ansible.builtin.set_fact:
+    portworx_operator_new_version: "{{ portworx_operator_target_csv_name | parse_operator_version }}"
+
+- name: Update current version facts
+  ansible.builtin.set_fact:
+    portworx_operator_current_version_string: "{{ portworx_operator_new_version.string }}"
+    portworx_operator_current_version_tuple: "{{ portworx_operator_new_version.tuple }}"
+    portworx_operator_current_version_major: "{{ portworx_operator_new_version.major }}"
+    portworx_operator_current_version_minor: "{{ portworx_operator_new_version.minor }}"
+    portworx_operator_current_version_patch: "{{ portworx_operator_new_version.patch }}"
+
+- name: Record step completion timestamp
+  ansible.builtin.set_fact:
+    portworx_operator_step_completed_at: "{{ ansible_date_time.iso8601 }}"
+    portworx_operator_step_duration: "{{ ansible_date_time.epoch | int - portworx_operator_step_start_time | int }}"
+
+- name: Add step to completion history
+  ansible.builtin.set_fact:
+    portworx_operator_steps_completed: >-
+      {{
+        portworx_operator_steps_completed | default([]) + [{
+          'csv_name': portworx_operator_target_csv_name,
+          'version': portworx_operator_new_version.string,
+          'installplan': portworx_operator_next_candidate.installplan_name,
+          'completed_at': portworx_operator_step_completed_at,
+          'duration_seconds': portworx_operator_step_duration
+        }]
+      }}
+
+- name: Increment step counter
+  ansible.builtin.set_fact:
+    portworx_operator_iteration_count: "{{ portworx_operator_iteration_count | int + 1 }}"
+
+- name: Check if target version reached
+  ansible.builtin.set_fact:
+    portworx_operator_target_reached: >-
+      {{
+        portworx_operator_target_version_tuple | length > 0 and
+        portworx_operator_current_version_tuple == portworx_operator_target_version_tuple
+      }}
+
+- name: Display version state update
+  ansible.builtin.debug:
+    msg:
+      - "Step {{ portworx_operator_iteration_count }} completed"
+      - "Upgraded to: {{ portworx_operator_current_version_string }}"
+      - "Duration: {{ portworx_operator_step_duration }} seconds"
+      - "Target reached: {{ portworx_operator_target_reached }}"
+  when: portworx_detailed_logging
+
+- name: Save state to file
+  ansible.builtin.copy:
+    content: |
+      {
+        "operation_start": "{{ portworx_operator_operation_start }}",
+        "operation_end": "",
+        "initial_version": "{{ portworx_operator_initial_version_string }}",
+        "target_version": "{{ portworx_operator_target_version_string | default('latest') }}",
+        "current_version": "{{ portworx_operator_current_version_string }}",
+        "steps_completed": {{ portworx_operator_steps_completed | to_nice_json }},
+        "total_steps": {{ portworx_operator_iteration_count }},
+        "target_reached": {{ portworx_operator_target_reached }},
+        "failed": false,
+        "failure_reason": ""
+      }
+    dest: "{{ portworx_operator_state_file }}"
+    mode: "0644"
+  when: portworx_operator_save_state
+  changed_when: false

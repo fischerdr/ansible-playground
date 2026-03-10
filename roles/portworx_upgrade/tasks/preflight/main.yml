@@ -1,0 +1,36 @@
+---
+# Pre-flight validation tasks
+
+- name: Record preflight start time
+  ansible.builtin.set_fact:
+    portworx_preflight_start_time: "{{ ansible_date_time.epoch }}"
+
+- name: Include environment validation
+  ansible.builtin.import_tasks: validate_environment.yml
+
+- name: Include STC configuration validation
+  ansible.builtin.import_tasks: validate_stc_config.yml
+
+- name: Include node label validation
+  ansible.builtin.import_tasks: validate_nodes.yml
+
+- name: Include pod health validation
+  ansible.builtin.import_tasks: validate_pods.yml
+
+- name: Include pod distribution validation
+  ansible.builtin.import_tasks: validate_pod_distribution.yml
+
+- name: Include cluster status validation
+  ansible.builtin.import_tasks: validate_cluster_status.yml
+
+- name: Include resource backup
+  ansible.builtin.import_tasks: backup_resources.yml
+  when: portworx_backup_resources
+
+- name: Record preflight end time
+  ansible.builtin.set_fact:
+    portworx_preflight_end_time: "{{ ansible_date_time.epoch }}"
+
+- name: Pre-flight validation complete
+  ansible.builtin.debug:
+    msg: "All pre-flight checks passed successfully"

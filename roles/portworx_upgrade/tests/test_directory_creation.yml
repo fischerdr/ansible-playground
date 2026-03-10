@@ -1,0 +1,226 @@
+---
+# Test: Verify directory creation for all file write operations
+# Purpose: Ensure all directories exist before file operations
+# Usage: ansible-playbook tests/test_directory_creation.yml
+
+- name: Test directory creation logic
+  hosts: localhost
+  gather_facts: true
+  vars:
+    # Test variables
+    portworx_work_dir: "/tmp/test-portworx-upgrade"
+    portworx_report_dir: "{{ portworx_work_dir }}/portworx-upgrade"
+    portworx_backup_dir: "{{ portworx_report_dir }}/backups"
+    portworx_backup_resources: true
+    portworx_namespace: "portworx"
+    portworx_target_version: "3.5.0"
+
+  tasks:
+    - name: Clean up test directories
+      ansible.builtin.file:
+        path: "{{ portworx_work_dir }}"
+        state: absent
+
+    - name: Test 1 - Verify report directory creation
+      block:
+        - name: Create report directory (simulating main.yml)
+          ansible.builtin.file:
+            path: "{{ portworx_report_dir }}"
+            state: directory
+            mode: '0755'
+
+        - name: Verify report directory exists
+          ansible.builtin.stat:
+            path: "{{ portworx_report_dir }}"
+          register: report_dir_stat
+
+        - name: Assert report directory exists
+          ansible.builtin.assert:
+            that:
+              - report_dir_stat.stat.exists
+              - report_dir_stat.stat.isdir
+              - report_dir_stat.stat.mode == '0755'
+            success_msg: "Test 1 PASSED: Report directory created successfully"
+            fail_msg: "Test 1 FAILED: Report directory not created"
+
+    - name: Test 2 - Verify backup directory creation (main.yml approach)
+      block:
+        - name: Create backup directory conditionally (simulating main.yml)
+          ansible.builtin.file:
+            path: "{{ portworx_backup_dir }}"
+            state: directory
+            mode: '0755'
+          when: portworx_backup_resources
+
+        - name: Verify backup directory exists
+          ansible.builtin.stat:
+            path: "{{ portworx_backup_dir }}"
+          register: backup_dir_stat
+
+        - name: Assert backup directory exists
+          ansible.builtin.assert:
+            that:
+              - backup_dir_stat.stat.exists
+              - backup_dir_stat.stat.isdir
+              - backup_dir_stat.stat.mode == '0755'
+            success_msg: "Test 2 PASSED: Backup directory created successfully"
+            fail_msg: "Test 2 FAILED: Backup directory not created"
+
+    - name: Test 3 - Verify backup directory creation (backup_resources.yml approach)
+      block:
+        - name: Remove backup directory to test recreation
+          ansible.builtin.file:
+            path: "{{ portworx_backup_dir }}"
+            state: absent
+
+        - name: Create backup directory (simulating backup_resources.yml)
+          ansible.builtin.file:
+            path: "{{ portworx_backup_dir }}"
+            state: directory
+            mode: '0755'
+
+        - name: Verify backup directory recreated
+          ansible.builtin.stat:
+            path: "{{ portworx_backup_dir }}"
+          register: backup_dir_recreate_stat
+
+        - name: Assert backup directory recreated
+          ansible.builtin.assert:
+            that:
+              - backup_dir_recreate_stat.stat.exists
+              - backup_dir_recreate_stat.stat.isdir
+            success_msg: "Test 3 PASSED: Backup directory recreation successful"
+            fail_msg: "Test 3 FAILED: Backup directory not recreated"
+
+    - name: Test 4 - Verify nested directory creation
+      block:
+        - name: Clean up for nested test
+          ansible.builtin.file:
+            path: "{{ portworx_work_dir }}"
+            state: absent
+
+        - name: Create nested directory directly (tests mkdir -p behavior)
+          ansible.builtin.file:
+            path: "{{ portworx_backup_dir }}"
+            state: directory
+            mode: '0755'
+
+        - name: Verify all parent directories created
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          register: nested_stats
+          loop:
+            - "{{ portworx_work_dir }}"
+            - "{{ portworx_report_dir }}"
+            - "{{ portworx_backup_dir }}"
+
+        - name: Assert all nested directories exist
+          ansible.builtin.assert:
+            that:
+              - item.stat.exists
+              - item.stat.isdir
+            success_msg: "Nested directory {{ item.item }} exists"
+            fail_msg: "Nested directory {{ item.item }} not created"
+          loop: "{{ nested_stats.results }}"
+          loop_control:
+            label: "{{ item.item }}"
+
+    - name: Test 5 - Verify file write operations work
+      block:
+        - name: Ensure directories exist
+          ansible.builtin.file:
+            path: "{{ portworx_backup_dir }}"
+            state: directory
+            mode: '0755'
+
+        - name: Test backup file write
+          ansible.builtin.copy:
+            content: "test backup content"
+            dest: "{{ portworx_backup_dir }}/test-backup.yaml"
+            mode: '0644'
+
+        - name: Ensure report directory exists
+          ansible.builtin.file:
+            path: "{{ portworx_report_dir }}"
+            state: directory
+            mode: '0755'
+
+        - name: Test report file write
+          ansible.builtin.copy:
+            content: "test summary content"
+            dest: "{{ portworx_report_dir }}/test-summary.txt"
+            mode: '0644'
+
+        - name: Verify files were created
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          register: file_stats
+          loop:
+            - "{{ portworx_backup_dir }}/test-backup.yaml"
+            - "{{ portworx_report_dir }}/test-summary.txt"
+
+        - name: Assert files exist
+          ansible.builtin.assert:
+            that:
+              - item.stat.exists
+              - item.stat.isreg
+              - item.stat.mode == '0644'
+            success_msg: "Test 5 PASSED: File {{ item.item }} created successfully"
+            fail_msg: "Test 5 FAILED: File {{ item.item }} not created"
+          loop: "{{ file_stats.results }}"
+          loop_control:
+            label: "{{ item.item }}"
+
+    - name: Test 6 - Verify behavior when portworx_backup_resources is false
+      block:
+        - name: Set backup resources to false
+          ansible.builtin.set_fact:
+            portworx_backup_resources: false
+
+        - name: Simulate main.yml backup directory creation (should be skipped)
+          ansible.builtin.file:
+            path: "{{ portworx_backup_dir }}_conditional"
+            state: directory
+            mode: '0755'
+          when: portworx_backup_resources
+
+        - name: Verify conditional directory was NOT created
+          ansible.builtin.stat:
+            path: "{{ portworx_backup_dir }}_conditional"
+          register: conditional_dir_stat
+
+        - name: Assert conditional directory does not exist
+          ansible.builtin.assert:
+            that:
+              - not conditional_dir_stat.stat.exists
+            success_msg: "Test 6 PASSED: Conditional directory correctly skipped"
+            fail_msg: "Test 6 FAILED: Conditional directory should not exist"
+
+    - name: Clean up test directories
+      ansible.builtin.file:
+        path: "{{ portworx_work_dir }}"
+        state: absent
+
+    - name: Display test summary
+      ansible.builtin.debug:
+        msg:
+          - "================================"
+          - "All directory creation tests PASSED"
+          - "================================"
+          - "Verified scenarios:"
+          - "  1. Report directory creation (main.yml)"
+          - "  2. Backup directory creation (main.yml conditional)"
+          - "  3. Backup directory recreation (backup_resources.yml)"
+          - "  4. Nested directory creation (mkdir -p behavior)"
+          - "  5. File write operations"
+          - "  6. Conditional directory creation behavior"
+          - ""
+          - "Summary of file write locations in portworx_upgrade role:"
+          - "  - {{ portworx_backup_dir }}/pre-upgrade-stc-{epoch}.yaml"
+          - "  - {{ portworx_backup_dir }}/pre-upgrade-configmap-{epoch}.yaml"
+          - "  - {{ portworx_backup_dir }}/pre-upgrade-subscription-{epoch}.yaml"
+          - "  - {{ portworx_report_dir }}/upgrade-summary-{epoch}.txt"
+          - ""
+          - "All directories are created with appropriate permissions (0755)"
+          - "All files are created with appropriate permissions (0644)"
+          - "All operations use delegate_to: localhost for proper execution"

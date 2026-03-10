@@ -1,0 +1,94 @@
+---
+# Validate StorageCluster updateStrategy configuration
+
+- name: Get StorageCluster resource
+  kubernetes.core.k8s_info:
+    api_version: "{{ portworx_stc_api_version }}"
+    kind: "{{ portworx_stc_kind }}"
+    namespace: "{{ portworx_namespace }}"
+  register: portworx_stc_list
+  no_log: true
+
+- name: Verify StorageCluster exists
+  ansible.builtin.assert:
+    that:
+      - portworx_stc_list.resources | length > 0
+    fail_msg: "No StorageCluster found in namespace {{ portworx_namespace }}"
+    success_msg: "StorageCluster found"
+
+- name: Set StorageCluster facts
+  ansible.builtin.set_fact:
+    portworx_stc: "{{ portworx_stc_list.resources[0] }}"
+    portworx_stc_name: "{{ portworx_stc_list.resources[0].metadata.name }}"
+    portworx_current_version: "{{ portworx_stc_list.resources[0].status.version | default('unknown') }}"
+
+- name: Display current version
+  ansible.builtin.debug:
+    msg:
+      - "Current Portworx version: {{ portworx_current_version }}"
+      - "Target Portworx version: {{ portworx_target_version }}"
+      - "StorageCluster name: {{ portworx_stc_name }}"
+
+- name: Verify version upgrade is needed
+  ansible.builtin.assert:
+    that:
+      - portworx_current_version != portworx_target_version
+    fail_msg: |
+      PREFLIGHT FAILURE: Cluster is already at target version
+
+      Current version: {{ portworx_current_version }}
+      Target version:  {{ portworx_target_version }}
+
+      The cluster is already running the target version. No upgrade is needed.
+
+      If you need to force a reinstall or reconfiguration, consider:
+      1. Verifying the target version is correct
+      2. Checking if a rollback or different version is intended
+      3. Using a different upgrade mechanism if reconfiguration is needed
+    success_msg: "Version upgrade confirmed: {{ portworx_current_version }} -> {{ portworx_target_version }}"
+
+- name: Extract STC spec image for pod validation
+  ansible.builtin.set_fact:
+    portworx_stc_spec_image: "{{ portworx_stc.spec.image }}"
+
+- name: Validate updateStrategy type
+  ansible.builtin.assert:
+    that:
+      - portworx_stc.spec.updateStrategy.type is defined
+      - portworx_stc.spec.updateStrategy.type == "RollingUpdate"
+    fail_msg: |
+      StorageCluster updateStrategy.type must be 'RollingUpdate'
+      Current: {{ portworx_stc.spec.updateStrategy.type | default('undefined') }}
+    success_msg: "UpdateStrategy type validated: RollingUpdate"
+  when: portworx_fail_on_invalid_updatestrategy
+
+- name: Validate maxUnavailable setting
+  ansible.builtin.assert:
+    that:
+      - portworx_stc.spec.updateStrategy.rollingUpdate.maxUnavailable is defined
+      - portworx_stc.spec.updateStrategy.rollingUpdate.maxUnavailable == 1
+    fail_msg: |
+      StorageCluster updateStrategy.rollingUpdate.maxUnavailable must be 1
+      Current: {{ portworx_stc.spec.updateStrategy.rollingUpdate.maxUnavailable | default('undefined') }}
+      This ensures one-at-a-time pod upgrades
+    success_msg: "MaxUnavailable validated: 1 (one-at-a-time upgrades)"
+  when: portworx_fail_on_invalid_updatestrategy
+
+- name: Validate disruption allow setting
+  ansible.builtin.assert:
+    that:
+      - portworx_stc.spec.updateStrategy.rollingUpdate.disruption.allow is defined
+      - portworx_stc.spec.updateStrategy.rollingUpdate.disruption.allow == true
+    fail_msg: |
+      StorageCluster updateStrategy.rollingUpdate.disruption.allow must be true
+      Current: {{ portworx_stc.spec.updateStrategy.rollingUpdate.disruption.allow | default('undefined') }}
+    success_msg: "Disruption allow validated: true"
+  when: portworx_fail_on_invalid_updatestrategy
+
+- name: Display updateStrategy configuration
+  ansible.builtin.debug:
+    msg:
+      - "UpdateStrategy validated successfully"
+      - "Type: {{ portworx_stc.spec.updateStrategy.type }}"
+      - "MaxUnavailable: {{ portworx_stc.spec.updateStrategy.rollingUpdate.maxUnavailable }}"
+      - "Disruption Allow: {{ portworx_stc.spec.updateStrategy.rollingUpdate.disruption.allow }}"

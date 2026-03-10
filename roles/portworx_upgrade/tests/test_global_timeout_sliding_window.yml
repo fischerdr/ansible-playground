@@ -1,0 +1,156 @@
+---
+# Test global timeout sliding window logic
+# Validates oldest pod age calculation vs completion-based timeout
+
+- name: Test global timeout sliding window
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    portworx_global_inactivity_timeout: 2100  # 35 minutes
+    portworx_last_activity_time: "{{ ansible_date_time.epoch | int - 1200 }}"  # 20 min ago
+
+  tasks:
+    # Test 1: Sliding window - oldest pod within timeout
+    - name: Test 1 - Oldest pod within timeout (30 min old)
+      block:
+        - name: Create active pods with varying ages
+          ansible.builtin.set_fact:
+            test_active_pods:
+              # Pod-A: 30 minutes old (oldest)
+              - metadata:
+                  name: "portworx-a"
+                  creationTimestamp: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - 1800) }}"
+                status:
+                  phase: "Pending"
+              # Pod-B: 15 minutes old
+              - metadata:
+                  name: "portworx-b"
+                  creationTimestamp: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - 900) }}"
+                status:
+                  phase: "ContainerCreating"
+              # Pod-C: 5 minutes old
+              - metadata:
+                  name: "portworx-c"
+                  creationTimestamp: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - 300) }}"
+                status:
+                  phase: "Pending"
+
+        - name: Find oldest pod
+          ansible.builtin.set_fact:
+            oldest_timestamp: "{{ test_active_pods | map(attribute='metadata.creationTimestamp') | min }}"
+            oldest_pod: "{{ (test_active_pods | selectattr('metadata.creationTimestamp', 'equalto', test_active_pods | map(attribute='metadata.creationTimestamp') | min) | first).metadata.name }}"
+
+        - name: Calculate oldest pod age
+          ansible.builtin.set_fact:
+            oldest_age: "{{ (ansible_date_time.epoch | int) - ((oldest_timestamp | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int) }}"
+
+        - name: Verify oldest pod and age
+          ansible.builtin.assert:
+            that:
+              - oldest_pod == 'portworx-a'
+              - oldest_age | int >= 1800  # ~30 minutes
+              - oldest_age | int < portworx_global_inactivity_timeout
+            fail_msg: "Oldest pod detection or age calculation incorrect"
+            success_msg: "Test 1 passed: Oldest pod identified correctly, within timeout"
+
+    # Test 2: Sliding window - oldest pod exceeds timeout
+    - name: Test 2 - Oldest pod exceeds timeout (40 min old)
+      block:
+        - name: Create active pods with oldest exceeding timeout
+          ansible.builtin.set_fact:
+            test_stuck_pods:
+              # Pod-Old: 40 minutes old (EXCEEDS 35 min timeout)
+              - metadata:
+                  name: "portworx-stuck"
+                  creationTimestamp: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - 2400) }}"
+                status:
+                  phase: "Pending"
+              # Pod-Recent: 10 minutes old
+              - metadata:
+                  name: "portworx-recent"
+                  creationTimestamp: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - 600) }}"
+                status:
+                  phase: "ContainerCreating"
+
+        - name: Find oldest stuck pod
+          ansible.builtin.set_fact:
+            oldest_stuck_timestamp: "{{ test_stuck_pods | map(attribute='metadata.creationTimestamp') | min }}"
+            oldest_stuck_pod: "{{ (test_stuck_pods | selectattr('metadata.creationTimestamp', 'equalto', test_stuck_pods | map(attribute='metadata.creationTimestamp') | min) | first).metadata.name }}"
+            oldest_stuck_age: "{{ (ansible_date_time.epoch | int) - ((test_stuck_pods | map(attribute='metadata.creationTimestamp') | min | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int) }}"
+
+        - name: Verify timeout detection
+          ansible.builtin.assert:
+            that:
+              - oldest_stuck_pod == 'portworx-stuck'
+              - oldest_stuck_age | int >= 2400  # ~40 minutes
+              - oldest_stuck_age | int > portworx_global_inactivity_timeout
+            fail_msg: "Should detect timeout when oldest pod exceeds limit"
+            success_msg: "Test 2 passed: Timeout correctly detected for oldest pod"
+
+    # Test 3: No active pods - use inactivity duration
+    - name: Test 3 - No active pods, check inactivity duration
+      block:
+        - name: Simulate no active pods
+          ansible.builtin.set_fact:
+            test_no_active_pods: []
+            test_inactivity: "{{ (ansible_date_time.epoch | int) - (portworx_last_activity_time | int) }}"
+
+        - name: Verify inactivity calculation
+          ansible.builtin.assert:
+            that:
+              - test_no_active_pods | length == 0
+              - test_inactivity | int >= 1200  # 20 minutes
+              - test_inactivity | int < portworx_global_inactivity_timeout
+            fail_msg: "Inactivity duration calculation incorrect"
+            success_msg: "Test 3 passed: Inactivity duration within timeout when no active pods"
+
+    # Test 4: Impatient mode scenario - multiple pods, completions shouldn't reset
+    - name: Test 4 - Impatient mode multi-pod scenario
+      block:
+        - name: Simulate impatient mode batch (5 pods created, 2 completed)
+          ansible.builtin.set_fact:
+            batch_remaining:
+              # Pod-1: 35 minutes old (at timeout edge)
+              - metadata:
+                  name: "batch-1"
+                  creationTimestamp: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - 2100) }}"
+                status:
+                  phase: "Pending"
+              # Pod-2: 20 minutes old
+              - metadata:
+                  name: "batch-2"
+                  creationTimestamp: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - 1200) }}"
+                status:
+                  phase: "ContainerCreating"
+              # Pod-3: 10 minutes old
+              - metadata:
+                  name: "batch-3"
+                  creationTimestamp: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - 600) }}"
+                status:
+                  phase: "Running"
+                  conditions:
+                    - type: "Ready"
+                      status: "False"
+
+        - name: Calculate batch oldest pod
+          ansible.builtin.set_fact:
+            batch_oldest: "{{ (batch_remaining | selectattr('metadata.creationTimestamp', 'equalto', batch_remaining | map(attribute='metadata.creationTimestamp') | min) | first).metadata.name }}"
+            batch_oldest_age: "{{ (ansible_date_time.epoch | int) - ((batch_remaining | map(attribute='metadata.creationTimestamp') | min | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int) }}"
+
+        - name: Verify sliding window ignores completions
+          ansible.builtin.assert:
+            that:
+              - batch_oldest == 'batch-1'
+              - batch_oldest_age | int >= 2100  # At or exceeds timeout
+            fail_msg: "Sliding window should track oldest pod regardless of completions"
+            success_msg: "Test 4 passed: Sliding window correctly tracks oldest pod in multi-pod scenario"
+
+    - name: All sliding window tests completed
+      ansible.builtin.debug:
+        msg:
+          - "=== All Sliding Window Global Timeout Tests Passed ==="
+          - "Test 1: Oldest pod identification (within timeout)"
+          - "Test 2: Timeout detection (oldest exceeds limit)"
+          - "Test 3: Inactivity mode (no active pods)"
+          - "Test 4: Impatient mode scenario (multi-pod batch)"

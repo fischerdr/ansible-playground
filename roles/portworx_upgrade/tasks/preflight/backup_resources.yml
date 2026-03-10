@@ -1,0 +1,73 @@
+---
+# Backup StorageCluster and related resources before upgrade
+
+- name: Ensure backup directory exists
+  ansible.builtin.file:
+    path: "{{ portworx_backup_dir }}"
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+
+- name: Get StorageCluster for backup
+  kubernetes.core.k8s_info:
+    api_version: "{{ portworx_stc_api_version }}"
+    kind: "{{ portworx_stc_kind }}"
+    name: "{{ portworx_stc_name }}"
+    namespace: "{{ portworx_namespace }}"
+  register: portworx_stc_backup
+  no_log: true
+
+- name: Write StorageCluster backup to file
+  ansible.builtin.copy:
+    content: "{{ portworx_stc_backup.resources[0] | to_nice_yaml }}"
+    dest: "{{ portworx_backup_dir }}/pre-upgrade-stc-{{ ansible_date_time.epoch }}.yaml"
+    mode: '0644'
+  delegate_to: localhost
+
+- name: Get px-versions ConfigMap for backup
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: ConfigMap
+    name: px-versions
+    namespace: "{{ portworx_namespace }}"
+  register: portworx_cm_backup
+  failed_when: false
+  no_log: true
+
+- name: Write ConfigMap backup to file
+  ansible.builtin.copy:
+    content: "{{ portworx_cm_backup.resources[0] | to_nice_yaml }}"
+    dest: "{{ portworx_backup_dir }}/pre-upgrade-configmap-{{ ansible_date_time.epoch }}.yaml"
+    mode: '0644'
+  delegate_to: localhost
+  when: portworx_cm_backup.resources | length > 0
+
+- name: Get Portworx operator subscription for backup
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    name: "{{ portworx_operator_subscription }}"
+    namespace: "{{ portworx_operator_namespace }}"
+  register: portworx_sub_backup
+  failed_when: false
+  no_log: true
+
+- name: Write Subscription backup to file
+  ansible.builtin.copy:
+    content: "{{ portworx_sub_backup.resources[0] | to_nice_yaml }}"
+    dest: "{{ portworx_backup_dir }}/pre-upgrade-subscription-{{ ansible_date_time.epoch }}.yaml"
+    mode: '0644'
+  delegate_to: localhost
+  when: portworx_sub_backup.resources | length > 0
+
+- name: Display backup locations
+  ansible.builtin.debug:
+    msg:
+      - "Pre-upgrade backups saved to: {{ portworx_backup_dir }}/"
+      - "  - pre-upgrade-stc-{{ ansible_date_time.epoch }}.yaml"
+      - "  - pre-upgrade-configmap-{{ ansible_date_time.epoch }}.yaml"
+      - "  - pre-upgrade-subscription-{{ ansible_date_time.epoch }}.yaml"
+
+- name: Resource backup complete
+  ansible.builtin.debug:
+    msg: "All resources backed up successfully"

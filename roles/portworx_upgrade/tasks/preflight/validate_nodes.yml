@@ -1,0 +1,89 @@
+---
+# Validate node readiness and schedulability
+# Ensures all nodes running Portworx pods are in good state
+
+- name: Get all nodes in the cluster
+  kubernetes.core.k8s_info:
+    kind: Node
+  register: portworx_all_nodes
+  no_log: true
+
+- name: Get all Portworx pods to identify which nodes have Portworx
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ portworx_namespace }}"
+    label_selectors:
+      - "{{ portworx_pod_selector }}"
+  register: portworx_pods_for_node_check
+  no_log: true
+
+- name: Extract unique node names running Portworx
+  ansible.builtin.set_fact:
+    portworx_node_names: "{{ portworx_pods_for_node_check.resources | map(attribute='spec.nodeName') | unique | list }}"
+
+- name: Display Portworx node count
+  ansible.builtin.debug:
+    msg: "Found {{ portworx_node_names | length }} nodes running Portworx pods"
+
+- name: Check each Portworx node for readiness and schedulability
+  ansible.builtin.set_fact:
+    portworx_node_issues: "{{ portworx_node_issues_str | from_yaml }}"
+  vars:
+    portworx_node_issues_str: >-
+      {% set issues = [] %}
+      {% for node_name in portworx_node_names %}
+        {% set node = portworx_all_nodes.resources | selectattr('metadata.name', 'equalto', node_name) | first | default(none) %}
+        {% if node %}
+          {# Check if node is Ready #}
+          {% set ready_condition = node.status.conditions | selectattr('type', 'equalto', 'Ready') | first | default(none) %}
+          {% if not ready_condition or ready_condition.status != 'True' %}
+            {% set _ = issues.append({'node': node_name, 'issue': 'Not Ready', 'status': ready_condition.status | default('Unknown')}) %}
+          {% endif %}
+          {# Check if node is schedulable (not cordoned) #}
+          {% if node.spec.unschedulable | default(false) %}
+            {% set _ = issues.append({'node': node_name, 'issue': 'Unschedulable (cordoned)', 'status': 'SchedulingDisabled'}) %}
+          {% endif %}
+          {# Check for px/service=stop label (Portworx service stopped) #}
+          {% if node.metadata.labels['px/service'] is defined and node.metadata.labels['px/service'] == 'stop' %}
+            {% set _ = issues.append({'node': node_name, 'issue': 'Portworx service stopped (px/service=stop label)', 'status': 'ServiceStopped'}) %}
+          {% endif %}
+        {% endif %}
+      {% endfor %}
+      {{ issues }}
+
+- name: Display node validation results
+  ansible.builtin.debug:
+    msg:
+      - "Node validation results:"
+      - "Total Portworx nodes: {{ portworx_node_names | length }}"
+      - "Nodes with issues: {{ portworx_node_issues | length }}"
+
+- name: Fail if any Portworx nodes have issues
+  when: portworx_node_issues | length > 0
+  ansible.builtin.fail:
+    msg: |
+      PREFLIGHT FAILURE: Portworx nodes have issues that must be resolved before upgrade
+
+      Nodes with issues ({{ portworx_node_issues | length }}):
+      {% for issue in portworx_node_issues %}
+      - Node: {{ issue.node }}
+        Problem: {{ issue.issue }}
+        Status: {{ issue.status }}
+      {% endfor %}
+
+      TROUBLESHOOTING:
+      1. Check node status: oc get nodes
+      2. Check node details: oc describe node <node-name>
+      3. For cordoned nodes: oc uncordon <node-name>
+      4. For not-ready nodes: Investigate node issues before proceeding
+      5. For px/service=stop nodes: Remove label with: oc label node <node-name> px/service-
+      6. Wait for Portworx pod to become ready after removing px/service=stop label
+
+      All nodes running Portworx pods MUST be:
+      - Ready (Ready condition = True)
+      - Schedulable (not cordoned/unschedulable)
+      - NOT have px/service=stop label (Portworx service must be running)
+
+- name: Node validation successful
+  ansible.builtin.debug:
+    msg: "✓ All {{ portworx_node_names | length }} Portworx nodes are Ready and Schedulable"

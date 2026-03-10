@@ -1,0 +1,111 @@
+---
+# Main task file for portworx_upgrade role
+
+- name: Display upgrade information
+  ansible.builtin.debug:
+    msg:
+      - "Starting Portworx upgrade for cluster: {{ portworx_cluster_name }}"
+      - "Target version: {{ portworx_target_version }}"
+      - "Namespace: {{ portworx_namespace }}"
+      - "Impatient mode: {{ portworx_impatient_mode }}"
+
+- name: Validate target version is provided
+  ansible.builtin.assert:
+    that:
+      - portworx_target_version is defined
+      - portworx_target_version | length > 0
+    fail_msg: "portworx_target_version must be provided"
+    success_msg: "Target version validated: {{ portworx_target_version }}"
+
+- name: Record upgrade start time
+  ansible.builtin.set_fact:
+    portworx_upgrade_start_time: "{{ ansible_date_time.epoch }}"
+    portworx_last_activity_time: "{{ ansible_date_time.epoch }}"
+
+- name: Create report directory
+  ansible.builtin.file:
+    path: "{{ portworx_report_dir }}"
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+
+- name: Create backup directory
+  ansible.builtin.file:
+    path: "{{ portworx_backup_dir }}"
+    state: directory
+    mode: '0755'
+  when: portworx_backup_resources
+  delegate_to: localhost
+
+# Phase 1: Pre-flight validation
+- name: "PHASE 1: Pre-flight validation"
+  ansible.builtin.import_tasks: preflight/main.yml
+  tags:
+    - preflight
+    - validation
+
+# Phase 2: Operator upgrade
+- name: "PHASE 2: Operator upgrade"
+  ansible.builtin.import_tasks: upgrade/operator/main.yml
+  when: not portworx_skip_operator_upgrade
+  tags:
+    - upgrade
+    - operator
+
+# Phase 3: ConfigMap update
+- name: "PHASE 3: ConfigMap update"
+  ansible.builtin.import_tasks: upgrade/configmap.yml
+  tags:
+    - upgrade
+    - configmap
+
+# Phase 4: Update components (autoUpdateComponents patch)
+- name: "PHASE 4: Update components"
+  ansible.builtin.import_tasks: upgrade/update_components.yml
+  tags:
+    - upgrade
+    - components
+
+# Phase 5: StorageCluster update (THE TRIGGER)
+- name: "PHASE 5: StorageCluster update"
+  ansible.builtin.import_tasks: upgrade/storagecluster.yml
+  tags:
+    - upgrade
+    - storagecluster
+
+# Phase 6: Monitor automatic rolling upgrade
+- name: "PHASE 6: Monitor automatic rolling upgrade"
+  ansible.builtin.import_tasks: monitor/main.yml
+  tags:
+    - monitor
+
+# Phase 7: Final validation
+- name: "PHASE 7: Final validation"
+  ansible.builtin.import_tasks: validate/main.yml
+  tags:
+    - validate
+    - final
+
+# Phase 8: Generate reports
+- name: "PHASE 8: Generate reports"
+  ansible.builtin.import_tasks: report/main.yml
+  when: portworx_create_summary
+  tags:
+    - report
+
+- name: Record upgrade end time
+  ansible.builtin.set_fact:
+    portworx_upgrade_end_time: "{{ ansible_date_time.epoch }}"
+
+- name: Calculate upgrade duration
+  ansible.builtin.set_fact:
+    portworx_upgrade_duration: "{{ (portworx_upgrade_end_time | int) - (portworx_upgrade_start_time | int) }}"
+
+- name: Display upgrade completion
+  ansible.builtin.debug:
+    msg:
+      - "Portworx upgrade completed successfully"
+      - "Cluster: {{ portworx_cluster_name }}"
+      - "Version: {{ portworx_target_version }}"
+      - "Duration: {{ portworx_upgrade_duration }} seconds ({{ (portworx_upgrade_duration | int / 60) | round(1) }} minutes)"
+      - "Reports available in: {{ portworx_report_dir }}"

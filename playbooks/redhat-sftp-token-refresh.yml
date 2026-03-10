@@ -1,0 +1,96 @@
+---
+# ==============================================================================
+# Red Hat SFTP Token Refresh Playbook
+# ==============================================================================
+#
+# Purpose: Generate and optionally store Red Hat SFTP tokens via OAuth2 device
+#          authorization flow without performing must-gather collection.
+#
+# Usage:
+#   # Option 1: Provide credentials via extra_vars
+#   ansible-playbook -i inventory/dev.yml playbooks/redhat-sftp-token-refresh.yml \
+#     -e rh_account_username=username@redhat.com \
+#     -e rh_account_password=password \
+#     -e vault_store_tokens=true
+#
+#   # Option 2: Use Vault-stored credentials (auto-retrieval)
+#   ansible-playbook -i inventory/dev.yml playbooks/redhat-sftp-token-refresh.yml \
+#     -e 'vault_parameters=url=https://vault.example.com:8200 token=s.xxxxx' \
+#     -e vault_store_tokens=true
+#
+# Tags:
+#   - redhat_sftp_token: Generate SFTP token
+#   - vault_storage: Store token in Vault
+#
+# Requirements:
+#   - Red Hat account credentials (no 2FA) - from Vault or extra_vars
+#   - HashiCorp Vault credentials (if vault_store_tokens=true)
+#   - Network access to Red Hat SSO and API endpoints
+#
+# Credential Precedence:
+#   1. Extra vars (rh_account_username, rh_account_password)
+#   2. HashiCorp Vault retrieval (if vault_parameters provided)
+#   3. Fails if neither source provides credentials
+#
+# ==============================================================================
+
+- name: Red Hat SFTP Token Generation and Storage
+  hosts: localhost
+  gather_facts: true
+  connection: local
+
+  pre_tasks:
+    - name: Include setup_env role for environment configuration
+      ansible.builtin.include_role:
+        name: setup_env
+
+    - name: Set required paths
+      ansible.builtin.set_fact:
+        OC_BIN: "{{ lookup('env', 'OC_BIN') | default('/usr/local/bin/oc', true) }}"
+        WORK_DIR: "{{ lookup('env', 'WORK_DIR') | default('/tmp', true) }}"
+
+    - name: Retrieve Red Hat account credentials from Vault (if not provided via extra_vars)
+      when:
+        - rh_account_username is not defined or rh_account_username | string | length == 0
+        - rh_account_password is not defined or rh_account_password | string | length == 0
+        - vault_parameters is defined
+        - vault_parameters | string | length > 0
+      block:
+        - name: Retrieve Red Hat account credentials from Vault
+          ansible.builtin.set_fact:
+            rh_account_username: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/' ~ cluster_user ~ '/redhat')['rh_account_username'] | trim }}"
+            rh_account_password: "{{ lookup('community.hashi_vault.hashi_vault', vault_parameters ~ ' secret=static_secrets/data/env/' ~ cluster_user ~ '/redhat')['rh_account_password'] | trim }}"
+          no_log: true
+
+        - name: Display credential retrieval status
+          ansible.builtin.debug:
+            msg: "Successfully retrieved Red Hat account credentials from Vault for user: {{ cluster_user }}"
+
+      rescue:
+        - name: Display Vault retrieval failure warning
+          ansible.builtin.debug:
+            msg: |
+              WARNING: Could not retrieve Red Hat account credentials from Vault.
+              Please provide credentials via extra_vars:
+                -e rh_account_username=username@redhat.com
+                -e rh_account_password=password
+
+  tasks:
+    - name: Refresh SFTP token
+      ansible.builtin.include_role:
+        name: must_gather_log
+        tasks_from: sftp_credential_management.yml
+      vars:
+        # Force token regeneration
+        rh_sftp_token_auto_generate: true
+        # Enable Vault storage
+        vault_store_tokens: "{{ vault_store_tokens | default(false) }}"
+
+  post_tasks:
+    - name: Display token generation summary
+      ansible.builtin.debug:
+        msg: |
+          Red Hat SFTP Token Generation Complete
+          Username: {{ rh_sftp_user | default('N/A') }}
+          Token Expiry: {{ _sftp_token_expiry | default('N/A') }}
+          Vault Storage: {{ 'Enabled' if vault_store_tokens | default(false) | bool else 'Disabled' }}

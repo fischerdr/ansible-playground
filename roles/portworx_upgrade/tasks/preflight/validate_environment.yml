@@ -1,0 +1,55 @@
+---
+# Validate environment and prerequisites
+
+- name: Validate Ansible version
+  ansible.builtin.assert:
+    that:
+      - ansible_version.full is version(portworx_min_ansible_version, '>=')
+    fail_msg: "Ansible version {{ ansible_version.full }} is below minimum {{ portworx_min_ansible_version }}"
+    success_msg: "Ansible version validated: {{ ansible_version.full }}"
+
+- name: Check kubernetes.core collection is installed
+  ansible.builtin.command:
+    cmd: ansible-galaxy collection list kubernetes.core
+  register: portworx_k8s_collection_check
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Validate kubernetes.core collection installed
+  ansible.builtin.assert:
+    that:
+      - portworx_k8s_collection_check.rc == 0
+    fail_msg: "kubernetes.core collection is not installed. Install with: ansible-galaxy collection install kubernetes.core"
+    success_msg: "kubernetes.core collection is installed"
+
+- name: Verify kubeconfig connectivity
+  kubernetes.core.k8s_cluster_info:
+  register: portworx_cluster_info
+  failed_when: false
+  no_log: true
+
+- name: Validate cluster connectivity
+  ansible.builtin.assert:
+    that:
+      - portworx_cluster_info is succeeded
+    fail_msg: "Cannot connect to Kubernetes cluster. Verify kubeconfig is configured correctly."
+    success_msg: "Cluster connectivity validated"
+
+- name: Verify portworx namespace exists
+  kubernetes.core.k8s_info:
+    kind: Namespace
+    name: "{{ portworx_namespace }}"
+  register: portworx_ns_check
+  no_log: true
+
+- name: Validate portworx namespace exists
+  ansible.builtin.assert:
+    that:
+      - portworx_ns_check.resources | length > 0
+    fail_msg: "Namespace {{ portworx_namespace }} does not exist"
+    success_msg: "Namespace {{ portworx_namespace }} exists"
+
+- name: Environment validation complete
+  ansible.builtin.debug:
+    msg: "Environment prerequisites validated successfully"

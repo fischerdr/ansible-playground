@@ -1,0 +1,113 @@
+---
+# Debug timestamp parsing issue
+# Tests both correct (.strftime) and incorrect (| int) methods
+# Shows positive (within timeout) and negative (exceeds timeout) cases
+
+- name: Debug timestamp parsing
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    pod_timeout: 900  # 15 minutes in seconds
+
+  tasks:
+    - name: Show current time
+      ansible.builtin.debug:
+        msg:
+          - "=== CURRENT TIME ==="
+          - "ansible_date_time.epoch: {{ ansible_date_time.epoch }}"
+          - "ansible_date_time.iso8601: {{ ansible_date_time.iso8601 }}"
+          - "Pod timeout threshold: {{ pod_timeout }} seconds (15 minutes)"
+
+    # Test 1: BROKEN METHOD (to_datetime | int) - returns 0
+    - name: Test 1 - Create timestamp 5 minutes ago
+      ansible.builtin.set_fact:
+        timestamp_5min_ago: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - 300) }}"
+
+    - name: Test 1 - Parse using BROKEN method (to_datetime | int)
+      ansible.builtin.set_fact:
+        parsed_int_broken: "{{ timestamp_5min_ago | to_datetime('%Y-%m-%dT%H:%M:%SZ') | int }}"
+
+    - name: Test 1 - Show BROKEN method results
+      ansible.builtin.debug:
+        msg:
+          - "=== TEST 1: BROKEN METHOD (to_datetime | int) ==="
+          - "Timestamp 5 min ago: {{ timestamp_5min_ago }}"
+          - "Parsed as int (BROKEN): {{ parsed_int_broken }}"
+          - "Current epoch: {{ ansible_date_time.epoch }}"
+          - "Age calculation: {{ (ansible_date_time.epoch | int) - (parsed_int_broken | int) }} seconds"
+          - "PROBLEM: Returns 0, makes all pods appear billions of seconds old!"
+
+    # Test 2: CORRECT METHOD (.strftime('%s')) - Positive case (within timeout)
+    - name: Test 2 - Parse using CORRECT method (positive case)
+      ansible.builtin.set_fact:
+        pod_creation_time_correct: "{{ ((timestamp_5min_ago | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s')) | int }}"
+        age_correct: "{{ (ansible_date_time.epoch | int) - ((timestamp_5min_ago | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int) }}"
+
+    - name: Test 2 - Show CORRECT method results (positive case)
+      ansible.builtin.debug:
+        msg:
+          - "=== TEST 2: CORRECT METHOD - Positive Case (Within Timeout) ==="
+          - "Timestamp 5 min ago: {{ timestamp_5min_ago }}"
+          - "Pod creation time (CORRECT): {{ pod_creation_time_correct }}"
+          - "Current epoch: {{ ansible_date_time.epoch }}"
+          - "Age in seconds: {{ age_correct }}"
+          - "Timeout threshold: {{ pod_timeout }} seconds"
+          - "Exceeds timeout: {{ (age_correct | int) > pod_timeout }}"
+          - "RESULT: Pod is NOT stuck (5 min < 15 min)"
+
+    # Test 3: CORRECT METHOD - Negative case (exceeds timeout)
+    - name: Test 3 - Create timestamp 20 minutes ago (exceeds timeout)
+      ansible.builtin.set_fact:
+        timestamp_20min_ago: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - 1200) }}"
+
+    - name: Test 3 - Parse using CORRECT method (negative case)
+      ansible.builtin.set_fact:
+        pod_creation_time_stuck: "{{ ((timestamp_20min_ago | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s')) | int }}"
+        age_stuck: "{{ (ansible_date_time.epoch | int) - ((timestamp_20min_ago | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int) }}"
+
+    - name: Test 3 - Show CORRECT method results (negative case)
+      ansible.builtin.debug:
+        msg:
+          - "=== TEST 3: CORRECT METHOD - Negative Case (Exceeds Timeout) ==="
+          - "Timestamp 20 min ago: {{ timestamp_20min_ago }}"
+          - "Pod creation time (CORRECT): {{ pod_creation_time_stuck }}"
+          - "Current epoch: {{ ansible_date_time.epoch }}"
+          - "Age in seconds: {{ age_stuck }}"
+          - "Timeout threshold: {{ pod_timeout }} seconds"
+          - "Exceeds timeout: {{ (age_stuck | int) > pod_timeout }}"
+          - "RESULT: Pod IS stuck (20 min > 15 min)"
+
+    # Test 4: Edge case - exactly at timeout
+    - name: Test 4 - Create timestamp exactly 15 minutes ago
+      ansible.builtin.set_fact:
+        timestamp_exact: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(ansible_date_time.epoch | int - 900) }}"
+
+    - name: Test 4 - Parse edge case
+      ansible.builtin.set_fact:
+        pod_creation_time_exact: "{{ ((timestamp_exact | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s')) | int }}"
+        age_exact: "{{ (ansible_date_time.epoch | int) - ((timestamp_exact | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int) }}"
+
+    - name: Test 4 - Show edge case results
+      ansible.builtin.debug:
+        msg:
+          - "=== TEST 4: Edge Case (Exactly at Timeout) ==="
+          - "Timestamp 15 min ago: {{ timestamp_exact }}"
+          - "Age in seconds: {{ age_exact }}"
+          - "Timeout threshold: {{ pod_timeout }} seconds"
+          - "Exceeds timeout (>): {{ (age_exact | int) > pod_timeout }}"
+          - "At or exceeds timeout (>=): {{ (age_exact | int) >= pod_timeout }}"
+          - "RESULT: With > operator, NOT stuck; with >= operator, IS stuck"
+
+    - name: Summary of all timestamp debug tests
+      ansible.builtin.debug:
+        msg:
+          - "=== DEBUG TEST SUMMARY ==="
+          - "BROKEN METHOD (to_datetime | int): Always returns 0"
+          - "CORRECT METHOD (.strftime('%s') | int): Returns proper Unix timestamp"
+          - ""
+          - "Positive Case (5 min): Age={{ age_correct }}s, Stuck={{ (age_correct | int) > pod_timeout }}"
+          - "Negative Case (20 min): Age={{ age_stuck }}s, Stuck={{ (age_stuck | int) > pod_timeout }}"
+          - "Edge Case (15 min): Age={{ age_exact }}s, Stuck={{ (age_exact | int) > pod_timeout }}"
+          - ""
+          - "CONCLUSION: Use .strftime('%s') | int for all timestamp conversions"

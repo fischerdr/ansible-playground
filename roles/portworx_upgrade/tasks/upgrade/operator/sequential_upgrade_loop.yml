@@ -1,0 +1,12 @@
+---
+# Sequential operator upgrade loop
+# Iterates through version steps until target is reached or no more candidates
+
+- name: Execute sequential operator upgrade steps
+  ansible.builtin.include_tasks: process_single_step.yml
+  loop: "{{ range(0, portworx_operator_max_iterations) | list }}"
+  loop_control:
+    loop_var: portworx_operator_loop_index
+  when:
+    - not portworx_operator_target_reached | default(false)
+    - not portworx_operator_upgrade_failed | default(false)

@@ -1,0 +1,89 @@
+---
+# Final validation that all pods upgraded successfully
+
+- name: Get all Portworx pods for final validation
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ portworx_namespace }}"
+    label_selectors:
+      - "{{ portworx_pod_selector }}"
+  register: portworx_final_pods
+
+- name: Check all pods are running
+  ansible.builtin.set_fact:
+    portworx_not_running: >-
+      {{ portworx_final_pods.resources |
+         rejectattr('status.phase', 'equalto', 'Running') |
+         list }}
+
+- name: Classify pods by readiness
+  ansible.builtin.set_fact:
+    portworx_final_pod_readiness: "{{ portworx_final_pods.resources | classify_pods_by_readiness }}"
+    portworx_not_ready: "{{ (portworx_final_pods.resources | classify_pods_by_readiness).not_ready }}"
+
+- name: Check all pods have new image version
+  ansible.builtin.set_fact:
+    portworx_wrong_version: >-
+      {{ portworx_final_pods.resources |
+         rejectattr('spec.containers.0.image', 'search', portworx_target_version) |
+         list }}
+
+- name: Display final pod status
+  ansible.builtin.debug:
+    msg:
+      - "Final Pod Validation:"
+      - "  Total pods: {{ portworx_final_pods.resources | length }}"
+      - "  Not running: {{ portworx_not_running | length }}"
+      - "  Not ready: {{ portworx_not_ready | length }}"
+      - "  Wrong version: {{ portworx_wrong_version | length }}"
+
+- name: Fail if pods not running
+  ansible.builtin.fail:
+    msg: |
+      {{ portworx_not_running | length }} pods are not in Running state:
+      {% for pod in portworx_not_running %}
+      - {{ pod.metadata.name }}: {{ pod.status.phase }}
+      {% endfor %}
+  when: portworx_not_running | length > 0
+
+- name: Fail if pods not ready
+  ansible.builtin.fail:
+    msg: |
+      {{ portworx_not_ready | length }} pods are not Ready:
+      {% for pod in portworx_not_ready %}
+      - {{ pod.metadata.name }}
+      {% endfor %}
+  when: portworx_not_ready | length > 0
+
+- name: Fail if pods have wrong version
+  ansible.builtin.fail:
+    msg: |
+      {{ portworx_wrong_version | length }} pods do not have target version {{ portworx_target_version }}:
+      {% for pod in portworx_wrong_version %}
+      - {{ pod.metadata.name }}: {{ pod.spec.containers[0].image }}
+      {% endfor %}
+  when: portworx_wrong_version | length > 0
+
+- name: Verify KVDB pods
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ portworx_namespace }}"
+    label_selectors:
+      - "{{ portworx_kvdb_selector }}"
+  register: portworx_final_kvdb_pods
+
+- name: Validate KVDB pods are healthy
+  ansible.builtin.assert:
+    that:
+      - portworx_final_kvdb_pods.resources | length == 3
+      - item.status.phase == "Running"
+      - item.status.conditions | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length > 0
+    fail_msg: "KVDB pod {{ item.metadata.name }} is not healthy after upgrade"
+    success_msg: "KVDB pod {{ item.metadata.name }} is healthy"
+  loop: "{{ portworx_final_kvdb_pods.resources }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+
+- name: Final pod validation complete
+  ansible.builtin.debug:
+    msg: "All pods validated successfully - Running, Ready, and on target version {{ portworx_target_version }}"

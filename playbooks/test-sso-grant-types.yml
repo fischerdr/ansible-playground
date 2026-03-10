@@ -1,0 +1,349 @@
+---
+# Red Hat SSO Device Authorization Flow - SFTP Token Generation
+# Purpose: Generate SFTP tokens using device authorization flow (only working method)
+# Usage: ansible-playbook playbooks/test-sso-grant-types.yml -e cluster_name=test-cluster
+#        ansible-playbook playbooks/test-sso-grant-types.yml -e cluster_name=test-cluster -e auto_approve_mode=true
+
+- name: Red Hat SFTP Token Generation via Device Flow
+  hosts: localhost
+  gather_facts: true
+  become: false
+
+  vars:
+    # Endpoints
+    _sso_token_endpoint: "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token"
+    _sftp_token_endpoint: "https://access.redhat.com/hydra/rest/v2/sftp/token"
+    sftp_host: "sftp.access.redhat.com"
+    # Proxy
+    _proxy_host: "proxy-appgw.aexp.com"
+    _proxy_port: "9090"
+    # Automation mode (set to true to skip interactive pauses - for AAP)
+    auto_approve_mode: false  # Set to true for AAP/headless execution
+    # SFTP token expiry in days
+    sftp_token_expiry_days: 30
+
+  pre_tasks:
+    - name: Get service account credentials from Vault
+      ansible.builtin.set_fact:
+        _client_id: "{{ lookup('community.hashi_vault.hashi_vault', '{{ vault_parameters }} secret=static_secrets/data/env/{{ cluster_user }}/redhat/serviceaccount')['svc.user'] | trim }}"
+        _client_secret: "{{ lookup('community.hashi_vault.hashi_vault', '{{ vault_parameters }} secret=static_secrets/data/env/{{ cluster_user }}/redhat/serviceaccount')['svc.password'] | trim }}"
+      no_log: true
+
+    - name: Display execution mode
+      ansible.builtin.debug:
+        msg:
+          - "==================================================================="
+          - "Red Hat SFTP Token Generation - Device Authorization Flow"
+          - "==================================================================="
+          - "Mode: {{ 'AUTOMATED (AAP)' if auto_approve_mode else 'INTERACTIVE' }}"
+          - "Proxy: {{ _proxy_host }}:{{ _proxy_port }}"
+          - "Token expiry: {{ sftp_token_expiry_days }} days"
+          - "==================================================================="
+
+  tasks:
+    - name: Generate SFTP token via device authorization flow
+      environment:
+        http_proxy: "http://{{ _proxy_host }}:{{ _proxy_port }}"
+        https_proxy: "http://{{ _proxy_host }}:{{ _proxy_port }}"
+        no_proxy: ".americanexpress.com,.aexp.com,localhost,127.0.0.1"
+      block:
+        # Step 1: Request device authorization code
+        - name: "Request device authorization code"
+          ansible.builtin.shell: |
+            set -o pipefail
+            curl -s -X POST "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/auth/device" \
+              -H "Content-Type: application/x-www-form-urlencoded" \
+              -d "client_id=hydra-sftp"
+          args:
+            executable: /bin/bash
+          register: device_code_response
+          failed_when: false
+          changed_when: false
+          no_log: false
+
+        - name: "Verify device code request succeeded"
+          ansible.builtin.assert:
+            that:
+              - device_code_response.rc == 0
+              - "'device_code' in device_code_response.stdout"
+            fail_msg: "Failed to request device authorization code"
+            success_msg: "Device authorization code obtained successfully"
+
+        - name: "Extract device code details"
+          ansible.builtin.set_fact:
+            _device_code: "{{ (device_code_response.stdout | from_json).device_code }}"
+            _user_code: "{{ (device_code_response.stdout | from_json).user_code }}"
+            _verification_uri: "{{ (device_code_response.stdout | from_json).verification_uri_complete }}"
+            _device_expires_in: "{{ (device_code_response.stdout | from_json).expires_in }}"
+          no_log: false
+
+        - name: "Display device authorization instructions"
+          ansible.builtin.debug:
+            msg:
+              - "==================================================================="
+              - "DEVICE AUTHORIZATION REQUIRED"
+              - "==================================================================="
+              - "Visit this URL in your browser:"
+              - "{{ _verification_uri }}"
+              - ""
+              - "Or visit: {{ (device_code_response.stdout | from_json).verification_uri }}"
+              - "And enter code: {{ _user_code }}"
+              - ""
+              - "Expires in: {{ _device_expires_in }} seconds ({{ (_device_expires_in | int / 60) | round(1) }} minutes)"
+              - "==================================================================="
+
+        # Step 2: Approve device (automated or manual)
+        - name: "Attempt automated device approval (auto mode)"
+          ansible.builtin.command:
+            cmd: >
+              {{ playbook_dir }}/../scripts/test_redhat_auto_approve.py
+              {{ _verification_uri }}
+              {{ _client_id }}
+              {{ _client_secret }}
+              http://{{ _proxy_host }}:{{ _proxy_port }}
+          register: auto_approve_result
+          failed_when: false
+          changed_when: auto_approve_result.rc == 0
+          no_log: false
+          when: auto_approve_mode | default(false) | bool
+
+        - name: "Display auto-approval result"
+          ansible.builtin.debug:
+            msg:
+              - "Auto-approval exit code: {{ auto_approve_result.rc }}"
+              - "Status: {{ 'SUCCESS - Device approved automatically' if auto_approve_result.rc == 0 else 'FAILED - Manual approval required' }}"
+          when: auto_approve_mode | default(false) | bool
+
+        - name: "Wait for user to approve device authorization (interactive mode)"
+          ansible.builtin.pause:
+            prompt: |
+
+              ===================================================================
+              STEP 1: APPROVE DEVICE AUTHORIZATION
+              ===================================================================
+              Visit {{ _verification_uri }} to approve access.
+
+              Auto-continuing in 120 seconds (or press ENTER to continue immediately)...
+              ===================================================================
+            seconds: 120
+          when: not (auto_approve_mode | default(false) | bool)
+
+        - name: "Wait for approval to propagate"
+          ansible.builtin.pause:
+            seconds: 5
+
+        # Step 3: Exchange device code for bearer token
+        - name: "Exchange device code for bearer token"
+          ansible.builtin.shell: |
+            set -o pipefail
+            curl -s -X POST "{{ _sso_token_endpoint }}" \
+              -H "Content-Type: application/x-www-form-urlencoded" \
+              -d "grant_type=urn:ietf:params:oauth:grant-type:device_code" \
+              -d "client_id=hydra-sftp" \
+              -d "device_code={{ _device_code }}"
+          args:
+            executable: /bin/bash
+          register: bearer_token_response
+          failed_when: false
+          changed_when: false
+          no_log: false
+
+        - name: "Verify bearer token obtained"
+          ansible.builtin.assert:
+            that:
+              - bearer_token_response.rc == 0
+              - "'access_token' in bearer_token_response.stdout"
+            fail_msg: "Failed to exchange device code for bearer token - device may not have been approved"
+            success_msg: "Bearer token obtained successfully"
+
+        - name: "Extract bearer token"
+          ansible.builtin.set_fact:
+            _bearer_token: "{{ (bearer_token_response.stdout | from_json).access_token }}"
+
+        - name: "Display bearer token info"
+          ansible.builtin.debug:
+            msg:
+              - "==================================================================="
+              - "BEARER TOKEN OBTAINED"
+              - "==================================================================="
+              - "Token length: {{ _bearer_token | length }} characters"
+              - "Token prefix: {{ _bearer_token[:50] }}..."
+              - "==================================================================="
+
+        - name: "Pause to validate bearer token (interactive mode)"
+          ansible.builtin.pause:
+            prompt: |
+
+              ===================================================================
+              STEP 2: BEARER TOKEN OBTAINED - VALIDATE BEFORE PROCEEDING
+              ===================================================================
+              Bearer token retrieved successfully.
+              Token length: {{ _bearer_token | length }} characters
+
+              Auto-continuing in 30 seconds (or press ENTER to continue immediately)...
+              ===================================================================
+            seconds: 30
+          when: not (auto_approve_mode | default(false) | bool)
+
+        # Step 4: Generate SFTP token
+        - name: "Generate SFTP token using bearer token"
+          ansible.builtin.shell: |
+            set -o pipefail
+            curl -s -X POST "{{ _sftp_token_endpoint }}" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer {{ _bearer_token }}" \
+              -d '{"expiryInDays": {{ sftp_token_expiry_days }}}'
+          args:
+            executable: /bin/bash
+          register: sftp_token_response
+          failed_when: false
+          changed_when: false
+          no_log: false
+
+        - name: "Verify SFTP token generated"
+          ansible.builtin.assert:
+            that:
+              - sftp_token_response.rc == 0
+              - "'token' in sftp_token_response.stdout"
+            fail_msg: "Failed to generate SFTP token from bearer token"
+            success_msg: "SFTP token generated successfully"
+
+        - name: "Parse SFTP credentials"
+          ansible.builtin.set_fact:
+            _sftp_token: "{{ (sftp_token_response.stdout | from_json).token }}"
+            _sftp_user: "{{ (sftp_token_response.stdout | from_json).username }}"
+            _sftp_expiry: "{{ (sftp_token_response.stdout | from_json).expiryDate | default('') }}"
+          no_log: false
+
+        - name: "Display SFTP token info"
+          ansible.builtin.debug:
+            msg:
+              - "==================================================================="
+              - "SFTP TOKEN GENERATED"
+              - "==================================================================="
+              - "SFTP Username: {{ _sftp_user }}"
+              - "SFTP Token: {{ _sftp_token }}"
+              - "Token Expiry: {{ _sftp_expiry }}"
+              - "SFTP Host: {{ sftp_host }}"
+              - "==================================================================="
+
+        - name: "Pause to validate SFTP token (interactive mode)"
+          ansible.builtin.pause:
+            prompt: |
+
+              ===================================================================
+              STEP 3: SFTP TOKEN GENERATED - VALIDATE BEFORE CONNECTIVITY TEST
+              ===================================================================
+              SFTP Username: {{ _sftp_user }}
+              SFTP Token: {{ _sftp_token }}
+              Token Expiry: {{ _sftp_expiry }}
+              SFTP Host: {{ sftp_host }}
+
+              Auto-continuing in 30 seconds (or press ENTER to continue immediately)...
+              ===================================================================
+            seconds: 30
+          when: not (auto_approve_mode | default(false) | bool)
+
+        # Step 5: Test SFTP connectivity
+        - name: "Test SFTP connectivity with directory listing"
+          ansible.builtin.shell: |
+            set -o pipefail
+            log_file="/tmp/sftp-connectivity-test-{{ ansible_date_time.epoch }}.log"
+            echo "==================================================================" > "$log_file"
+            echo "SFTP Connectivity Test" >> "$log_file"
+            echo "Timestamp: {{ ansible_date_time.iso8601 }}" >> "$log_file"
+            echo "Host: {{ sftp_host }}" >> "$log_file"
+            echo "User: {{ _sftp_user }}" >> "$log_file"
+            echo "Proxy: {{ _proxy_host }}:{{ _proxy_port }}" >> "$log_file"
+            echo "==================================================================" >> "$log_file"
+            echo "" >> "$log_file"
+
+            sshpass -p "{{ _sftp_token }}" sftp \
+              -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=/dev/null \
+              -o "ProxyCommand=nc --proxy {{ _proxy_host }}:{{ _proxy_port }} --proxy-type http %h %p" \
+              -P 22 {{ _sftp_user }}@{{ sftp_host }} <<EOF >> "$log_file" 2>&1
+            ls -la
+            pwd
+            bye
+            EOF
+            exit_code=$?
+
+            echo "" >> "$log_file"
+            echo "Exit code: $exit_code" >> "$log_file"
+
+            if [ $exit_code -eq 0 ]; then
+              echo "Status: SUCCESS - SFTP login and directory listing successful" >> "$log_file"
+            else
+              echo "Status: FAILED - SFTP connectivity test failed" >> "$log_file"
+            fi
+
+            cat "$log_file"
+            exit $exit_code
+          args:
+            executable: /bin/bash
+          register: sftp_connectivity_test
+          failed_when: false
+          changed_when: false
+          no_log: false
+
+        - name: "Display SFTP connectivity test result"
+          ansible.builtin.debug:
+            msg:
+              - "==================================================================="
+              - "SFTP CONNECTIVITY TEST"
+              - "==================================================================="
+              - "Exit code: {{ sftp_connectivity_test.rc }}"
+              - "Status: {{ 'SUCCESS - SFTP login and directory listing successful' if sftp_connectivity_test.rc == 0 else 'FAILED - SFTP connectivity test failed' }}"
+              - ""
+              - "Full SFTP session output:"
+              - "{{ sftp_connectivity_test.stdout }}"
+              - "==================================================================="
+
+        # Final summary
+        - name: "Display final summary"
+          ansible.builtin.debug:
+            msg:
+              - "==================================================================="
+              - "SFTP TOKEN GENERATION - FINAL SUMMARY"
+              - "==================================================================="
+              - "Device Authorization: ✓ SUCCESS"
+              - "Bearer Token: ✓ SUCCESS"
+              - "SFTP Token: ✓ SUCCESS ({{ sftp_token_expiry_days }} days)"
+              - "SFTP Connectivity: {{ '✓ SUCCESS' if sftp_connectivity_test.rc == 0 else '✗ FAILED' }}"
+              - "-------------------------------------------------------------------"
+              - "SFTP Username: {{ _sftp_user }}"
+              - "SFTP Token: {{ _sftp_token }}"
+              - "Token Expiry: {{ _sftp_expiry }}"
+              - "SFTP Host: {{ sftp_host }}"
+              - "-------------------------------------------------------------------"
+              - "Mode: {{ 'AUTOMATED' if auto_approve_mode else 'INTERACTIVE' }}"
+              - "{{ 'Auto-approval: SUCCESS' if (auto_approve_mode and auto_approve_result.rc == 0) else '' }}"
+              - "==================================================================="
+              - ""
+              - "NEXT STEPS:"
+              - "1. Store these credentials in HashiCorp Vault for must_gather_log role"
+              - "2. Token is valid for {{ sftp_token_expiry_days }} days"
+              - "3. Re-run this playbook when token expires"
+              - "==================================================================="
+
+      rescue:
+        - name: "Display failure summary"
+          ansible.builtin.debug:
+            msg:
+              - "==================================================================="
+              - "SFTP TOKEN GENERATION FAILED"
+              - "==================================================================="
+              - "An error occurred during the device authorization flow"
+              - ""
+              - "Troubleshooting steps:"
+              - "1. Verify credentials are correct in Vault"
+              - "2. Check proxy connectivity ({{ _proxy_host }}:{{ _proxy_port }})"
+              - "3. Ensure device was approved within expiry time"
+              - "4. Check if 2FA is enabled on account (not supported in auto mode)"
+              - "5. Review debug output above for specific error"
+              - "==================================================================="
+
+        - name: "Fail playbook with error details"
+          ansible.builtin.fail:
+            msg: "SFTP token generation failed - see output above for details"

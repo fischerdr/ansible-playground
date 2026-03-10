@@ -1,0 +1,111 @@
+---
+# Process single operator upgrade step
+# Discovers next candidate, approves InstallPlan, waits for CSV, updates state
+
+- name: Record step start time
+  ansible.builtin.set_fact:
+    portworx_operator_step_start_time: "{{ ansible_date_time.epoch }}"
+
+- name: Discover next upgrade candidate
+  ansible.builtin.include_tasks: discover_next_candidate.yml
+
+- name: Exit loop if no candidates found
+  ansible.builtin.set_fact:
+    portworx_operator_target_reached: true
+  when: not portworx_operator_candidate_found | bool
+
+- name: Process upgrade step
+  when: portworx_operator_candidate_found | bool
+  block:
+    - name: Set target CSV name for this step
+      ansible.builtin.set_fact:
+        portworx_operator_target_csv_name: "{{ portworx_operator_next_candidate.csv_name }}"
+
+    - name: Display upgrade step information
+      ansible.builtin.debug:
+        msg:
+          - "═══════════════════════════════════════════════════════════"
+          - "OPERATOR UPGRADE STEP {{ portworx_operator_iteration_count | int + 1 }}"
+          - "═══════════════════════════════════════════════════════════"
+          - "From: {{ portworx_operator_current_version_string }}"
+          - "To:   {{ portworx_operator_next_candidate.version_string }}"
+          - "InstallPlan: {{ portworx_operator_next_candidate.installplan_name }}"
+
+    - name: Approve InstallPlan if not already approved
+      kubernetes.core.k8s:
+        api_version: operators.coreos.com/v1alpha1
+        kind: InstallPlan
+        namespace: "{{ portworx_operator_namespace }}"
+        name: "{{ portworx_operator_next_candidate.installplan_name }}"
+        definition:
+          spec:
+            approved: true
+      when: not portworx_operator_next_candidate.approved | bool
+
+    - name: Wait for CSV to reach Succeeded phase
+      ansible.builtin.include_tasks: wait_for_csv.yml
+
+    - name: Update version state
+      ansible.builtin.include_tasks: update_version_state.yml
+
+    - name: Check if we should continue looping
+      when: not portworx_operator_target_reached | bool
+      block:
+        - name: Pause for OLM to create next InstallPlan
+          ansible.builtin.pause:
+            seconds: "{{ portworx_operator_installplan_poll_interval }}"
+          when: portworx_operator_installplan_poll_interval | int > 0
+
+        - name: Display progress summary
+          ansible.builtin.debug:
+            msg:
+              - "Step {{ portworx_operator_iteration_count }} completed successfully"
+              - "Current version: {{ portworx_operator_current_version_string }}"
+              - "Target: {{ portworx_operator_target_version_string | default('latest') }}"
+              - "Continuing to next step..."
+
+  rescue:
+    - name: Handle CSV upgrade failure
+      ansible.builtin.set_fact:
+        portworx_operator_upgrade_failed: true
+        portworx_operator_failure_csv: "{{ portworx_operator_target_csv_name }}"
+        portworx_operator_failure_installplan: "{{ portworx_operator_next_candidate.installplan_name }}"
+        portworx_operator_failure_reason: "CSV upgrade failed or timed out"
+
+    - name: Display failure information
+      ansible.builtin.debug:
+        msg:
+          - "═══════════════════════════════════════════════════════════"
+          - "OPERATOR UPGRADE STEP FAILED"
+          - "═══════════════════════════════════════════════════════════"
+          - "Failed CSV: {{ portworx_operator_failure_csv }}"
+          - "InstallPlan: {{ portworx_operator_failure_installplan }}"
+          - "Error: {{ ansible_failed_result.msg | default('Unknown error') }}"
+
+    - name: Fail the upgrade
+      ansible.builtin.fail:
+        msg: |
+          Operator upgrade step failed
+
+          Step: {{ portworx_operator_iteration_count | int + 1 }}
+          Target CSV: {{ portworx_operator_failure_csv }}
+          InstallPlan: {{ portworx_operator_failure_installplan }}
+          Reason: {{ portworx_operator_failure_reason }}
+
+          TROUBLESHOOTING:
+          1. Check CSV status:
+             oc get csv {{ portworx_operator_failure_csv }} -n {{ portworx_operator_namespace }} -o yaml
+
+          2. Check CSV events:
+             oc describe csv {{ portworx_operator_failure_csv }} -n {{ portworx_operator_namespace }}
+
+          3. Check InstallPlan:
+             oc get installplan {{ portworx_operator_failure_installplan }} -n {{ portworx_operator_namespace }} -o yaml
+
+          4. Check operator logs:
+             oc logs -n openshift-operator-lifecycle-manager -l app=olm-operator --tail=100
+
+          5. Check catalog-operator logs:
+             oc logs -n openshift-operator-lifecycle-manager -l app=catalog-operator --tail=100
+
+          State file saved at: {{ portworx_operator_state_file }}

@@ -1,0 +1,152 @@
+---
+# Validate pod health before upgrade
+
+- name: Get all Portworx pods
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ portworx_namespace }}"
+    label_selectors:
+      - "{{ portworx_pod_selector }}"
+  register: portworx_pods
+  no_log: true
+
+- name: Check for unhealthy pods
+  ansible.builtin.set_fact:
+    portworx_unhealthy_pods: "{{ portworx_pods.resources | rejectattr('status.phase', 'equalto', 'Running') | list }}"
+
+- name: Classify pods by readiness
+  ansible.builtin.set_fact:
+    portworx_pod_readiness: "{{ portworx_pods.resources | classify_pods_by_readiness }}"
+    portworx_not_ready_pods: "{{ (portworx_pods.resources | classify_pods_by_readiness).not_ready }}"
+
+- name: Display pod health summary
+  ansible.builtin.debug:
+    msg:
+      - "Total Portworx pods: {{ portworx_pods.resources | length }}"
+      - "Unhealthy pods: {{ portworx_unhealthy_pods | length }}"
+      - "Not ready pods: {{ portworx_not_ready_pods | length }}"
+
+- name: Fail if unhealthy pods found
+  ansible.builtin.fail:
+    msg: |
+      PREFLIGHT FAILURE: Found {{ portworx_unhealthy_pods | length }} unhealthy pods (not in Running state)
+
+      Unhealthy pods:
+      {% for pod in portworx_unhealthy_pods %}
+      - {{ pod.metadata.name }} (Node: {{ pod.spec.nodeName }}): {{ pod.status.phase }}
+      {% endfor %}
+
+      TROUBLESHOOTING:
+      1. Check pod status: oc get pods -n {{ portworx_namespace }}
+      2. Check pod details: oc describe pod <pod-name> -n {{ portworx_namespace }}
+      3. Check pod logs: oc logs <pod-name> -n {{ portworx_namespace }}
+      4. Check node status: oc get nodes
+
+      All Portworx pods must be in Running state before upgrade.
+  when:
+    - portworx_fail_on_unhealthy_pods
+    - portworx_unhealthy_pods | length > 0
+
+- name: Fail if not-ready pods found
+  ansible.builtin.fail:
+    msg: |
+      PREFLIGHT FAILURE: Found {{ portworx_not_ready_pods | length }} pods that are not ready
+
+      Not-ready pods:
+      {% for pod in portworx_not_ready_pods %}
+      - {{ pod.metadata.name }} (Node: {{ pod.spec.nodeName }}): Running but not Ready
+      {% endfor %}
+
+      TROUBLESHOOTING:
+      1. Check pod readiness: oc get pods -n {{ portworx_namespace }}
+      2. Check pod details: oc describe pod <pod-name> -n {{ portworx_namespace }}
+      3. Check if node has px/service=stop label: oc get node <node-name> --show-labels | grep px/service
+      4. Remove px/service=stop label if present: oc label node <node-name> px/service-
+      5. Check pod logs: oc logs <pod-name> -n {{ portworx_namespace }}
+      6. Verify Portworx service is running on the node
+
+      Common causes:
+      - Node has px/service=stop label (Portworx intentionally stopped)
+      - Network issues preventing pod readiness probe
+      - Storage issues on the node
+      - Resource constraints (CPU/memory)
+
+      All Portworx pods must be Running AND Ready before upgrade.
+  when:
+    - portworx_fail_on_unhealthy_pods
+    - portworx_not_ready_pods | length > 0
+
+- name: Get KVDB pods
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ portworx_namespace }}"
+    label_selectors:
+      - "{{ portworx_kvdb_selector }}"
+  register: portworx_kvdb_pods
+  no_log: true
+
+- name: Validate KVDB pod count
+  ansible.builtin.assert:
+    that:
+      - portworx_kvdb_pods.resources | length == 3
+    fail_msg: "Expected 3 KVDB pods, found {{ portworx_kvdb_pods.resources | length }}"
+    success_msg: "KVDB pod count validated: 3"
+
+- name: Validate KVDB pods are healthy
+  ansible.builtin.assert:
+    that:
+      - item.status.phase == "Running"
+      - item.status.conditions | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length > 0
+    fail_msg: "KVDB pod {{ item.metadata.name }} is not healthy"
+    success_msg: "KVDB pod {{ item.metadata.name }} is healthy"
+  loop: "{{ portworx_kvdb_pods.resources }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+
+- name: Check for pods with mismatched images
+  ansible.builtin.set_fact:
+    portworx_mismatched_pods: >-
+      {{
+        portworx_pods.resources |
+        rejectattr('spec.containers.0.image', 'equalto', portworx_stc_spec_image) |
+        list
+      }}
+
+- name: Display pod image consistency
+  ansible.builtin.debug:
+    msg:
+      - "STC spec.image: {{ portworx_stc_spec_image }}"
+      - "Total Portworx pods: {{ portworx_pods.resources | length }}"
+      - "Pods with mismatched images: {{ portworx_mismatched_pods | length }}"
+
+- name: Fail if pods have mismatched images
+  ansible.builtin.fail:
+    msg: |
+      PREFLIGHT FAILURE: Found {{ portworx_mismatched_pods | length }} pods with images that don't match StorageCluster spec
+
+      Expected image: {{ portworx_stc_spec_image }}
+
+      Mismatched pods:
+      {% for pod in portworx_mismatched_pods %}
+      - {{ pod.metadata.name }} (Node: {{ pod.spec.nodeName }}): {{ pod.spec.containers[0].image }}
+      {% endfor %}
+
+      TROUBLESHOOTING:
+      1. Check if a previous upgrade is still in progress
+      2. Verify all pods have completed their rolling update
+      3. Check for stuck or failed pods: oc get pods -n {{ portworx_namespace }}
+      4. Review pod events: oc describe pod <pod-name> -n {{ portworx_namespace }}
+
+      Common causes:
+      - Previous upgrade incomplete or stuck
+      - Pod stuck in ImagePullBackOff or CrashLoopBackOff
+      - Node with px/service=stop label preventing pod restart
+      - Manual pod intervention interrupted rolling update
+
+      All pods must be running the same image version as defined in StorageCluster spec before starting a new upgrade.
+  when:
+    - portworx_mismatched_pods | length > 0
+
+- name: Pod health validation complete
+  ansible.builtin.debug:
+    msg: "All pods are healthy and ready for upgrade"

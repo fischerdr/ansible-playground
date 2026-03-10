@@ -1,0 +1,71 @@
+---
+# Portworx upgrade role default variables
+
+# Version configuration
+portworx_target_version: ""  # REQUIRED: Target Portworx OCI version (e.g., "3.5.0")
+portworx_versions_file: "versions-{{ portworx_target_version }}"  # Version file in role's files/versions/
+portworx_versions_file_path: ""  # Optional: Override with full path to custom versions file (e.g., "/path/to/versions-3.5.0")
+
+# Namespace
+portworx_namespace: "portworx"
+
+# Operator configuration
+portworx_operator_auto_approve: true  # Auto-approve operator install plans
+portworx_operator_update_timeout: 600  # Seconds to wait for operator upgrade (10 min)
+
+# Sequential operator upgrade configuration
+portworx_operator_target_version: ""  # Optional: Explicit target version (e.g., "25.5.0")
+portworx_operator_auto_upgrade_to_latest: true  # Auto-upgrade to latest if no target specified
+portworx_operator_max_iterations: 10  # Typical: 5-10 steps (version skew shouldn't exceed this)
+portworx_operator_per_step_timeout: 900  # Seconds (15 min) - timeout per CSV upgrade step
+portworx_operator_installplan_poll_interval: 120  # Seconds (2 min) - wait for OLM to create next InstallPlan
+portworx_operator_enforce_manual_approval: true  # Force Manual approval mode for controlled upgrades
+portworx_operator_max_version_skew: 10  # Maximum allowed version steps in single upgrade run
+portworx_operator_save_state: true  # Save upgrade state to JSON for recovery
+portworx_operator_state_file: "{{ portworx_report_dir }}/operator_upgrade_state.json"
+
+# Monitoring and timeouts
+portworx_pod_upgrade_timeout: 1500  # Seconds (25 minutes) - timeout for single pod upgrade
+portworx_global_inactivity_timeout: 2100  # Seconds (35 minutes) - timeout for no upgrade activity
+portworx_pod_check_interval: 10  # Seconds between pod status checks
+portworx_autoUpdateComponents_settle_time: 180  # Seconds (3 minutes) - wait after patching STC
+
+# Impatient mode (accelerated storageless pod upgrades)
+# WARNING: Impatient mode bypasses operator's serial upgrade by batch-deleting pods
+# Only safe for storageless nodes after all storage nodes are upgraded
+# Can cause cluster failure if safety requirements not met
+portworx_impatient_mode: false  # Enable user-controlled batch deletion of storageless pods
+portworx_impatient_batch_size: 5  # Number of storageless pods to delete at once (5-7 recommended)
+
+# Logging and reporting
+portworx_detailed_logging: true  # Enable detailed version transition logging per node
+portworx_create_summary: true  # Generate upgrade summary report
+portworx_work_dir: "{{ lookup('env', 'WORK_DIR') | default('/tmp/ansible-workdir', true) }}"
+portworx_report_dir: "{{ portworx_work_dir }}/portworx-upgrade"
+portworx_log_file: "{{ portworx_report_dir }}/upgrade-{{ ansible_date_time.epoch }}.log"
+
+# Cluster identification
+portworx_cluster_name: "{{ lookup('env', 'CLUSTER_NAME') | default(ansible_facts['fqdn'], true) }}"
+
+# Preflight check behavior
+portworx_fail_on_unhealthy_pods: true  # Fail immediately if pods are unhealthy
+portworx_fail_on_degraded_cluster: true  # Fail immediately if cluster is degraded
+portworx_fail_on_invalid_updatestrategy: true  # Fail if STC updateStrategy is not configured correctly
+
+# Phase 7: Enhanced Validation Configuration
+portworx_validation_check_storage_pools: true  # Validate storage pool capacity and health
+portworx_validation_check_volumes: true  # Validate volume health and replication
+portworx_validation_fail_on_pool_issues: true  # Fail if storage pools are degraded or over capacity
+portworx_validation_fail_on_down_volumes: true  # Fail if any volumes are in DOWN state
+portworx_validation_fail_on_degraded_volumes: true  # Fail if any volumes are DEGRADED
+portworx_validation_fail_on_stc_unavailable: false  # Fail if StorageCluster Available!=True (warn only by default)
+portworx_validation_pool_capacity_threshold: 90  # Fail if average pool capacity exceeds this percentage
+portworx_create_json_report: true  # Generate JSON validation report for monitoring system integration
+
+# Backup configuration
+portworx_backup_resources: true  # Backup StorageCluster before upgrade
+portworx_backup_dir: "{{ portworx_report_dir }}/backups"
+
+# Feature flags
+portworx_skip_operator_upgrade: false  # Skip operator upgrade phase (for testing)
+portworx_dry_run: false  # Perform dry run without making changes

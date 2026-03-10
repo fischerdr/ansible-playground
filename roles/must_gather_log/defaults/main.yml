@@ -9,8 +9,7 @@
 must_gather_version: "4.14"
 
 # Dynamic mirror endpoint selection based on cloud provider
-# Configure per-environment in inventory or group_vars
-amex_mirror_endpoint: ""
+amex_mirror_endpoint: "{%- if aws.region is defined and aws.region != None -%}awsrepo.aexp.com{%- elif gcp.region is defined and gcp.region != None -%}gcprepo.aexp.com{%- elif azure.region is defined and azure.region != None -%}azurerepo.aexp.com{%- else -%}artifactory.aexp.com{%- endif -%}"
 
 # ==============================================================================
 # Directory Configuration (Managed Host)
@@ -34,6 +33,26 @@ mustgather_archive_retention_days: 30  # Keep archives for 30 days (0 = keep for
 mustgather_archive_retention_count: 10  # Keep last N archives (0 = unlimited)
 
 # ==============================================================================
+# Working Directory Retention Policy
+# ==============================================================================
+
+# Working directory retention for must-gather-<timestamp> directories
+# These are the temporary collection directories (not the archived files)
+mustgather_workdir_retention_days: 7  # Keep working directories for 7 days (0 = keep forever)
+
+# NOTE: This is separate from archive retention
+# - mustgather_workdir_retention_days: Controls must-gather-<timestamp>/ cleanup
+# - mustgather_archive_retention_days: Controls must-gather-archives/*.tar.gz cleanup (already exists)
+
+# ==============================================================================
+# Operational Logging Configuration
+# ==============================================================================
+
+# Operational logging directory for must-gather operations
+mustgather_operation_log_dir: "{{ WORK_DIR | default('/tmp') }}/must-gather-operation-logs"
+mustgather_operation_log_file: "{{ mustgather_operation_log_dir }}/must-gather-operations-{{ ansible_date_time.epoch }}.log"
+
+# ==============================================================================
 # Red Hat Case Configuration
 # ==============================================================================
 
@@ -41,9 +60,6 @@ mustgather_archive_retention_count: 10  # Keep last N archives (0 = unlimited)
 # When rh_case is provided: must-gather is collected AND uploaded to Red Hat support
 # When rh_case is not provided: must-gather is collected ONLY and preserved locally
 rh_case: ""
-
-# Upload description (customize as needed)
-rh_upload_description: "must-gather for {{ inventory_hostname }}"
 
 # ==============================================================================
 # Node Selection Configuration
@@ -88,78 +104,51 @@ rh_sftp_token: ""  # SFTP authentication token (generate via web UI or API)
 # Used for SFTP connections via HTTP CONNECT proxy
 # Example lookup pattern:
 #   proxy_http: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/proxy:http_proxy') }}"
-#
-# Format: http://proxy.example.com:8080
-proxy_http: ""
+proxy_http: "http://proxy-appgw.aexp.com:9090"
+proxy_https: "http://proxy-appgw.aexp.com:9090"
+proxy_no: ".americanexpress.com,.aexp.com,localhost,127.0.0.1"
 
 # ==============================================================================
-# Timeouts and Retry Configuration
+# Red Hat SSO Device Authorization for SFTP Token Generation
 # ==============================================================================
 
-# Conservative defaults - tune from EE or role vars as appropriate
-command_retries: 1
-command_delay: 3
-timeout_seconds: 300
+# Enable automatic SFTP token generation via OAuth2 device authorization flow
+rh_sftp_token_auto_generate: false
 
-# SFTP upload behavior configuration
-# Note: SFTP has no file size limit - archives are created as single files
-rh_upload_fail_on_partial: false  # Not applicable for single file uploads (kept for compatibility)
+# SFTP token expiry (30-90 days supported by Red Hat)
+rh_sftp_token_expiry_days: 30
+
+# Token expiry check threshold (days)
+# Tokens expiring within this many days will be automatically refreshed
+rh_sftp_token_refresh_threshold_days: 7
+
+# Red Hat SSO and API endpoints
+rh_sso_device_auth_endpoint: "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/auth/device"
+rh_sso_token_endpoint: "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token"
+rh_sftp_token_endpoint: "https://access.redhat.com/hydra/rest/v2/sftp/token"
+
+# Red Hat account credentials (for device authorization)
+# These are used ONLY if rh_sftp_token is not provided
+# IMPORTANT: Red Hat account MUST NOT have 2FA enabled for automated approval
+# Example: Source from Vault or extra_vars
+#   rh_account_username: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:username') }}"
+#   rh_account_password: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:password') }}"
+rh_account_username: ""
+rh_account_password: ""
 
 # ==============================================================================
-# Operational Notes
+# HashiCorp Vault Integration for Token Storage
 # ==============================================================================
 
-# Authentication (REQUIRED - sourced from HashiCorp Vault):
-#   These variables should be populated using community.hashi_vault lookups
-#   in your inventory or playbook vars. Examples:
-#
-#   # In group_vars/all/main.yml or playbook vars:
-#   rh_sftp_user: "{{ lookup('community.hashi_vault.hashi_vault',
-#                     'secret=secret/data/redhat:sftp_user') }}"
-#   rh_sftp_token: "{{ lookup('community.hashi_vault.hashi_vault',
-#                      'secret=secret/data/redhat:sftp_token') }}"
-#
-#   Generate SFTP token:
-#   - Web UI: https://access.redhat.com/support/secure-ftp
-#   - API: curl -X POST https://api.access.redhat.com/support/v2/sftp/token
-#
-# Proxy Configuration (optional - from HashiCorp Vault or inventory):
-#   proxy_http: "{{ lookup('community.hashi_vault.hashi_vault',
-#               'secret=secret/data/proxy:http_proxy') }}"
-#
-#   Format: http://proxy.example.com:8080
-#   The proxy is used for SFTP connections via HTTP CONNECT tunnel
-#
-# HashiCorp Vault Authentication:
-#   The community.hashi_vault collection supports multiple auth methods:
-#   - Token (VAULT_TOKEN environment variable)
-#   - AppRole (role_id/secret_id)
-#   - Kubernetes (service account)
-#   - AWS IAM
-#   - See: https://docs.ansible.com/ansible/latest/collections/community/hashi_vault/
-#
-# OC_BIN variable:
-#   - Must be defined in calling playbook
-#   - Should point to oc binary path in execution environment
-#   - Example: OC_BIN: "/usr/local/bin/oc"
-#
-# Archive handling and upload:
-#   - Must-gather collection is compressed into a single tar.gz archive
-#   - Archive is uploaded via SFTP to sftp.access.redhat.com
-#   - Files are named with Red Hat convention: CASEID_filename
-#   - Files auto-attach to case within minutes of upload
-#   - SFTP has no file size limit (supports very large archives)
-#   - Uploads use sshpass for authentication and nc for proxy tunneling
-#   - Upload success/failure tracking with detailed error reporting
-#
-# System requirements:
-#   - sshpass: For non-interactive SFTP authentication
-#   - nc (netcat): For HTTP proxy tunneling (if proxy is used)
-#   - These should be installed in the execution environment
-#
-# Security:
-#   - Never hardcode credentials in playbook vars or group_vars
-#   - Always use HashiCorp Vault lookups for sensitive data
-#   - Configure Vault authentication via environment variables or AAP credentials
-#   - Use appropriate Vault policies to limit secret access
-#   - SFTP token is single-use and time-limited (generate new for each upload)
+# Enable storing generated SFTP tokens in Vault
+vault_store_tokens: false
+
+# Vault connection details (required if vault_store_tokens is true)
+vault_addr: ""  # Example: "https://vault.example.com:8200"
+vault_token: ""  # Vault authentication token
+vault_namespace: ""  # Optional: Vault namespace (leave empty if not using namespaces)
+vault_validate_certs: true
+
+# Vault secret path configuration
+vault_mount_path: "static_secrets"  # KV2 mount path
+vault_secret_path: "env/{{ cluster_user | default('default') }}/redhat"  # Secret path within mount

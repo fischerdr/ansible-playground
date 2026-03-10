@@ -1,0 +1,102 @@
+---
+# Test playbook for Portworx upgrade validation (Phase 7)
+# This playbook tests the validation phase independently for lab testing
+
+- name: Test Portworx Upgrade Validation
+  hosts: localhost
+  gather_facts: true
+  vars:
+    portworx_namespace: portworx
+    portworx_target_version: "3.0.0"
+    portworx_cluster_name: "test-cluster"
+    portworx_detailed_logging: true
+    portworx_stc_name: "px-cluster"
+    portworx_stc_kind: "StorageCluster"
+    portworx_stc_api_version: "core.libopenstorage.org/v1"
+    portworx_pod_selector: "name=portworx"
+    portworx_kvdb_selector: "kvdb=true"
+    portworx_auth_secret: "px-admin-token"
+    portworx_work_dir: "/tmp/portworx-validation-test"
+    portworx_report_dir: "{{ portworx_work_dir }}/reports"
+    portworx_create_json_report: true
+
+  tasks:
+    - name: Display test information
+      ansible.builtin.debug:
+        msg:
+          - "Testing Portworx Validation Phase"
+          - "Namespace: {{ portworx_namespace }}"
+          - "Target Version: {{ portworx_target_version }}"
+          - "Report Directory: {{ portworx_report_dir }}"
+
+    - name: Get Portworx auth token
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: "{{ portworx_auth_secret }}"
+        namespace: "{{ portworx_namespace }}"
+      register: portworx_auth_secret_data
+      no_log: true
+
+    - name: Extract auth token
+      ansible.builtin.set_fact:
+        portworx_auth_token: "{{ portworx_auth_secret_data.resources[0].data.auth-token | b64decode }}"
+      no_log: true
+      when: portworx_auth_secret_data.resources | length > 0
+
+    - name: Get Portworx pods
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ portworx_namespace }}"
+        label_selectors:
+          - "{{ portworx_pod_selector }}"
+      register: portworx_pods
+
+    - name: Select first Portworx pod for pxctl commands
+      ansible.builtin.set_fact:
+        portworx_pxctl_pod: "{{ portworx_pods.resources | selectattr('status.phase', 'equalto', 'Running') | first }}"
+      when: portworx_pods.resources | length > 0
+
+    - name: Get KVDB pods
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ portworx_namespace }}"
+        label_selectors:
+          - "{{ portworx_kvdb_selector }}"
+      register: portworx_final_kvdb_pods
+
+    - name: Set fact for all Portworx pods
+      ansible.builtin.set_fact:
+        portworx_final_pods: "{{ portworx_pods }}"
+
+    - name: Run validation phase
+      ansible.builtin.include_role:
+        name: portworx_upgrade
+        tasks_from: validate/main.yml
+      tags: validation
+
+    - name: Display validation results
+      ansible.builtin.debug:
+        msg: "{{ portworx_validation_results | to_nice_yaml }}"
+
+    - name: Generate reports
+      ansible.builtin.include_role:
+        name: portworx_upgrade
+        tasks_from: report/generate_detailed_json.yml
+      tags: reporting
+
+    - name: Test complete
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Portworx Validation Test Complete"
+          - "=========================================="
+          - "Check reports at: {{ portworx_report_dir }}"
+          - ""
+          - "Overall Status:"
+          - "  Storage Pools: {{ portworx_validation_results.storage_pools.status | default('N/A') | upper }}"
+          - "  Volumes: {{ portworx_validation_results.volumes.status | default('N/A') | upper }}"
+          - "  STC Conditions: {{ portworx_validation_results.stc_conditions.status | default('N/A') | upper }}"
+          - "  Nodes: {{ portworx_validation_results.nodes.status | default('N/A') | upper }}"

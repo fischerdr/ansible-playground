@@ -1,0 +1,41 @@
+---
+# Monitor the automatic rolling upgrade
+
+- name: Record monitoring start time
+  ansible.builtin.set_fact:
+    portworx_monitoring_start_time: "{{ ansible_date_time.epoch }}"
+
+- name: Initialize monitoring variables
+  ansible.builtin.set_fact:
+    portworx_last_activity_time: "{{ ansible_date_time.epoch }}"
+    portworx_pods_upgraded: []
+    portworx_pods_needing_upgrade: []
+    portworx_currently_upgrading: []
+    portworx_last_completed_count: 0  # Track completions for progress detection
+
+- name: Determine upgrade strategy
+  ansible.builtin.debug:
+    msg:
+      - "Upgrade monitoring strategy:"
+      - "  - Operator controls upgrade sequence (one pod at a time)"
+      - "  - Role monitors pod image changes and health"
+      - "  - Individual pod timeout: {{ portworx_pod_upgrade_timeout }} seconds"
+      - "  - Global inactivity timeout: {{ portworx_global_inactivity_timeout }} seconds"
+      - "  - Impatient mode: {{ 'ENABLED' if portworx_impatient_mode else 'DISABLED' }}"
+
+- name: Monitor automatic rolling upgrade
+  ansible.builtin.include_tasks:
+    file: automatic_rolling_upgrade.yml
+    apply:
+      tags:
+        - monitor
+
+- name: Record monitoring end time
+  ansible.builtin.set_fact:
+    portworx_monitoring_end_time: "{{ ansible_date_time.epoch }}"
+
+- name: Monitoring phase complete
+  ansible.builtin.debug:
+    msg:
+      - "All pods upgraded successfully"
+      - "Total pods upgraded: {{ portworx_pods_upgraded | length }}"

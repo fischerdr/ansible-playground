@@ -1,0 +1,37 @@
+---
+# Patch StorageCluster with autoUpdateComponents to force component refresh
+
+- name: Patch StorageCluster with autoUpdateComponents
+  kubernetes.core.k8s:
+    state: patched
+    api_version: "{{ portworx_stc_api_version }}"
+    kind: "{{ portworx_stc_kind }}"
+    name: "{{ portworx_stc_name }}"
+    namespace: "{{ portworx_namespace }}"
+    definition:
+      spec:
+        autoUpdateComponents: Once
+
+- name: Verify autoUpdateComponents patch applied
+  kubernetes.core.k8s_info:
+    api_version: "{{ portworx_stc_api_version }}"
+    kind: "{{ portworx_stc_kind }}"
+    name: "{{ portworx_stc_name }}"
+    namespace: "{{ portworx_namespace }}"
+  register: portworx_stc_patched
+
+- name: Validate autoUpdateComponents value
+  ansible.builtin.assert:
+    that:
+      - portworx_stc_patched.resources[0].spec.autoUpdateComponents == "Once"
+    fail_msg: "autoUpdateComponents patch did not apply correctly"
+    success_msg: "autoUpdateComponents set to 'Once'"
+
+- name: Wait for component updates to settle
+  ansible.builtin.pause:
+    seconds: "{{ portworx_autoUpdateComponents_settle_time }}"
+    prompt: "Waiting {{ portworx_autoUpdateComponents_settle_time }} seconds for autoUpdateComponents to process..."
+
+- name: Component update complete
+  ansible.builtin.debug:
+    msg: "Component updates triggered and settled"

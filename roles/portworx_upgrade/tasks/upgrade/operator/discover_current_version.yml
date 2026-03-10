@@ -1,0 +1,72 @@
+---
+# Discover current operator version from ClusterServiceVersion
+# Parses version from CSV name and sets initial version facts
+
+- name: Retrieve Subscription to identify installed CSV (authoritative)
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    name: "{{ portworx_operator_subscription }}"
+    namespace: "{{ portworx_operator_namespace }}"
+  register: portworx_operator_subscription_info
+  no_log: true
+
+- name: Extract installed CSV name from Subscription status
+  ansible.builtin.set_fact:
+    portworx_operator_installed_csv_name: >-
+      {{
+        portworx_operator_subscription_info.resources[0].status.installedCSV
+        | default(portworx_operator_subscription_info.resources[0].status.currentCSV | default(''))
+      }}
+  when: portworx_operator_subscription_info.resources | length > 0
+
+- name: Fail if Subscription does not report installed CSV
+  ansible.builtin.assert:
+    that:
+      - portworx_operator_subscription_info.resources | length > 0
+      - portworx_operator_installed_csv_name | length > 0
+    fail_msg: |
+      Subscription {{ portworx_operator_subscription }} does not have installedCSV/currentCSV.
+      Verify operator is installed and OLM has reconciled.
+    success_msg: "Subscription reports installed CSV: {{ portworx_operator_installed_csv_name }}"
+
+- name: Retrieve installed ClusterServiceVersion by name
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    name: "{{ portworx_operator_installed_csv_name }}"
+    namespace: "{{ portworx_operator_namespace }}"
+  register: portworx_operator_csv_info
+  no_log: true
+
+- name: Set current CSV object
+  ansible.builtin.set_fact:
+    portworx_operator_current_csv: "{{ portworx_operator_csv_info.resources[0] }}"
+
+- name: Verify CSV is in Succeeded phase
+  ansible.builtin.assert:
+    that:
+      - portworx_operator_csv_info.resources | length > 0
+      - portworx_operator_current_csv.status.phase | default('') == 'Succeeded'
+    fail_msg: "CSV {{ portworx_operator_installed_csv_name }} not in Succeeded phase (current: {{ portworx_operator_current_csv.status.phase | default('unknown') }})"
+    success_msg: "CSV {{ portworx_operator_installed_csv_name }} is in Succeeded phase"
+
+- name: Parse current operator version
+  ansible.builtin.set_fact:
+    portworx_operator_current_version: "{{ portworx_operator_current_csv.metadata.name | parse_operator_version }}"
+
+- name: Set current version facts
+  ansible.builtin.set_fact:
+    portworx_operator_current_version_string: "{{ portworx_operator_current_version.string }}"
+    portworx_operator_current_version_tuple: "{{ portworx_operator_current_version.tuple }}"
+    portworx_operator_current_version_major: "{{ portworx_operator_current_version.major }}"
+    portworx_operator_current_version_minor: "{{ portworx_operator_current_version.minor }}"
+    portworx_operator_current_version_patch: "{{ portworx_operator_current_version.patch }}"
+    portworx_operator_initial_version_string: "{{ portworx_operator_current_version.string }}"
+
+- name: Display current operator version
+  ansible.builtin.debug:
+    msg:
+      - "Current operator CSV: {{ portworx_operator_current_csv.metadata.name }}"
+      - "Current operator version: {{ portworx_operator_current_version_string }}"
+      - "Version tuple: {{ portworx_operator_current_version_tuple }}"

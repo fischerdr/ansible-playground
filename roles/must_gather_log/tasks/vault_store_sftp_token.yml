@@ -1,0 +1,103 @@
+---
+# ==============================================================================
+# HashiCorp Vault SFTP Token Storage
+# ==============================================================================
+#
+# This task file stores generated Red Hat SFTP credentials in HashiCorp Vault
+# using the KV2 secrets engine.
+#
+# Tags:
+#   - redhat_sftp_token: SFTP token operations
+#   - vault_storage: Vault storage operations
+#
+# Variables Required:
+#   - vault_addr: Vault server URL
+#   - vault_token: Vault authentication token
+#   - vault_mount_path: KV2 mount path (default: static_secrets)
+#   - vault_secret_path: Secret path within mount
+#   - rh_sftp_user: SFTP username (from token generation)
+#   - rh_sftp_token: SFTP token (from token generation)
+#   - _sftp_token_expiry: Token expiration date (from token generation)
+#
+# Variables Optional:
+#   - vault_namespace: Vault namespace (if using Enterprise namespaces)
+#   - vault_validate_certs: Validate SSL certificates (default: true)
+#   - vault_store_tokens: Enable Vault storage (default: false)
+#
+# ==============================================================================
+
+- name: Validate Vault configuration
+  ansible.builtin.assert:
+    that:
+      - vault_addr is defined
+      - vault_addr | string | length > 0
+      - vault_token is defined
+      - vault_token | string | length > 0
+      - vault_mount_path is defined
+      - vault_secret_path is defined
+    fail_msg: |
+      Vault storage enabled but configuration incomplete.
+      Required variables:
+        - vault_addr
+        - vault_token
+        - vault_mount_path
+        - vault_secret_path
+  when:
+    - vault_store_tokens | default(false) | bool
+  tags:
+    - redhat_sftp_token
+    - vault_storage
+
+- name: Store SFTP credentials in HashiCorp Vault
+  community.hashi_vault.vault_write:
+    url: "{{ vault_addr }}"
+    path: "{{ vault_mount_path }}/data/{{ vault_secret_path }}"
+    data:
+      data:
+        sftp_user: "{{ rh_sftp_user }}"
+        sftp_token: "{{ rh_sftp_token }}"
+        sftp_token_expiry: "{{ _sftp_token_expiry }}"
+        generated_at: "{{ ansible_date_time.iso8601 }}"
+        generated_by: "{{ ansible_user_id }}@{{ inventory_hostname }}"
+        cluster_name: "{{ cluster_name | default('unknown') }}"
+        cluster_user: "{{ cluster_user | default('unknown') }}"
+    auth_method: token
+    token: "{{ vault_token }}"
+    namespace: "{{ vault_namespace if vault_namespace is defined and vault_namespace | length > 0 else omit }}"
+    validate_certs: "{{ vault_validate_certs | default(true) }}"
+  register: vault_write_result
+  no_log: true
+  retries: 3
+  delay: 5
+  when:
+    - vault_store_tokens | default(false) | bool
+    - vault_addr is defined
+    - vault_token is defined
+  tags:
+    - redhat_sftp_token
+    - vault_storage
+
+- name: Display Vault storage result
+  ansible.builtin.debug:
+    msg: |
+      SFTP credentials stored in Vault
+      Path: {{ vault_mount_path }}/{{ vault_secret_path }}
+      Generated at: {{ ansible_date_time.iso8601 }}
+      Expires: {{ _sftp_token_expiry }}
+  when:
+    - vault_store_tokens | default(false) | bool
+    - vault_write_result is succeeded
+  tags:
+    - redhat_sftp_token
+    - vault_storage
+
+- name: Verify Vault storage succeeded
+  ansible.builtin.assert:
+    that:
+      - vault_write_result is succeeded
+    fail_msg: "Failed to store SFTP credentials in Vault"
+  when:
+    - vault_store_tokens | default(false) | bool
+  tags:
+    - redhat_sftp_token
+    - vault_storage

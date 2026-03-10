@@ -1,0 +1,63 @@
+---
+# Update StorageCluster image field to trigger rolling upgrade
+
+- name: Get current StorageCluster image
+  ansible.builtin.set_fact:
+    portworx_current_image: "{{ portworx_stc.spec.image }}"
+
+- name: Display current and target images
+  ansible.builtin.debug:
+    msg:
+      - "Current image: {{ portworx_current_image }}"
+      - "Target image: portworx/oci-monitor:{{ portworx_target_version }}"
+
+- name: Determine image registry prefix
+  ansible.builtin.set_fact:
+    portworx_image_registry: "{{ portworx_stc.spec.customImageRegistry | default('') }}"
+
+- name: Build target image path
+  ansible.builtin.set_fact:
+    portworx_target_image: "{{ (portworx_image_registry ~ '/' if portworx_image_registry else '') }}portworx/oci-monitor:{{ portworx_target_version }}"
+
+- name: Check if already on target version
+  ansible.builtin.debug:
+    msg: "Cluster is already on target version {{ portworx_target_version }}"
+  when: portworx_target_version in portworx_current_image
+
+- name: Update StorageCluster image field
+  kubernetes.core.k8s:
+    state: patched
+    api_version: "{{ portworx_stc_api_version }}"
+    kind: "{{ portworx_stc_kind }}"
+    name: "{{ portworx_stc_name }}"
+    namespace: "{{ portworx_namespace }}"
+    definition:
+      spec:
+        image: "{{ portworx_target_image }}"
+  when: portworx_target_version not in portworx_current_image
+
+- name: Verify StorageCluster image update
+  kubernetes.core.k8s_info:
+    api_version: "{{ portworx_stc_api_version }}"
+    kind: "{{ portworx_stc_kind }}"
+    name: "{{ portworx_stc_name }}"
+    namespace: "{{ portworx_namespace }}"
+  register: portworx_stc_updated
+
+- name: Validate image field updated
+  ansible.builtin.assert:
+    that:
+      - portworx_target_version in portworx_stc_updated.resources[0].spec.image
+    fail_msg: "StorageCluster image field did not update correctly"
+    success_msg: "StorageCluster image updated to {{ portworx_target_version }}"
+
+- name: Record upgrade trigger time
+  ansible.builtin.set_fact:
+    portworx_upgrade_triggered_time: "{{ ansible_date_time.epoch }}"
+
+- name: StorageCluster update complete - Rolling upgrade triggered
+  ansible.builtin.debug:
+    msg:
+      - "StorageCluster image field updated successfully"
+      - "Operator will now begin automatic rolling upgrade (one pod at a time)"
+      - "Monitoring phase will track upgrade progress"

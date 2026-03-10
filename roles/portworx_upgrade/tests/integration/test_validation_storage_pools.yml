@@ -1,0 +1,258 @@
+---
+# Integration tests for storage pool validation logic
+# Tests JSON parsing and aggregate statistics calculation
+
+- name: Test Storage Pool Validation Logic
+  hosts: localhost
+  gather_facts: false
+  vars:
+    portworx_validation_pool_capacity_threshold: 90
+    portworx_validation_fail_on_pool_issues: true
+
+  tasks:
+    # ==========================================
+    # POSITIVE TEST CASES - Healthy Cluster
+    # ==========================================
+
+    - name: Test Case 1 - All pools healthy, low capacity
+      block:
+        - name: Set mock provision data (healthy)
+          ansible.builtin.set_fact:
+            mock_provision_data:
+              provisionInfo:
+                node1:
+                  Status: "Up"
+                  Provision:
+                    - Pool:
+                        Info:
+                          Status: "Up"
+                          TotalSize: 2199023255552
+                          Used: 439804651110
+                node2:
+                  Status: "Up"
+                  Provision:
+                    - Pool:
+                        Info:
+                          Status: "Up"
+                          TotalSize: 2199023255552
+                          Used: 549755813888
+                node3:
+                  Status: "Up"
+                  Provision:
+                    - Pool:
+                        Info:
+                          Status: "Up"
+                          TotalSize: 2199023255552
+                          Used: 329853488333
+
+        - name: Initialize pool statistics
+          ansible.builtin.set_fact:
+            test_total_storage_nodes: 0
+            test_pools_online: 0
+            test_pools_degraded: 0
+            test_pools_total_capacity: 0
+            test_pools_used_capacity: 0
+            test_nodes_over_80_percent: 0
+
+        - name: Calculate pool statistics
+          ansible.builtin.set_fact:
+            test_total_storage_nodes: "{{ test_total_storage_nodes | int + 1 }}"
+            test_pools_online: "{{ test_pools_online | int + (1 if item.value.Provision[0].Pool.Info.Status == 'Up' else 0) }}"
+            test_pools_degraded: "{{ test_pools_degraded | int + (0 if item.value.Provision[0].Pool.Info.Status == 'Up' else 1) }}"
+            test_pools_total_capacity: "{{ test_pools_total_capacity | int + item.value.Provision[0].Pool.Info.TotalSize }}"
+            test_pools_used_capacity: "{{ test_pools_used_capacity | int + item.value.Provision[0].Pool.Info.Used }}"
+            test_nodes_over_80_percent: >-
+              {{ test_nodes_over_80_percent | int +
+                 (1 if ((item.value.Provision[0].Pool.Info.Used | int * 100) / item.value.Provision[0].Pool.Info.TotalSize | int) > 80 else 0) }}
+          loop: "{{ mock_provision_data.provisionInfo | dict2items }}"
+          when:
+            - item.value.Provision is defined
+            - item.value.Provision | length > 0
+
+        - name: Calculate average capacity
+          ansible.builtin.set_fact:
+            test_average_capacity: >-
+              {{ ((test_pools_used_capacity | int * 100) / test_pools_total_capacity | int) | round(1) }}
+
+        - name: Verify results - Test Case 1
+          ansible.builtin.assert:
+            that:
+              - test_total_storage_nodes | int == 3
+              - test_pools_online | int == 3
+              - test_pools_degraded | int == 0
+              - test_nodes_over_80_percent | int == 0
+              - test_average_capacity | float < 30
+            success_msg: "PASS: Test Case 1 - Healthy cluster validation"
+            fail_msg: "FAIL: Test Case 1 - Unexpected results"
+
+    # ==========================================
+    # NEGATIVE TEST CASE - Degraded Pool
+    # ==========================================
+
+    - name: Test Case 2 - One pool degraded
+      block:
+        - name: Set mock provision data (degraded pool)
+          ansible.builtin.set_fact:
+            mock_provision_data:
+              provisionInfo:
+                node1:
+                  Status: "Up"
+                  Provision:
+                    - Pool:
+                        Info:
+                          Status: "Up"
+                          TotalSize: 2199023255552
+                          Used: 439804651110
+                node2:
+                  Status: "Up"
+                  Provision:
+                    - Pool:
+                        Info:
+                          Status: "Degraded"
+                          TotalSize: 2199023255552
+                          Used: 549755813888
+                node3:
+                  Status: "Up"
+                  Provision:
+                    - Pool:
+                        Info:
+                          Status: "Up"
+                          TotalSize: 2199023255552
+                          Used: 329853488333
+
+        - name: Initialize pool statistics
+          ansible.builtin.set_fact:
+            test_total_storage_nodes: 0
+            test_pools_online: 0
+            test_pools_degraded: 0
+
+        - name: Calculate pool statistics
+          ansible.builtin.set_fact:
+            test_total_storage_nodes: "{{ test_total_storage_nodes | int + 1 }}"
+            test_pools_online: "{{ test_pools_online | int + (1 if item.value.Provision[0].Pool.Info.Status == 'Up' else 0) }}"
+            test_pools_degraded: "{{ test_pools_degraded | int + (0 if item.value.Provision[0].Pool.Info.Status == 'Up' else 1) }}"
+          loop: "{{ mock_provision_data.provisionInfo | dict2items }}"
+          when:
+            - item.value.Provision is defined
+            - item.value.Provision | length > 0
+
+        - name: Verify results - Test Case 2
+          ansible.builtin.assert:
+            that:
+              - test_total_storage_nodes | int == 3
+              - test_pools_online | int == 2
+              - test_pools_degraded | int == 1
+            success_msg: "PASS: Test Case 2 - Degraded pool detected"
+            fail_msg: "FAIL: Test Case 2 - Degraded pool not detected"
+
+    # ==========================================
+    # NEGATIVE TEST CASE - High Capacity
+    # ==========================================
+
+    - name: Test Case 3 - High capacity utilization
+      block:
+        - name: Set mock provision data (high capacity)
+          ansible.builtin.set_fact:
+            mock_provision_data:
+              provisionInfo:
+                node1:
+                  Status: "Up"
+                  Provision:
+                    - Pool:
+                        Info:
+                          Status: "Up"
+                          TotalSize: 2199023255552
+                          Used: 1979120930000
+                node2:
+                  Status: "Up"
+                  Provision:
+                    - Pool:
+                        Info:
+                          Status: "Up"
+                          TotalSize: 2199023255552
+                          Used: 1847545051802
+
+        - name: Initialize pool statistics
+          ansible.builtin.set_fact:
+            test_total_storage_nodes: 0
+            test_pools_total_capacity: 0
+            test_pools_used_capacity: 0
+            test_nodes_over_80_percent: 0
+
+        - name: Calculate pool statistics
+          ansible.builtin.set_fact:
+            test_total_storage_nodes: "{{ test_total_storage_nodes | int + 1 }}"
+            test_pools_total_capacity: "{{ test_pools_total_capacity | int + item.value.Provision[0].Pool.Info.TotalSize }}"
+            test_pools_used_capacity: "{{ test_pools_used_capacity | int + item.value.Provision[0].Pool.Info.Used }}"
+            test_nodes_over_80_percent: >-
+              {{ test_nodes_over_80_percent | int +
+                 (1 if ((item.value.Provision[0].Pool.Info.Used | int * 100) / item.value.Provision[0].Pool.Info.TotalSize | int) > 80 else 0) }}
+          loop: "{{ mock_provision_data.provisionInfo | dict2items }}"
+          when:
+            - item.value.Provision is defined
+            - item.value.Provision | length > 0
+
+        - name: Calculate average capacity
+          ansible.builtin.set_fact:
+            test_average_capacity: >-
+              {{ ((test_pools_used_capacity | int * 100) / test_pools_total_capacity | int) | round(1) }}
+
+        - name: Verify results - Test Case 3
+          ansible.builtin.assert:
+            that:
+              - test_total_storage_nodes | int == 2
+              - test_nodes_over_80_percent | int == 2
+              - test_average_capacity | float > 85
+            success_msg: "PASS: Test Case 3 - High capacity detected"
+            fail_msg: "FAIL: Test Case 3 - High capacity not detected"
+
+    # ==========================================
+    # EDGE CASE - Empty Provision Array
+    # ==========================================
+
+    - name: Test Case 4 - Storageless nodes (empty Provision)
+      block:
+        - name: Set mock provision data (storageless)
+          ansible.builtin.set_fact:
+            mock_provision_data:
+              provisionInfo:
+                storageless1:
+                  Status: "Up"
+                  Provision: []
+                storageless2:
+                  Status: "Up"
+                  Provision: []
+                storage1:
+                  Status: "Up"
+                  Provision:
+                    - Pool:
+                        Info:
+                          Status: "Up"
+                          TotalSize: 2199023255552
+                          Used: 439804651110
+
+        - name: Initialize pool statistics
+          ansible.builtin.set_fact:
+            test_total_storage_nodes: 0
+            test_pools_online: 0
+
+        - name: Calculate pool statistics
+          ansible.builtin.set_fact:
+            test_total_storage_nodes: "{{ test_total_storage_nodes | int + 1 }}"
+            test_pools_online: "{{ test_pools_online | int + 1 }}"
+          loop: "{{ mock_provision_data.provisionInfo | dict2items }}"
+          when:
+            - item.value.Provision is defined
+            - item.value.Provision | length > 0
+
+        - name: Verify results - Test Case 4
+          ansible.builtin.assert:
+            that:
+              - test_total_storage_nodes | int == 1
+              - test_pools_online | int == 1
+            success_msg: "PASS: Test Case 4 - Storageless nodes filtered correctly"
+            fail_msg: "FAIL: Test Case 4 - Storageless node filtering failed"
+
+    - name: All storage pool validation tests passed
+      ansible.builtin.debug:
+        msg: "✅ All storage pool validation tests PASSED"

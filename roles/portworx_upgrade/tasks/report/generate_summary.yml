@@ -1,0 +1,28 @@
+---
+# Generate upgrade summary report
+
+- name: Ensure report directory exists
+  ansible.builtin.file:
+    path: "{{ portworx_report_dir }}"
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+
+- name: Calculate phase durations
+  ansible.builtin.set_fact:
+    portworx_preflight_duration: "{{ portworx_preflight_end_time | default(0) | int - portworx_preflight_start_time | default(0) | int }}"
+    portworx_operator_duration: "{{ portworx_operator_end_time | default(0) | int - portworx_operator_start_time | default(0) | int }}"
+    portworx_configmap_duration: "{{ portworx_configmap_end_time | default(0) | int - portworx_configmap_start_time | default(0) | int }}"
+    portworx_monitoring_duration: "{{ portworx_monitoring_end_time | default(0) | int - portworx_monitoring_start_time | default(0) | int }}"
+    portworx_validation_duration: "{{ portworx_validation_end_time | default(0) | int - portworx_validation_start_time | default(0) | int }}"
+
+- name: Generate upgrade summary from template
+  ansible.builtin.template:
+    src: upgrade_summary.j2
+    dest: "{{ portworx_report_dir }}/upgrade-summary-{{ ansible_date_time.epoch }}.txt"
+    mode: '0644'
+  delegate_to: localhost
+
+- name: Display summary report location
+  ansible.builtin.debug:
+    msg: "Upgrade summary report: {{ portworx_report_dir }}/upgrade-summary-{{ ansible_date_time.epoch }}.txt"

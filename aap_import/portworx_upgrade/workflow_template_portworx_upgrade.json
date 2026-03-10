@@ -1,0 +1,287 @@
+{
+  "workflow_job_templates": [
+    {
+      "name": "Portworx Upgrade - Full Workflow",
+      "description": "Complete Portworx upgrade workflow: Preflight -> Upgrade -> Validation with approval gates",
+      "extra_vars": "---\nportworx_target_version: \"\"\nportworx_impatient_mode: false",
+      "survey_enabled": true,
+      "allow_simultaneous": false,
+      "ask_variables_on_launch": true,
+      "limit": null,
+      "scm_branch": null,
+      "ask_inventory_on_launch": true,
+      "ask_scm_branch_on_launch": true,
+      "ask_limit_on_launch": false,
+      "webhook_service": "",
+      "webhook_credential": null,
+      "ask_labels_on_launch": true,
+      "ask_skip_tags_on_launch": true,
+      "ask_tags_on_launch": true,
+      "skip_tags": null,
+      "job_tags": null,
+      "organization": {
+        "name": "Default",
+        "type": "organization"
+      },
+      "inventory": {
+        "organization": {
+          "name": "Default",
+          "type": "organization"
+        },
+        "name": "Localhost",
+        "type": "inventory"
+      },
+      "related": {
+        "schedules": [],
+        "workflow_nodes": [
+          {
+            "extra_data": {},
+            "scm_branch": null,
+            "job_type": null,
+            "job_tags": null,
+            "skip_tags": null,
+            "limit": null,
+            "diff_mode": null,
+            "verbosity": 0,
+            "execution_environment": null,
+            "forks": null,
+            "job_slice_count": null,
+            "timeout": null,
+            "all_parents_must_converge": false,
+            "identifier": "preflight_check",
+            "inventory": {
+              "organization": {
+                "name": "Default",
+                "type": "organization"
+              },
+              "name": "Localhost",
+              "type": "inventory"
+            },
+            "workflow_job_template": {
+              "organization": {
+                "name": "Default",
+                "type": "organization"
+              },
+              "name": "Portworx Upgrade - Full Workflow",
+              "type": "workflow_job_template"
+            },
+            "unified_job_template": {
+              "organization": {
+                "name": "Default",
+                "type": "organization"
+              },
+              "name": "Portworx Upgrade - Preflight Check",
+              "type": "job_template"
+            },
+            "related": {
+              "credentials": [],
+              "success_nodes": [
+                {
+                  "workflow_job_template": {
+                    "organization": {
+                      "name": "Default",
+                      "type": "organization"
+                    },
+                    "name": "Portworx Upgrade - Full Workflow",
+                    "type": "workflow_job_template"
+                  },
+                  "identifier": "approval_gate",
+                  "type": "workflow_job_template_node"
+                }
+              ],
+              "failure_nodes": [],
+              "always_nodes": []
+            },
+            "natural_key": {
+              "workflow_job_template": {
+                "organization": {
+                  "name": "Default",
+                  "type": "organization"
+                },
+                "name": "Portworx Upgrade - Full Workflow",
+                "type": "workflow_job_template"
+              },
+              "identifier": "preflight_check",
+              "type": "workflow_job_template_node"
+            }
+          },
+          {
+            "extra_data": {},
+            "scm_branch": null,
+            "job_type": null,
+            "job_tags": null,
+            "skip_tags": null,
+            "limit": null,
+            "diff_mode": null,
+            "verbosity": 0,
+            "execution_environment": null,
+            "forks": null,
+            "job_slice_count": null,
+            "timeout": null,
+            "all_parents_must_converge": false,
+            "identifier": "approval_gate",
+            "inventory": null,
+            "workflow_job_template": {
+              "organization": {
+                "name": "Default",
+                "type": "organization"
+              },
+              "name": "Portworx Upgrade - Full Workflow",
+              "type": "workflow_job_template"
+            },
+            "unified_job_template": null,
+            "approval_node": {
+              "name": "Approve Upgrade Execution",
+              "description": "Preflight checks passed. Review results and approve to proceed with upgrade.",
+              "timeout": 0
+            },
+            "related": {
+              "credentials": [],
+              "success_nodes": [
+                {
+                  "workflow_job_template": {
+                    "organization": {
+                      "name": "Default",
+                      "type": "organization"
+                    },
+                    "name": "Portworx Upgrade - Full Workflow",
+                    "type": "workflow_job_template"
+                  },
+                  "identifier": "upgrade_execution",
+                  "type": "workflow_job_template_node"
+                }
+              ],
+              "failure_nodes": [],
+              "always_nodes": []
+            },
+            "natural_key": {
+              "workflow_job_template": {
+                "organization": {
+                  "name": "Default",
+                  "type": "organization"
+                },
+                "name": "Portworx Upgrade - Full Workflow",
+                "type": "workflow_job_template"
+              },
+              "identifier": "approval_gate",
+              "type": "workflow_job_template_node"
+            }
+          },
+          {
+            "extra_data": {},
+            "scm_branch": null,
+            "job_type": null,
+            "job_tags": null,
+            "skip_tags": null,
+            "limit": null,
+            "diff_mode": null,
+            "verbosity": 0,
+            "execution_environment": null,
+            "forks": null,
+            "job_slice_count": null,
+            "timeout": null,
+            "all_parents_must_converge": false,
+            "identifier": "upgrade_execution",
+            "inventory": {
+              "organization": {
+                "name": "Default",
+                "type": "organization"
+              },
+              "name": "Localhost",
+              "type": "inventory"
+            },
+            "workflow_job_template": {
+              "organization": {
+                "name": "Default",
+                "type": "organization"
+              },
+              "name": "Portworx Upgrade - Full Workflow",
+              "type": "workflow_job_template"
+            },
+            "unified_job_template": {
+              "organization": {
+                "name": "Default",
+                "type": "organization"
+              },
+              "name": "Portworx Cluster Upgrade",
+              "type": "job_template"
+            },
+            "related": {
+              "credentials": [],
+              "success_nodes": [],
+              "failure_nodes": [],
+              "always_nodes": []
+            },
+            "natural_key": {
+              "workflow_job_template": {
+                "organization": {
+                  "name": "Default",
+                  "type": "organization"
+                },
+                "name": "Portworx Upgrade - Full Workflow",
+                "type": "workflow_job_template"
+              },
+              "identifier": "upgrade_execution",
+              "type": "workflow_job_template_node"
+            }
+          }
+        ],
+        "labels": [],
+        "notification_templates_started": [],
+        "notification_templates_success": [],
+        "notification_templates_error": [],
+        "notification_templates_approvals": [],
+        "survey_spec": {
+          "name": "Workflow Upgrade Parameters",
+          "description": "Configure parameters for complete upgrade workflow",
+          "spec": [
+            {
+              "question_name": "Target Portworx Version",
+              "question_description": "Target Portworx OCI version (e.g., 3.5.0)",
+              "required": true,
+              "type": "text",
+              "variable": "portworx_target_version",
+              "min": 0,
+              "max": 1024,
+              "default": "",
+              "choices": "",
+              "new_question": true
+            },
+            {
+              "question_name": "Cluster Name",
+              "question_description": "Name of the cluster being upgraded",
+              "required": false,
+              "type": "text",
+              "variable": "portworx_cluster_name",
+              "min": 0,
+              "max": 256,
+              "default": "",
+              "choices": "",
+              "new_question": true
+            },
+            {
+              "question_name": "Enable Impatient Mode",
+              "question_description": "Enable accelerated storageless node upgrades",
+              "required": false,
+              "type": "multiplechoice",
+              "variable": "portworx_impatient_mode",
+              "min": 0,
+              "max": 1024,
+              "default": "false",
+              "choices": "false\ntrue",
+              "new_question": true
+            }
+          ]
+        }
+      },
+      "natural_key": {
+        "organization": {
+          "name": "Default",
+          "type": "organization"
+        },
+        "name": "Portworx Upgrade - Full Workflow",
+        "type": "workflow_job_template"
+      }
+    }
+  ]
+}

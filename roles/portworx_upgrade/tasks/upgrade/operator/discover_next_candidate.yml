@@ -1,0 +1,49 @@
+---
+# Discover next operator upgrade candidate
+# Finds the smallest version greater than current from available InstallPlans
+
+- name: Get all InstallPlans in operator namespace
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: InstallPlan
+    namespace: "{{ portworx_operator_namespace }}"
+  register: portworx_operator_installplans
+  no_log: true
+
+- name: Discover next upgrade candidate
+  ansible.builtin.set_fact:
+    portworx_operator_next_candidate: >-
+      {%- set candidates = [] -%}
+      {%- for ip in portworx_operator_installplans.resources -%}
+        {%- for csv_name in ip.spec.clusterServiceVersionNames -%}
+          {%- if csv_name.startswith(portworx_operator_csv_prefix) -%}
+            {%- set version_parsed = csv_name | parse_operator_version -%}
+            {%- if version_parsed.tuple > portworx_operator_current_version_tuple -%}
+              {%- set _ = candidates.append({
+                    'installplan_name': ip.metadata.name,
+                    'csv_name': csv_name,
+                    'approved': ip.spec.approved | default(false),
+                    'version_tuple': version_parsed.tuple,
+                    'version_string': version_parsed.string,
+                    'version_major': version_parsed.major,
+                    'version_minor': version_parsed.minor,
+                    'version_patch': version_parsed.patch
+                  }) -%}
+            {%- endif -%}
+          {%- endif -%}
+        {%- endfor -%}
+      {%- endfor -%}
+      {{ candidates | sort(attribute='version_tuple') | first | default({}) }}
+
+- name: Display candidate discovery result
+  ansible.builtin.debug:
+    msg:
+      - "Current version: {{ portworx_operator_current_version_string }}"
+      - "Next candidate: {{ portworx_operator_next_candidate.version_string | default('None found') }}"
+      - "InstallPlan: {{ portworx_operator_next_candidate.installplan_name | default('N/A') }}"
+      - "Already approved: {{ portworx_operator_next_candidate.approved | default(false) }}"
+  when: portworx_detailed_logging
+
+- name: Set candidate found flag
+  ansible.builtin.set_fact:
+    portworx_operator_candidate_found: "{{ portworx_operator_next_candidate | length > 0 }}"

@@ -1,0 +1,106 @@
+---
+# Validate cluster health via pxctl status
+
+- name: Get auth token from secret
+  kubernetes.core.k8s_info:
+    kind: Secret
+    name: "{{ portworx_auth_secret }}"
+    namespace: "{{ portworx_namespace }}"
+  register: portworx_auth_secret_data
+  no_log: true
+
+- name: Decode auth token
+  ansible.builtin.set_fact:
+    portworx_auth_token: "{{ portworx_auth_secret_data.resources[0].data['auth-token'] | b64decode }}"
+  no_log: true
+
+- name: Select a storage node pod for pxctl commands
+  ansible.builtin.set_fact:
+    portworx_pxctl_pod: "{{ portworx_pods.resources | selectattr('spec.nodeName', 'in', portworx_storage_node_names) | first }}"
+
+- name: Display selected pod for pxctl
+  ansible.builtin.debug:
+    msg: "Using pod {{ portworx_pxctl_pod.metadata.name }} for pxctl commands"
+
+- name: Check if PX is operational
+  kubernetes.core.k8s_exec:
+    namespace: "{{ portworx_namespace }}"
+    pod: "{{ portworx_pxctl_pod.metadata.name }}"
+    command: |
+      /bin/bash -c "
+      export PXCTL_AUTH_TOKEN='{{ portworx_auth_token }}' &&
+      /opt/pwx/bin/pxctl status | grep -q 'PX is operational' && echo 'operational' || echo 'degraded'
+      "
+  register: portworx_operational_status
+  changed_when: false
+  no_log: true
+
+- name: Display operational status
+  ansible.builtin.debug:
+    msg: "Portworx cluster status: {{ portworx_operational_status.stdout | trim }}"
+
+- name: Assert cluster is operational
+  ansible.builtin.assert:
+    that:
+      - portworx_operational_status.stdout | trim == 'operational'
+    fail_msg: |
+      Portworx cluster is not operational!
+      Status: {{ portworx_operational_status.stdout | trim }}
+
+      Troubleshooting steps:
+      1. Run: oc exec -n {{ portworx_namespace }} {{ portworx_pxctl_pod.metadata.name }} -- /opt/pwx/bin/pxctl status
+      2. Check for offline or degraded nodes
+      3. Review storage cluster events
+    success_msg: "Portworx cluster is operational"
+  when: portworx_fail_on_degraded_cluster
+
+- name: Count offline nodes
+  kubernetes.core.k8s_exec:
+    namespace: "{{ portworx_namespace }}"
+    pod: "{{ portworx_pxctl_pod.metadata.name }}"
+    command: |
+      /bin/bash -c "
+      export PXCTL_AUTH_TOKEN='{{ portworx_auth_token }}' &&
+      /opt/pwx/bin/pxctl status | grep -c ' Offline ' || echo 0
+      "
+  register: portworx_offline_count
+  changed_when: false
+  no_log: true
+
+- name: Display offline node count
+  ansible.builtin.debug:
+    msg: "Offline nodes: {{ portworx_offline_count.stdout | trim }}"
+
+- name: Validate all nodes are online
+  ansible.builtin.assert:
+    that:
+      - portworx_offline_count.stdout | trim | int == 0
+    fail_msg: |
+      Found {{ portworx_offline_count.stdout | trim }} offline nodes in cluster!
+
+      Troubleshooting:
+      Run: oc exec -n {{ portworx_namespace }} {{ portworx_pxctl_pod.metadata.name }} -- /opt/pwx/bin/pxctl status
+      Look for nodes with Status: Offline
+    success_msg: "All nodes are online"
+  when: portworx_fail_on_degraded_cluster
+
+- name: Capture full pxctl status for detailed logging
+  kubernetes.core.k8s_exec:
+    namespace: "{{ portworx_namespace }}"
+    pod: "{{ portworx_pxctl_pod.metadata.name }}"
+    command: /bin/bash -c "export PXCTL_AUTH_TOKEN='{{ portworx_auth_token }}' && /opt/pwx/bin/pxctl status"
+  register: portworx_pxctl_status_full
+  changed_when: false
+  no_log: "{{ not portworx_detailed_logging }}"
+  when: portworx_detailed_logging
+
+- name: Display full pxctl status output
+  ansible.builtin.debug:
+    msg: "{{ portworx_pxctl_status_full.stdout_lines }}"
+  when:
+    - portworx_detailed_logging
+    - portworx_pxctl_status_full is defined
+
+- name: Cluster status validation complete
+  ansible.builtin.debug:
+    msg: "Cluster health validated successfully via pxctl"

@@ -1,0 +1,47 @@
+---
+# ==============================================================================
+# Token Expiry Check
+# ==============================================================================
+# Purpose: Check if existing SFTP token is expired or expiring soon
+# Input: _sftp_token_expiry (ISO 8601 date from Vault)
+# Output: _token_is_expired (boolean flag)
+# ==============================================================================
+
+- name: "Parse token expiry date"
+  ansible.builtin.set_fact:
+    _expiry_epoch: "{{ (_sftp_token_expiry | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') }}"
+    _current_epoch: "{{ ansible_date_time.epoch }}"
+  when:
+    - _sftp_token_expiry is defined
+    - _sftp_token_expiry | string | length > 0
+
+- name: "Calculate time until expiry"
+  ansible.builtin.set_fact:
+    _seconds_until_expiry: "{{ (_expiry_epoch | int) - (_current_epoch | int) }}"
+    _days_until_expiry: "{{ ((_expiry_epoch | int) - (_current_epoch | int)) / 86400 }}"
+  when:
+    - _expiry_epoch is defined
+    - _current_epoch is defined
+
+- name: "Determine if token is expired or expiring soon"
+  ansible.builtin.set_fact:
+    _token_is_expired: "{{ (_days_until_expiry | float) < (rh_sftp_token_refresh_threshold_days | default(7) | float) }}"
+  when:
+    - _days_until_expiry is defined
+
+- name: "Display token expiry status"
+  ansible.builtin.debug:
+    msg: |
+      Token Expiry Status:
+        Expiry Date: {{ _sftp_token_expiry }}
+        Days Until Expiry: {{ _days_until_expiry | float | round(1) }}
+        Expired/Expiring: {{ _token_is_expired | default(false) }}
+        Refresh Threshold: {{ rh_sftp_token_refresh_threshold_days | default(7) }} days
+  when:
+    - _days_until_expiry is defined
+
+- name: "Log token expiry warning"
+  ansible.builtin.debug:
+    msg: "WARNING: SFTP token is expired or expiring within {{ rh_sftp_token_refresh_threshold_days | default(7) }} days. Will regenerate."
+  when:
+    - _token_is_expired | default(false) | bool

@@ -1,0 +1,143 @@
+---
+# Validate volume health using pxctl volume list
+
+- name: Get volume list via pxctl
+  kubernetes.core.k8s_exec:
+    namespace: "{{ portworx_namespace }}"
+    pod: "{{ portworx_pxctl_pod.metadata.name }}"
+    command: /bin/bash -c "export PXCTL_AUTH_TOKEN='{{ portworx_auth_token }}' && /opt/pwx/bin/pxctl volume list"
+  register: portworx_volume_list
+  changed_when: false
+  no_log: "{{ not portworx_detailed_logging }}"
+
+- name: Display volume list (verbose logging only)
+  ansible.builtin.debug:
+    msg: "{{ portworx_volume_list.stdout_lines }}"
+  when: portworx_detailed_logging
+
+- name: Count total volumes
+  ansible.builtin.set_fact:
+    portworx_total_volumes: >-
+      {{ portworx_volume_list.stdout_lines |
+         select('match', '^[0-9]') |
+         list |
+         length }}
+
+- name: Count volumes by status
+  ansible.builtin.set_fact:
+    portworx_volumes_up_attached_count: >-
+      {{ portworx_volume_list.stdout_lines |
+         select('match', '^[0-9]') |
+         select('search', '(?i)up.*-.*attached') |
+         list |
+         length }}
+    portworx_volumes_up_detached_count: >-
+      {{ portworx_volume_list.stdout_lines |
+         select('match', '^[0-9]') |
+         select('search', '(?i)up.*-.*detached') |
+         list |
+         length }}
+    portworx_volumes_down_count: >-
+      {{ portworx_volume_list.stdout_lines |
+         select('match', '^[0-9]') |
+         select('search', '(?i)down.*-') |
+         list |
+         length }}
+    portworx_volumes_degraded_count: >-
+      {{ portworx_volume_list.stdout_lines |
+         select('match', '^[0-9]') |
+         select('search', '(?i)degraded') |
+         list |
+         length }}
+
+- name: Display volume statistics
+  ansible.builtin.debug:
+    msg:
+      - "Volume Health Statistics:"
+      - "  Total volumes: {{ portworx_total_volumes }}"
+      - "  Up + Attached: {{ portworx_volumes_up_attached_count }}"
+      - "  Up + Detached: {{ portworx_volumes_up_detached_count }}"
+      - "  Down: {{ portworx_volumes_down_count }}"
+      - "  Degraded: {{ portworx_volumes_degraded_count }}"
+
+- name: Check for down volumes
+  ansible.builtin.assert:
+    that:
+      - portworx_volumes_down_count | int == 0
+    fail_msg: |
+      Found {{ portworx_volumes_down_count }} volumes in DOWN state!
+
+      Troubleshooting:
+      1. List all volumes:
+         oc exec -n {{ portworx_namespace }} {{ portworx_pxctl_pod.metadata.name }} -- /opt/pwx/bin/pxctl volume list
+      2. Filter down volumes:
+         oc exec -n {{ portworx_namespace }} {{ portworx_pxctl_pod.metadata.name }} -- /opt/pwx/bin/pxctl volume list | grep -i down
+      3. Inspect specific volumes:
+         oc exec -n {{ portworx_namespace }} {{ portworx_pxctl_pod.metadata.name }} -- /opt/pwx/bin/pxctl volume inspect <volume-id>
+      4. Check volume replication:
+         oc exec -n {{ portworx_namespace }} {{ portworx_pxctl_pod.metadata.name }} -- /opt/pwx/bin/pxctl volume inspect <volume-id> | grep -i replica
+      5. Verify storage pool health and node capacity
+      6. Check for pod attachment issues:
+         oc get pods --all-namespaces -o wide | grep <volume-id>
+    success_msg: "No volumes in DOWN state ({{ portworx_total_volumes }} volumes checked)"
+  when: portworx_validation_fail_on_down_volumes | default(true)
+
+- name: Check for degraded volumes
+  ansible.builtin.assert:
+    that:
+      - portworx_volumes_degraded_count | int == 0
+    fail_msg: |
+      Found {{ portworx_volumes_degraded_count }} DEGRADED volumes!
+
+      WARNING: Degraded volumes have reduced replication.
+      Data is accessible but at risk if additional failures occur.
+
+      Troubleshooting:
+      1. List degraded volumes:
+         oc exec -n {{ portworx_namespace }} {{ portworx_pxctl_pod.metadata.name }} -- /opt/pwx/bin/pxctl volume list | grep -i degraded
+      2. Inspect degraded volumes:
+         oc exec -n {{ portworx_namespace }} {{ portworx_pxctl_pod.metadata.name }} -- /opt/pwx/bin/pxctl volume inspect <volume-id>
+      3. Check replica sets and replication factor:
+         oc exec -n {{ portworx_namespace }} {{ portworx_pxctl_pod.metadata.name }} -- /opt/pwx/bin/pxctl volume inspect <volume-id> | grep -i replica
+      4. Verify all storage nodes are online with sufficient capacity
+      5. Check for replica node failures:
+         oc exec -n {{ portworx_namespace }} {{ portworx_pxctl_pod.metadata.name }} -- /opt/pwx/bin/pxctl status
+      6. Review volume alerts:
+         oc exec -n {{ portworx_namespace }} {{ portworx_pxctl_pod.metadata.name }} -- /opt/pwx/bin/pxctl alerts show
+    success_msg: "No degraded volumes ({{ portworx_total_volumes }} volumes checked)"
+  when: portworx_validation_fail_on_degraded_volumes | default(true)
+
+- name: Info about detached volumes
+  ansible.builtin.debug:
+    msg: |
+      INFO: {{ portworx_volumes_up_detached_count }} detached volumes found.
+      This is normal if workloads are not currently using all PVCs.
+      Detached volumes are healthy and will attach when pods mount them.
+  when:
+    - portworx_volumes_up_detached_count | int > 0
+    - portworx_detailed_logging
+
+- name: Warn about zero volumes
+  ansible.builtin.debug:
+    msg: |
+      WARNING: No volumes found in cluster!
+      This may indicate:
+      1. Fresh cluster with no workloads yet
+      2. All PVCs have been deleted
+      3. Issue with volume driver
+  when: portworx_total_volumes | int == 0
+
+- name: Collect volume statistics for reporting
+  ansible.builtin.set_fact:
+    portworx_validation_volume_summary:
+      total_volumes: "{{ portworx_total_volumes | int }}"
+      up_attached: "{{ portworx_volumes_up_attached_count | int }}"
+      up_detached: "{{ portworx_volumes_up_detached_count | int }}"
+      down: "{{ portworx_volumes_down_count | int }}"
+      degraded: "{{ portworx_volumes_degraded_count | int }}"
+      status: "{{ 'healthy' if (portworx_volumes_down_count | int == 0 and portworx_volumes_degraded_count | int == 0) else 'degraded' }}"
+      timestamp: "{{ ansible_date_time.epoch }}"
+
+- name: Volume health validation complete
+  ansible.builtin.debug:
+    msg: "Volume validation complete - {{ portworx_total_volumes }} volumes ({{ portworx_volumes_down_count }} down, {{ portworx_volumes_degraded_count }} degraded)"

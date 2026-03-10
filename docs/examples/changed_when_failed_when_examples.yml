@@ -1,0 +1,331 @@
+---
+# changed_when and failed_when Examples for Ansible Playbooks
+#
+# This file demonstrates proper usage of changed_when and failed_when directives
+# for shell and command modules to ensure idempotency and proper error handling.
+#
+# NOTE: This file intentionally uses shell/command modules to demonstrate
+# proper changed_when and failed_when patterns. ansible-lint warnings
+# about command-instead-of-shell are expected and can be ignored for
+# this example file.
+# yamllint disable
+
+- name: Changed_when and failed_when examples
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    # =========================================================================
+    # READ-ONLY OPERATIONS
+    # =========================================================================
+    # For read-only operations, always use changed_when: false
+    # These operations never modify state
+
+    - name: Get list of pods (read-only)
+      ansible.builtin.shell: kubectl get pods --no-headers
+      register: pod_list
+      changed_when: false
+      failed_when: pod_list.rc != 0
+
+    - name: Get cluster information
+      ansible.builtin.command: oc cluster-info
+      register: cluster_info
+      changed_when: false
+      failed_when: cluster_info.rc != 0
+
+    - name: Check service status
+      ansible.builtin.shell: systemctl status nginx
+      register: service_status
+      changed_when: false
+      failed_when: service_status.rc not in [0, 3]  # 0=running, 3=stopped
+
+    # =========================================================================
+    # GREP OPERATIONS
+    # =========================================================================
+    # grep returns 0 if matches found, 1 if no matches
+    # Both are valid, so failed_when must handle both cases
+
+    - name: Find worker machinesets
+      ansible.builtin.shell: |
+        set -o pipefail &&
+        oc get machineset --no-headers | grep worker
+      args:
+        executable: /bin/bash
+      register: machineset_list
+      changed_when: false
+      failed_when: machineset_list.rc not in [0, 1]
+
+    - name: Search for specific configuration
+      ansible.builtin.shell: |
+        set -o pipefail &&
+        grep "^server=" /etc/config.conf
+      args:
+        executable: /bin/bash
+      register: server_config
+      changed_when: false
+      failed_when: server_config.rc not in [0, 1]
+
+    - name: Find running containers
+      ansible.builtin.shell: |
+        set -o pipefail &&
+        docker ps | grep nginx
+      args:
+        executable: /bin/bash
+      register: nginx_containers
+      changed_when: false
+      failed_when: nginx_containers.rc not in [0, 1]
+
+    # =========================================================================
+    # STATE-MODIFYING OPERATIONS
+    # =========================================================================
+    # Detect actual changes by examining command output
+
+    - name: Apply Kubernetes configuration
+      ansible.builtin.shell: kubectl apply -f config.yaml
+      register: apply_result
+      changed_when: "'configured' in apply_result.stdout or 'created' in apply_result.stdout"
+      failed_when: apply_result.rc != 0
+
+    - name: Update package cache
+      ansible.builtin.command: apt-get update
+      register: apt_update
+      changed_when: "'packages can be upgraded' in apt_update.stdout"
+      failed_when: apt_update.rc != 0
+
+    - name: Git pull latest changes
+      ansible.builtin.command: git pull origin main
+      args:
+        chdir: /opt/myapp
+      register: git_pull
+      changed_when: "'Already up to date' not in git_pull.stdout"
+      failed_when: git_pull.rc != 0
+
+    - name: Create directory if needed
+      ansible.builtin.shell: mkdir -p /opt/myapp/data
+      register: mkdir_result
+      changed_when: false  # mkdir -p is idempotent, never reports changes
+      failed_when: mkdir_result.rc != 0
+
+    # =========================================================================
+    # OPERATIONS WITH EXPECTED OUTPUT
+    # =========================================================================
+    # Report change when output indicates unexpected state
+
+    - name: Verify cluster members exist
+      ansible.builtin.shell: etcdctl member list
+      register: member_list
+      changed_when: member_list.stdout_lines | length == 0
+      failed_when: member_list.rc != 0
+
+    - name: Check for expected pods
+      ansible.builtin.shell: kubectl get pods -n kube-system --no-headers
+      register: system_pods
+      changed_when: system_pods.stdout_lines | length < 5  # Expect at least 5 system pods
+      failed_when: system_pods.rc != 0
+
+    - name: Verify configuration file exists
+      ansible.builtin.shell: cat /etc/myapp/config.yml
+      register: config_check
+      changed_when: config_check.stdout | length == 0  # Empty config is unexpected
+      failed_when: config_check.rc != 0
+
+    # =========================================================================
+    # RETRY OPERATIONS
+    # =========================================================================
+    # Use until for retries, failed_when for unrecoverable errors
+
+    - name: Wait for pod to be ready
+      ansible.builtin.shell: |
+        kubectl get pod my-pod -o jsonpath='{.status.phase}'
+      register: pod_status
+      changed_when: false
+      failed_when: false  # Let until handle failures
+      until: pod_status.stdout == 'Running'
+      retries: 30
+      delay: 10
+
+    - name: Wait for service endpoint
+      ansible.builtin.shell: curl -f http://localhost:8080/health
+      register: health_check
+      changed_when: false
+      failed_when: false
+      until: health_check.rc == 0
+      retries: 20
+      delay: 5
+
+    - name: Wait for cluster node to be ready
+      ansible.builtin.shell: |
+        oc get node worker-1 -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+      register: node_ready
+      changed_when: false
+      failed_when: false
+      until: node_ready.stdout == 'True'
+      retries: 60
+      delay: 10
+
+    # =========================================================================
+    # MULTIPLE EXIT CODES
+    # =========================================================================
+    # Some commands have multiple valid exit codes
+
+    - name: Check if file exists (find command)
+      ansible.builtin.shell: find /opt/data -name "*.log" -mtime +7
+      register: old_logs
+      changed_when: old_logs.stdout_lines | length > 0
+      failed_when: old_logs.rc not in [0, 1]
+
+    - name: Test network connectivity (ping)
+      ansible.builtin.command: ping -c 1 -W 2 {{ target_host }}
+      register: ping_result
+      changed_when: false
+      failed_when: ping_result.rc not in [0, 1, 2]  # 0=success, 1=no reply, 2=error
+
+    - name: Query database (may return no rows)
+      ansible.builtin.shell: |
+        psql -U myuser -d mydb -c "SELECT * FROM users WHERE active = false"
+      register: inactive_users
+      changed_when: false
+      failed_when: inactive_users.rc not in [0, 1]  # Both are valid
+
+    # =========================================================================
+    # OUTPUT AND EXIT CODE COMBINED
+    # =========================================================================
+    # Check both exit code and output for comprehensive error handling
+
+    - name: Run application health check
+      ansible.builtin.shell: /opt/myapp/healthcheck.sh
+      register: app_health
+      changed_when: false
+      failed_when: app_health.rc != 0 or 'error' in app_health.stderr | lower
+
+    - name: Validate configuration file
+      ansible.builtin.shell: /usr/bin/validate-config /etc/myapp/config.yml
+      register: config_validation
+      changed_when: false
+      failed_when: >
+        config_validation.rc != 0 or
+        'warning' in config_validation.stdout | lower or
+        'error' in config_validation.stdout | lower
+
+    - name: Check disk space
+      ansible.builtin.shell: df -h / | tail -n 1 | awk '{print $5}' | sed 's/%//'
+      register: disk_usage
+      changed_when: disk_usage.stdout | int > 80  # Report change if > 80%
+      failed_when: disk_usage.stdout | int > 95   # Fail if > 95%
+
+    # =========================================================================
+    # COMPLEX CONDITIONALS
+    # =========================================================================
+    # Use complex logic for changed_when and failed_when
+
+    - name: Update system packages
+      ansible.builtin.shell: yum update -y
+      register: yum_update
+      changed_when: >
+        'Complete!' in yum_update.stdout and
+        'Nothing to do' not in yum_update.stdout
+      failed_when: >
+        yum_update.rc != 0 or
+        'Error' in yum_update.stdout or
+        'Failed' in yum_update.stdout
+
+    - name: Restart service if config changed
+      ansible.builtin.shell: systemctl restart nginx
+      register: service_restart
+      changed_when: >
+        service_restart.rc == 0 and
+        config_file_changed | default(false)
+      failed_when: >
+        service_restart.rc != 0 or
+        'failed' in service_restart.stderr | lower
+
+    - name: Cleanup old files
+      ansible.builtin.shell: find /tmp -name "*.tmp" -mtime +7 -delete -print
+      register: cleanup_result
+      changed_when: cleanup_result.stdout_lines | length > 0
+      failed_when: >
+        cleanup_result.rc != 0 or
+        'permission denied' in cleanup_result.stderr | lower
+
+    # =========================================================================
+    # MULTI-LINE COMMANDS WITH PIPEFAIL
+    # =========================================================================
+    # Always use set -o pipefail for multi-command pipelines
+
+    - name: Get and filter pod information
+      ansible.builtin.shell: |
+        set -o pipefail &&
+        kubectl get pods -o json |
+        jq -r '.items[] | select(.status.phase=="Running") | .metadata.name'
+      args:
+        executable: /bin/bash
+      register: running_pods
+      changed_when: false
+      failed_when: running_pods.rc != 0
+
+    - name: Extract and process log data
+      ansible.builtin.shell: |
+        set -o pipefail &&
+        cat /var/log/app.log |
+        grep ERROR |
+        tail -n 100 |
+        awk '{print $1, $2, $NF}'
+      args:
+        executable: /bin/bash
+      register: error_logs
+      changed_when: error_logs.stdout_lines | length > 0
+      failed_when: error_logs.rc not in [0, 1]  # grep may return 1
+
+    - name: Chain multiple operations
+      ansible.builtin.shell: |
+        set -o pipefail &&
+        oc get nodes -o json |
+        jq -r '.items[].metadata.name' |
+        xargs -I {} oc describe node {}
+      args:
+        executable: /bin/bash
+      register: node_descriptions
+      changed_when: false
+      failed_when: node_descriptions.rc != 0
+
+    # =========================================================================
+    # BEST PRACTICES SUMMARY
+    # =========================================================================
+    #
+    # 1. Read-only operations:
+    #    changed_when: false
+    #    failed_when: result.rc != 0
+    #
+    # 2. Grep operations:
+    #    changed_when: false
+    #    failed_when: result.rc not in [0, 1]
+    #
+    # 3. State changes:
+    #    changed_when: "'created' in result.stdout or 'updated' in result.stdout"
+    #    failed_when: result.rc != 0
+    #
+    # 4. Unexpected state detection:
+    #    changed_when: result.stdout_lines | length == 0
+    #    failed_when: result.rc != 0
+    #
+    # 5. Multiple valid exit codes:
+    #    changed_when: false
+    #    failed_when: result.rc not in [0, 1, 2]
+    #
+    # 6. Output + exit code:
+    #    changed_when: false
+    #    failed_when: result.rc != 0 or 'error' in result.stderr | lower
+    #
+    # 7. Multi-line with pipefail:
+    #    shell: |
+    #      set -o pipefail &&
+    #      command1 | command2
+    #    args:
+    #      executable: /bin/bash
+    #
+    # 8. Retry operations:
+    #    changed_when: false
+    #    failed_when: false
+    #    until: condition
+    #    retries: N
+    #    delay: N

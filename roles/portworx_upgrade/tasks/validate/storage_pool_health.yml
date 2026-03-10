@@ -1,0 +1,136 @@
+---
+# Validate storage pool health using pxctl cluster provision-status
+
+- name: Get storage pool provision status (JSON format)
+  kubernetes.core.k8s_exec:
+    namespace: "{{ portworx_namespace }}"
+    pod: "{{ portworx_pxctl_pod.metadata.name }}"
+    command: /bin/bash -c "export PXCTL_AUTH_TOKEN='{{ portworx_auth_token }}' && /opt/pwx/bin/pxctl cluster provision-status -j"
+  register: portworx_provision_status_raw
+  changed_when: false
+  no_log: "{{ not portworx_detailed_logging }}"
+
+- name: Parse provision status JSON
+  ansible.builtin.set_fact:
+    portworx_provision_data: "{{ portworx_provision_status_raw.stdout | from_json }}"
+
+- name: Initialize pool statistics
+  ansible.builtin.set_fact:
+    portworx_total_storage_nodes: 0
+    portworx_pools_online: 0
+    portworx_pools_degraded: 0
+    portworx_pools_total_capacity: 0
+    portworx_pools_used_capacity: 0
+    portworx_nodes_over_80_percent: 0
+    portworx_pools_status_list: []
+
+- name: Analyze storage pools for each node
+  ansible.builtin.set_fact:
+    portworx_total_storage_nodes: "{{ portworx_total_storage_nodes | int + 1 }}"
+    portworx_pools_online: "{{ portworx_pools_online | int + (1 if item.value.Provision[0].Pool.Info.Status == 'Up' else 0) }}"
+    portworx_pools_degraded: "{{ portworx_pools_degraded | int + (0 if item.value.Provision[0].Pool.Info.Status == 'Up' else 1) }}"
+    portworx_pools_total_capacity: "{{ portworx_pools_total_capacity | int + item.value.Provision[0].Pool.Info.TotalSize }}"
+    portworx_pools_used_capacity: "{{ portworx_pools_used_capacity | int + item.value.Provision[0].Pool.Info.Used }}"
+    portworx_nodes_over_80_percent: >-
+      {{ portworx_nodes_over_80_percent | int +
+         (1 if ((item.value.Provision[0].Pool.Info.Used | int * 100) / item.value.Provision[0].Pool.Info.TotalSize | int) > 80 else 0) }}
+    portworx_pools_status_list: >-
+      {{ portworx_pools_status_list + [{
+        'node_id': item.key,
+        'status': item.value.Provision[0].Pool.Info.Status,
+        'total_size': item.value.Provision[0].Pool.Info.TotalSize,
+        'used': item.value.Provision[0].Pool.Info.Used,
+        'capacity_percent': ((item.value.Provision[0].Pool.Info.Used | int * 100) / item.value.Provision[0].Pool.Info.TotalSize | int) | round(1)
+      }] }}
+  loop: "{{ portworx_provision_data.provisionInfo | dict2items }}"
+  when:
+    - item.value.Provision is defined
+    - item.value.Provision | length > 0
+  no_log: "{{ not portworx_detailed_logging }}"
+
+- name: Calculate average capacity utilization
+  ansible.builtin.set_fact:
+    portworx_average_capacity_percent: >-
+      {{ ((portworx_pools_used_capacity | int * 100) / portworx_pools_total_capacity | int) | round(1) if portworx_pools_total_capacity | int > 0 else 0 }}
+
+- name: Display storage pool summary
+  ansible.builtin.debug:
+    msg:
+      - "Storage Pool Health:"
+      - "  Total storage nodes: {{ portworx_total_storage_nodes }}"
+      - "  Pools online: {{ portworx_pools_online }}"
+      - "  Pools degraded: {{ portworx_pools_degraded }}"
+      - "  Average capacity: {{ portworx_average_capacity_percent }}%"
+      - "  Nodes > 80% full: {{ portworx_nodes_over_80_percent }}"
+
+- name: Display detailed pool status (verbose logging only)
+  ansible.builtin.debug:
+    var: portworx_pools_status_list
+  when: portworx_detailed_logging
+
+- name: Check for degraded pools
+  ansible.builtin.assert:
+    that:
+      - portworx_pools_degraded | int == 0
+    fail_msg: |
+      Found {{ portworx_pools_degraded }} degraded storage pools!
+
+      Pool Status Summary:
+      {{ portworx_pools_status_list | to_nice_yaml }}
+
+      Troubleshooting:
+      1. Check full provision status:
+         oc exec -n {{ portworx_namespace }} {{ portworx_pxctl_pod.metadata.name }} -- /opt/pwx/bin/pxctl cluster provision-status
+      2. Check specific pool details on affected nodes:
+         oc exec -n {{ portworx_namespace }} <pod-on-node> -- /opt/pwx/bin/pxctl service pool show
+      3. Check drive health:
+         oc exec -n {{ portworx_namespace }} <pod-on-node> -- /opt/pwx/bin/pxctl service drive show
+      4. Review node events:
+         oc get events -n {{ portworx_namespace }} --field-selector involvedObject.kind=Pod
+    success_msg: "All {{ portworx_pools_online }} storage pools are online"
+  when: portworx_validation_fail_on_pool_issues | default(true)
+
+- name: Warn about high capacity utilization
+  ansible.builtin.debug:
+    msg: |
+      WARNING: {{ portworx_nodes_over_80_percent }} storage nodes are over 80% capacity!
+      Average cluster capacity: {{ portworx_average_capacity_percent }}%
+
+      Consider:
+      1. Adding more storage capacity
+      2. Rebalancing volumes across nodes
+      3. Cleaning up unused volumes
+  when: portworx_nodes_over_80_percent | int > 0
+
+- name: Validate pool capacity is below threshold
+  ansible.builtin.assert:
+    that:
+      - portworx_average_capacity_percent | float < portworx_validation_pool_capacity_threshold | default(90)
+    fail_msg: |
+      Storage pool capacity ({{ portworx_average_capacity_percent }}%) exceeds threshold ({{ portworx_validation_pool_capacity_threshold }}%)!
+
+      Nodes over 80% capacity: {{ portworx_nodes_over_80_percent }}
+
+      Action required:
+      1. Add storage capacity immediately
+      2. Review and delete unused volumes
+      3. Consider expanding storage pools
+    success_msg: "Storage pool capacity ({{ portworx_average_capacity_percent }}%) is within acceptable limits"
+  when: portworx_validation_fail_on_pool_issues | default(true)
+
+- name: Collect storage pool summary for reporting
+  ansible.builtin.set_fact:
+    portworx_validation_pool_summary:
+      total_storage_nodes: "{{ portworx_total_storage_nodes | int }}"
+      pools_online: "{{ portworx_pools_online | int }}"
+      pools_degraded: "{{ portworx_pools_degraded | int }}"
+      average_capacity_percent: "{{ portworx_average_capacity_percent | float }}"
+      nodes_over_80_percent: "{{ portworx_nodes_over_80_percent | int }}"
+      total_capacity_bytes: "{{ portworx_pools_total_capacity | int }}"
+      used_capacity_bytes: "{{ portworx_pools_used_capacity | int }}"
+      status: "{{ 'healthy' if (portworx_pools_degraded | int == 0 and portworx_average_capacity_percent | float < 80) else ('warning' if portworx_pools_degraded | int == 0 else 'degraded') }}"
+      timestamp: "{{ ansible_date_time.epoch }}"
+
+- name: Storage pool validation complete
+  ansible.builtin.debug:
+    msg: "Storage pool validation complete - {{ portworx_total_storage_nodes }} nodes, {{ portworx_pools_online }} online, {{ portworx_pools_degraded }} degraded, {{ portworx_average_capacity_percent }}% capacity"

@@ -1,0 +1,31 @@
+# Ansible
+*.retry
+*.pyc
+__pycache__/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs and reports
+*.log
+/work/
+/reports/
+/logs/
+
+# Temporary files
+*.tmp
+*.bak
+.ansible/
+
+# Virtual environments
+venv/
+.venv/

@@ -1,0 +1,103 @@
+---
+# Final cluster health validation via pxctl
+
+- name: Check if PX is operational (final check)
+  kubernetes.core.k8s_exec:
+    namespace: "{{ portworx_namespace }}"
+    pod: "{{ portworx_pxctl_pod.metadata.name }}"
+    command: |
+      /bin/bash -c "
+      export PXCTL_AUTH_TOKEN='{{ portworx_auth_token }}' &&
+      /opt/pwx/bin/pxctl status | grep -q 'PX is operational' && echo 'operational' || echo 'degraded'
+      "
+  register: portworx_final_operational_status
+  changed_when: false
+  no_log: true
+
+- name: Display final operational status
+  ansible.builtin.debug:
+    msg: "Final Portworx cluster status: {{ portworx_final_operational_status.stdout | trim }}"
+
+- name: Verify PX is operational
+  ansible.builtin.assert:
+    that:
+      - portworx_final_operational_status.stdout | trim == 'operational'
+    fail_msg: "Portworx cluster is not operational after upgrade"
+    success_msg: "Portworx cluster is operational"
+
+- name: Count offline nodes (final check)
+  kubernetes.core.k8s_exec:
+    namespace: "{{ portworx_namespace }}"
+    pod: "{{ portworx_pxctl_pod.metadata.name }}"
+    command: |
+      /bin/bash -c "
+      export PXCTL_AUTH_TOKEN='{{ portworx_auth_token }}' &&
+      /opt/pwx/bin/pxctl status | grep -c ' Offline ' || echo 0
+      "
+  register: portworx_final_offline_count
+  changed_when: false
+  no_log: true
+
+- name: Display final offline node count
+  ansible.builtin.debug:
+    msg: "Offline nodes: {{ portworx_final_offline_count.stdout | trim }}"
+
+- name: Validate all nodes are online
+  ansible.builtin.assert:
+    that:
+      - portworx_final_offline_count.stdout | trim | int == 0
+    fail_msg: "Some nodes are offline after upgrade"
+    success_msg: "All nodes are online"
+
+- name: Get unique Portworx versions in cluster
+  kubernetes.core.k8s_exec:
+    namespace: "{{ portworx_namespace }}"
+    pod: "{{ portworx_pxctl_pod.metadata.name }}"
+    command: |
+      /bin/bash -c "
+      export PXCTL_AUTH_TOKEN='{{ portworx_auth_token }}' &&
+      /opt/pwx/bin/pxctl status |
+      awk '/IP.*ID.*SchedulerNodeName/,/^$/' |
+      grep -v 'IP.*ID.*SchedulerNodeName' |
+      awk '{print \$NF}' |
+      grep -E '^[0-9]+\.[0-9]+\.[0-9]+' |
+      sort -u
+      "
+  register: portworx_cluster_versions
+  changed_when: false
+  no_log: true
+
+- name: Display cluster versions
+  ansible.builtin.debug:
+    msg: "Portworx versions in cluster: {{ portworx_cluster_versions.stdout_lines }}"
+
+- name: Verify version consistency across cluster
+  ansible.builtin.assert:
+    that:
+      - portworx_cluster_versions.stdout_lines | length == 1
+      - portworx_target_version in portworx_cluster_versions.stdout
+    fail_msg: |
+      Version inconsistency detected!
+      Expected: {{ portworx_target_version }}
+      Found: {{ portworx_cluster_versions.stdout_lines }}
+    success_msg: "All nodes running version {{ portworx_target_version }}"
+
+- name: Capture full pxctl status for validation and final report
+  kubernetes.core.k8s_exec:
+    namespace: "{{ portworx_namespace }}"
+    pod: "{{ portworx_pxctl_pod.metadata.name }}"
+    command: /bin/bash -c "export PXCTL_AUTH_TOKEN='{{ portworx_auth_token }}' && /opt/pwx/bin/pxctl status"
+  register: portworx_final_pxctl_status
+  changed_when: false
+  no_log: "{{ not portworx_detailed_logging }}"
+
+- name: Display final pxctl status
+  ansible.builtin.debug:
+    msg: "{{ portworx_final_pxctl_status.stdout_lines }}"
+  when:
+    - portworx_detailed_logging
+    - portworx_final_pxctl_status is defined
+
+- name: Cluster health validation complete
+  ansible.builtin.debug:
+    msg: "Cluster health validated successfully via pxctl"

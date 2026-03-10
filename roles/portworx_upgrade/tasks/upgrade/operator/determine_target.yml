@@ -1,0 +1,102 @@
+---
+# Determine target upgrade strategy
+# Decides whether to upgrade to explicit version, latest, or skip
+
+- name: Determine upgrade strategy
+  ansible.builtin.set_fact:
+    portworx_operator_upgrade_strategy: >-
+      {%- if portworx_operator_target_version | length > 0 -%}
+        explicit
+      {%- elif portworx_operator_auto_upgrade_to_latest -%}
+        latest
+      {%- else -%}
+        skip
+      {%- endif -%}
+
+- name: Process explicit target version
+  when: portworx_operator_upgrade_strategy == 'explicit'
+  block:
+    - name: Parse target version
+      ansible.builtin.set_fact:
+        portworx_operator_target_version_parsed: "{{ ('portworx-operator.v' + portworx_operator_target_version) | parse_operator_version }}"
+
+    - name: Set target version facts
+      ansible.builtin.set_fact:
+        portworx_operator_target_version_string: "{{ portworx_operator_target_version_parsed.string }}"
+        portworx_operator_target_version_tuple: "{{ portworx_operator_target_version_parsed.tuple }}"
+
+    - name: Check if already at target version
+      ansible.builtin.set_fact:
+        portworx_operator_target_reached: "{{ portworx_operator_current_version_tuple == portworx_operator_target_version_tuple }}"
+
+    - name: Skip if already at target
+      when: portworx_operator_target_reached | bool
+      block:
+        - name: Set skip strategy
+          ansible.builtin.set_fact:
+            portworx_operator_upgrade_strategy: skip
+            portworx_operator_skip_reason: "Already at target version {{ portworx_operator_target_version_string }}"
+
+- name: Process latest target strategy
+  when: portworx_operator_upgrade_strategy == 'latest'
+  block:
+    - name: Set latest target facts
+      ansible.builtin.set_fact:
+        portworx_operator_target_version_string: "latest available"
+        portworx_operator_target_version_tuple: []
+        portworx_operator_target_reached: false
+
+- name: Get all available InstallPlans for version skew validation
+  when: portworx_operator_upgrade_strategy in ['explicit', 'latest']
+  block:
+    - name: Fetch all InstallPlans
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: InstallPlan
+        namespace: "{{ portworx_operator_namespace }}"
+      register: portworx_operator_all_installplans
+      no_log: true
+
+    - name: Build candidate list for skew validation
+      ansible.builtin.set_fact:
+        portworx_operator_skew_candidates: >-
+          {%- set candidates = [] -%}
+          {%- for ip in portworx_operator_all_installplans.resources -%}
+            {%- for csv_name in ip.spec.clusterServiceVersionNames -%}
+              {%- if csv_name.startswith(portworx_operator_csv_prefix) -%}
+                {%- set version_parsed = csv_name | parse_operator_version -%}
+                {%- set _ = candidates.append({'version_tuple': version_parsed.tuple}) -%}
+              {%- endif -%}
+            {%- endfor -%}
+          {%- endfor -%}
+          {{ candidates | unique }}
+
+    - name: Validate version skew for explicit target
+      when: portworx_operator_upgrade_strategy == 'explicit'
+      block:
+        - name: Calculate upgrade path length
+          ansible.builtin.set_fact:
+            portworx_operator_path_length: >-
+              {{
+                portworx_operator_skew_candidates
+                | calculate_upgrade_path_length(
+                    portworx_operator_current_version_tuple,
+                    portworx_operator_target_version_tuple,
+                    portworx_operator_max_version_skew
+                  )
+              }}
+
+        - name: Display version skew validation
+          ansible.builtin.debug:
+            msg:
+              - "Version skew validation passed"
+              - "Upgrade path length: {{ portworx_operator_path_length }} steps"
+              - "Maximum allowed: {{ portworx_operator_max_version_skew }} steps"
+
+- name: Display upgrade strategy
+  ansible.builtin.debug:
+    msg:
+      - "Upgrade strategy: {{ portworx_operator_upgrade_strategy }}"
+      - "Current version: {{ portworx_operator_current_version_string }}"
+      - "Target version: {{ portworx_operator_target_version_string | default('N/A') }}"
+      - "Skip reason: {{ portworx_operator_skip_reason | default('N/A') }}"

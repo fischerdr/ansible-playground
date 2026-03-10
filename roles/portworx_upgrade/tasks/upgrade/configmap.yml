@@ -1,0 +1,87 @@
+---
+# Update px-versions configmap
+
+- name: Record configmap update start time
+  ansible.builtin.set_fact:
+    portworx_configmap_start_time: "{{ ansible_date_time.epoch }}"
+
+- name: Set versions file path
+  ansible.builtin.set_fact:
+    _portworx_versions_path: "{{ portworx_versions_file_path | default(role_path ~ '/files/versions/' ~ portworx_versions_file, true) }}"
+
+- name: Verify version file exists
+  ansible.builtin.stat:
+    path: "{{ _portworx_versions_path }}"
+  register: portworx_version_file_stat
+  delegate_to: localhost
+
+- name: Fail if version file not found
+  ansible.builtin.fail:
+    msg: |
+      Version file not found: {{ _portworx_versions_path }}
+      {% if portworx_versions_file_path %}
+      Custom path was specified via portworx_versions_file_path variable.
+      {% else %}
+      Default location: {{ role_path }}/files/versions/{{ portworx_versions_file }}
+      {% endif %}
+
+      To obtain version files:
+      export PXVER={{ portworx_target_version }}
+      export KBVER=$(oc version | awk '/Server Version/ {print $3}')
+      curl -o versions-${PXVER} "https://install.portworx.com/$PXVER/version?kbver=$KBVER"
+  when: not portworx_version_file_stat.stat.exists
+
+- name: Delete existing px-versions configmap
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: ConfigMap
+    name: px-versions
+    namespace: "{{ portworx_namespace }}"
+
+- name: Wait for configmap deletion to complete
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: ConfigMap
+    name: px-versions
+    namespace: "{{ portworx_namespace }}"
+  register: portworx_cm_check
+  until: portworx_cm_check.resources | length == 0
+  retries: 12
+  delay: 5
+
+- name: Create new px-versions configmap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: px-versions
+        namespace: "{{ portworx_namespace }}"
+      data:
+        versions: "{{ lookup('file', _portworx_versions_path) }}"
+
+- name: Verify configmap creation
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: ConfigMap
+    name: px-versions
+    namespace: "{{ portworx_namespace }}"
+  register: portworx_new_cm
+
+- name: Validate new configmap
+  ansible.builtin.assert:
+    that:
+      - portworx_new_cm.resources | length == 1
+      - portworx_target_version in portworx_new_cm.resources[0].data.versions
+    fail_msg: "New configmap not created correctly or doesn't contain target version"
+    success_msg: "ConfigMap px-versions updated successfully with version {{ portworx_target_version }}"
+
+- name: Record configmap update end time
+  ansible.builtin.set_fact:
+    portworx_configmap_end_time: "{{ ansible_date_time.epoch }}"
+
+- name: ConfigMap update complete
+  ansible.builtin.debug:
+    msg: "px-versions configmap updated to version {{ portworx_target_version }}"

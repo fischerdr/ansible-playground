@@ -1,0 +1,210 @@
+---
+# Single upgrade step: discover, approve, wait, validate, update version
+
+- name: "Check if target version already reached (early exit)"
+  ansible.builtin.set_fact:
+    _target_reached: "{{ (_current_major | int == _target_major | int) and (_current_minor | int == _target_minor | int) and (_current_patch | int == _target_patch | int) }}"
+  tags: [upgrade, version_check]
+
+- name: "Skip remaining upgrade steps - target version reached"
+  ansible.builtin.debug:
+    msg: "Target version {{ _target_major }}.{{ _target_minor }}.{{ _target_patch }} reached. Skipping iteration {{ _iteration }}."
+  when: _target_reached | bool
+  tags: [upgrade, version_check]
+
+- name: "Discover and select next InstallPlan for upgrade"
+  when: not (_target_reached | bool)
+  tags: [discovery, installplan]
+  block:
+    - name: "Get all InstallPlans in namespace"
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: InstallPlan
+        namespace: "{{ _operator_namespace }}"
+      register: _installplans_current
+      no_log: false
+
+    - name: "Find next upgrade candidate (smallest version > current)"
+      ansible.builtin.set_fact:
+        _next_step: >-
+          {%- set candidates = [] -%}
+          {%- for ip in _installplans_current.resources -%}
+            {%- if ip.spec.clusterServiceVersionNames is defined and ip.spec.clusterServiceVersionNames | length > 0 -%}
+              {%- for csv_name in ip.spec.clusterServiceVersionNames -%}
+                {%- set match = csv_name | regex_search(_semver_regex, '\\1', '\\2', '\\3') -%}
+                {%- if match | length == 3 -%}
+                  {%- set v = (match[0] | int, match[1] | int, match[2] | int) -%}
+                  {%- set cur = (_current_major | int, _current_minor | int, _current_patch | int) -%}
+                  {%- if v > cur -%}
+                    {%- set _ = candidates.append({
+                          'installplan_name': ip.metadata.name,
+                          'csv_name': csv_name,
+                          'approved': (ip.spec.approved | default(false)),
+                          'version': v
+                        }) -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ candidates | sort(attribute='version') | first | default({}) }}
+      no_log: false
+
+- name: "Fail if no next InstallPlan available"
+  ansible.builtin.fail:
+    msg: |
+      No next InstallPlan to progress from {{ _current_major }}.{{ _current_minor }}.{{ _current_patch }}.
+      Verify catalog/channel exposes next version and OLM has created InstallPlan.
+  when:
+    - not (_target_reached | bool)
+    - _next_step == {}
+  tags: [validation, error_handling]
+
+- name: "Approve InstallPlan if needed"
+  when:
+    - not (_target_reached | bool)
+    - _next_step != {}
+    - _auto_approve_sequence | bool
+    - not (_next_step.approved | bool)
+  tags: [approval, installplan]
+  block:
+    - name: "Approve InstallPlan"
+      kubernetes.core.k8s:
+        api_version: operators.coreos.com/v1alpha1
+        kind: InstallPlan
+        name: "{{ _next_step.installplan_name }}"
+        namespace: "{{ _operator_namespace }}"
+        state: patched
+        merge_type: merge
+        definition:
+          metadata:
+            name: "{{ _next_step.installplan_name }}"
+            namespace: "{{ _operator_namespace }}"
+          spec:
+            approved: true
+      no_log: false
+
+    - name: "Require manual approval if auto-approval disabled"
+      ansible.builtin.fail:
+        msg: |
+          InstallPlan {{ _next_step.installplan_name }} needs approval.
+          Run with _auto_approve_sequence=true or manually approve.
+      when: not (_auto_approve_sequence | bool)
+
+- name: "Wait for CSV to succeed"
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    name: "{{ _next_step.csv_name }}"
+    namespace: "{{ _operator_namespace }}"
+  register: _csv_status
+  no_log: false
+  retries: "{{ (_per_step_timeout | int / 10) | int }}"
+  delay: 10
+  until:
+    - _csv_status.resources | length > 0
+    - _csv_status.resources[0].status.phase | default('') == 'Succeeded'
+  when:
+    - not (_target_reached | bool)
+    - _next_step != {}
+  tags: [waiting, csv]
+
+- name: "Validate operator health (optional)"
+  when:
+    - not (_target_reached | bool)
+    - _validate_between_steps | bool
+    - _next_step != {}
+  tags: [validation, testing]
+  block:
+    - name: "Check deployments are ready"
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: "{{ _operator_namespace }}"
+      register: _deployments
+      no_log: false
+
+    - name: "Assert deployments available"
+      ansible.builtin.assert:
+        that:
+          - _deployments.resources | length > 0
+          - _deployments.resources | selectattr('status.availableReplicas', 'defined') | list | length > 0
+        fail_msg: "Deployments not ready after {{ _next_step.csv_name }}"
+
+- name: "Update current version from newly installed CSV"
+  when:
+    - not (_target_reached | bool)
+    - _next_step != {}
+  tags: [update, version]
+  block:
+    - name: "Retrieve Subscription status to identify installed CSV (avoid unrelated operators in namespace)"
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: Subscription
+        name: "{{ _subscription_name }}"
+        namespace: "{{ _operator_namespace }}"
+      register: _subscription_info_step
+      no_log: false
+
+    - name: "Set installed CSV name from Subscription status"
+      ansible.builtin.set_fact:
+        _installed_csv_name_step: >-
+          {{
+            (
+              _subscription_info_step.resources[0].status.installedCSV
+              | default(_subscription_info_step.resources[0].status.currentCSV | default(''))
+            )
+          }}
+      when: _subscription_info_step.resources | length > 0
+      no_log: false
+
+    - name: "Fail if Subscription does not report an installed CSV"
+      ansible.builtin.fail:
+        msg: |
+          Subscription {{ _subscription_name }} in namespace {{ _operator_namespace }} does not have status.installedCSV/currentCSV yet.
+          Verify the operator is installed and OLM has reconciled the Subscription.
+      when:
+        - _subscription_info_step.resources | length == 0 or _installed_csv_name_step | length == 0
+
+    - name: "Retrieve installed ClusterServiceVersion referenced by Subscription"
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        name: "{{ _installed_csv_name_step }}"
+        namespace: "{{ _operator_namespace }}"
+      register: _installed_csv_info_step
+      no_log: false
+
+    - name: "Set current CSV object and parsed version match from installed CSV"
+      ansible.builtin.set_fact:
+        _current_csv_obj: "{{ _installed_csv_info_step.resources[0] }}"
+        _version_match: "{{ _installed_csv_info_step.resources[0].metadata.name | regex_search(_semver_regex, '\\1', '\\2', '\\3') }}"
+      when: _installed_csv_info_step.resources | length > 0
+      no_log: false
+
+    - name: "Update current version variables"
+      ansible.builtin.set_fact:
+        _current_major: "{{ _version_match[0] | int }}"
+        _current_minor: "{{ _version_match[1] | int }}"
+        _current_patch: "{{ _version_match[2] | int }}"
+        _upgrade_state: >-
+          {{ _upgrade_state | combine({
+            'steps_completed': _upgrade_state.steps_completed + [_next_step.csv_name]
+          }) }}
+      when:
+        - _version_match is defined
+        - _version_match | length == 3
+      no_log: false
+
+- name: "Wait for OLM to create next InstallPlan"
+  ansible.builtin.pause:
+    seconds: "{{ _installplan_poll_timeout }}"
+  when:
+    - not (_target_reached | bool)
+    - _next_step != {}
+    - not (
+        (_current_major | int == _target_major | int) and
+        (_current_minor | int == _target_minor | int) and
+        (_current_patch | int == _target_patch | int)
+      )
+  tags: [timing, installplan]

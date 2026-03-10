@@ -1,0 +1,31 @@
+---
+# Reporting: emit structured summary for hydra_thin_csi execution.
+
+- name: Display Hydra thin-csi role summary
+  ansible.builtin.debug:
+    msg: |
+      =============================================
+       Hydra Thin-CSI Role — Run Summary
+      =============================================
+      Use Case         : {{ hydra_thin_csi_usecase }}
+      OpenShift Cluster: {{ hydra_thin_csi_openshift_cluster_name }}
+
+      [ vCenter Verification ]
+        DS Cluster      : {{ hydra_thin_csi_ds_cluster_name | default('N/A') }} — VERIFIED (not yet implemented)
+        LUN             : {{ hydra_thin_csi_lun_name | default('N/A') }} — VERIFIED (not yet implemented)
+        Storage DRS     : (not yet implemented)
+        ESXi Host Clusters checked: (not yet implemented)
+        LUN visibility  : (not yet implemented)
+
+      [ vCenter Tags ]
+        Tag             : {{ __hydra_thin_csi_tag_name }} — {{ hydra_thin_csi_tag_result | default('NOT IMPLEMENTED') }}
+
+      [ vCenter Storage Policy ]
+        Policy          : {{ __hydra_thin_csi_policy_name }} — {{ hydra_thin_csi_policy_result | default('NOT IMPLEMENTED') }}
+
+      [ OpenShift StorageClass ]
+        StorageClass    : {{ __hydra_thin_csi_storageclass_name }} — {{ hydra_thin_csi_storageclass_result | default('UNKNOWN') }}
+      =============================================
+  tags:
+    - reporting
+    - hydra_thin_csi

@@ -1,0 +1,31 @@
+---
+galaxy_info:
+  role_name: hydra_thin_csi
+  namespace: hydra
+  author: "Enterprise Platform Team"
+  description: "Configure thin-csi storage for Hydra OpenShift clusters backed by VMware vSphere."
+  company: "Enterprise Organization"
+  license: "MIT"
+
+  min_ansible_version: "2.12"
+
+  platforms:
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+
+  galaxy_tags:
+    - hydra
+    - storage
+    - csi
+    - openshift
+    - kubernetes
+    - vmware
+
+dependencies: []
+
+collections:
+  - community.vmware
+  - kubernetes.core
+  - community.hashi_vault

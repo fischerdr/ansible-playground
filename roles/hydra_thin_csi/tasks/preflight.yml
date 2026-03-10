@@ -1,0 +1,12 @@
+---
+# Pre-flight checks: verify environment is ready for hydra_thin_csi role execution.
+
+- name: Validate minimum Ansible version for hydra_thin_csi
+  ansible.builtin.assert:
+    that:
+      - ansible_version.full is version('2.12.0', '>=')
+    fail_msg: "Ansible 2.12.0 or higher is required for the hydra_thin_csi role."
+    quiet: true
+  tags:
+    - preflight
+    - hydra_thin_csi

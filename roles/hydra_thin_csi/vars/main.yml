@@ -1,0 +1,15 @@
+---
+# hydra_thin_csi internal variables
+# DO NOT override these in playbooks.
+
+__hydra_thin_csi_version: "1.0.0"
+
+# Derived names based on Hydra thin-csi naming standards
+__hydra_thin_csi_tag_name: >-
+  hydra-{{ hydra_thin_csi_usecase | lower }}-{{ hydra_thin_csi_openshift_cluster_name }}
+
+__hydra_thin_csi_policy_name: >-
+  hydra-{{ hydra_thin_csi_usecase | lower }}-{{ hydra_thin_csi_openshift_cluster_name }}
+
+__hydra_thin_csi_storageclass_name: >-
+  hydra-{{ hydra_thin_csi_usecase | lower }}-thin-csi

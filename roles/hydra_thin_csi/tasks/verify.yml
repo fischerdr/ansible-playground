@@ -1,0 +1,10 @@
+---
+# Verification phase for hydra_thin_csi.
+# This can be extended to perform post-change checks if required.
+
+- name: Placeholder verification task for hydra_thin_csi
+  ansible.builtin.debug:
+    msg: "Verification phase for hydra_thin_csi completed (no additional checks implemented)."
+  tags:
+    - verification
+    - hydra_thin_csi

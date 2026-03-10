@@ -1,0 +1,22 @@
+---
+# Input validation: ensure all required hydra_thin_csi variables are defined and valid.
+
+- name: Validate required hydra_thin_csi variables are defined
+  ansible.builtin.assert:
+    that:
+      - hydra_thin_csi_usecase is defined
+      - hydra_thin_csi_usecase | length > 0
+      - hydra_thin_csi_openshift_cluster_name is defined
+      - hydra_thin_csi_openshift_cluster_name | length > 0
+      - hydra_thin_csi_vcenter_hostname is defined
+      - hydra_thin_csi_vcenter_hostname | length > 0
+      - hydra_thin_csi_vcenter_datacenter is defined
+      - hydra_thin_csi_vcenter_datacenter | length > 0
+      - hydra_thin_csi_lun_name is defined
+      - hydra_thin_csi_lun_name | length > 0
+      - hydra_thin_csi_ds_cluster_name is defined
+      - hydra_thin_csi_ds_cluster_name | length > 0
+    fail_msg: "One or more required hydra_thin_csi variables are missing or empty."
+  tags:
+    - validation
+    - hydra_thin_csi

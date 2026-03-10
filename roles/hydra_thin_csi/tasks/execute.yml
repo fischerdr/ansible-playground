@@ -1,0 +1,80 @@
+---
+# Execute configuration: vCenter tagging, storage policy, and OpenShift StorageClass.
+
+## TODO: Retrieve vCenter credentials from Vault
+# This section will use community.hashi_vault.hashi_vault to retrieve
+# vCenter credentials when the Vault integration is wired for this role.
+
+- name: Render desired StorageClass manifest for hydra_thin_csi
+  ansible.builtin.template:
+    src: storageclass.yml.j2
+    dest: "/tmp/hydra_thin_csi_storageclass_{{ __hydra_thin_csi_storageclass_name }}.yml"
+    mode: '0600'
+  register: hydra_thin_csi_sc_template
+  tags:
+    - execution
+    - hydra_thin_csi
+
+- name: Check existing StorageClass {{ __hydra_thin_csi_storageclass_name }}
+  kubernetes.core.k8s_info:
+    api_version: storage.k8s.io/v1
+    kind: StorageClass
+    name: "{{ __hydra_thin_csi_storageclass_name }}"
+  register: hydra_thin_csi_sc_info
+  tags:
+    - execution
+    - hydra_thin_csi
+
+- name: Apply StorageClass when absent
+  kubernetes.core.k8s:
+    state: present
+    src: "/tmp/hydra_thin_csi_storageclass_{{ __hydra_thin_csi_storageclass_name }}.yml"
+  when: hydra_thin_csi_sc_info.resources | default([]) | length == 0
+  register: hydra_thin_csi_sc_apply_created
+  tags:
+    - execution
+    - hydra_thin_csi
+
+- name: Detect StorageClass drift
+  ansible.builtin.set_fact:
+    hydra_thin_csi_sc_drift: >-
+      {{
+        hydra_thin_csi_sc_info.resources | default([]) | length > 0 and
+        (
+          hydra_thin_csi_sc_info.resources[0].parameters.StoragePolicyName
+            | default('')
+          != __hydra_thin_csi_policy_name
+        )
+      }}
+  when: hydra_thin_csi_sc_info.resources | default([]) | length > 0
+  tags:
+    - execution
+    - hydra_thin_csi
+
+- name: Correct StorageClass drift
+  kubernetes.core.k8s:
+    state: present
+    src: "/tmp/hydra_thin_csi_storageclass_{{ __hydra_thin_csi_storageclass_name }}.yml"
+  when:
+    - hydra_thin_csi_sc_info.resources | default([]) | length > 0
+    - hydra_thin_csi_sc_drift | default(false) | bool
+  register: hydra_thin_csi_sc_apply_drift
+  tags:
+    - execution
+    - hydra_thin_csi
+
+- name: Set StorageClass result state
+  ansible.builtin.set_fact:
+    hydra_thin_csi_storageclass_result: >-
+      {{
+        'CREATED'
+        if hydra_thin_csi_sc_apply_created is defined and hydra_thin_csi_sc_apply_created.changed | default(false)
+        else
+        'DRIFT CORRECTED'
+        if hydra_thin_csi_sc_apply_drift is defined and hydra_thin_csi_sc_apply_drift.changed | default(false)
+        else
+        'ALREADY CORRECT'
+      }}
+  tags:
+    - execution
+    - hydra_thin_csi

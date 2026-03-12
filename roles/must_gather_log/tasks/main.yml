@@ -352,3 +352,49 @@
       ansible.builtin.debug:
         msg: "Cleanup or logging failed but will not fail the playbook. Manual cleanup may be required."
       failed_when: false
+
+# ==============================================================================
+# Phase 5b: Node Label Removal
+# ==============================================================================
+# Only removes the label if this run was the one that added it.
+# If the label was already present before this run (pre-labeled by an operator),
+# it is left intact to preserve intentional node designation.
+
+- name: "Remove must-gather label from node if it was applied by this run"
+  tags: [cleanup, always]
+  block:
+    - name: "Remove must-gather label from node"
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Node
+        name: "{{ candidate_node }}"
+        definition:
+          metadata:
+            labels:
+              "{{ mustgather_label_selector }}": null
+        merge_type: merge
+        state: present
+      when:
+        - candidate_node is defined
+        - candidate_node | length > 0
+        - label_result is defined
+        - label_result.changed | default(false) | bool
+      register: label_removal_result
+
+    - name: "Report node label removal"
+      ansible.builtin.debug:
+        msg: |
+          Node label cleanup:
+          Node:   {{ candidate_node }}
+          Label:  {{ mustgather_label_selector }}={{ mustgather_label_value }}
+          Status: {{ 'Removed (was added by this run)' if (label_removal_result is defined and label_removal_result.changed) else 'Skipped (label was pre-existing or node not labeled by this run)' }}
+      when: candidate_node is defined and candidate_node | length > 0
+
+  rescue:
+    - name: "Log label removal failure (non-fatal)"
+      ansible.builtin.debug:
+        msg: |
+          Warning: Failed to remove must-gather label from node {{ candidate_node | default('unknown') }}.
+          Manual cleanup may be required:
+            kubectl label node {{ candidate_node | default('<node>') }} {{ mustgather_label_selector }}-
+      failed_when: false

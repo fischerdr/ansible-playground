@@ -110,7 +110,7 @@
           Must-Gather Archive Created (No Upload)
           ===================================================================
           Archive preserved at: {{ mustgather_archive_dir }}
-          - {{ cluster_name | default('cluster') }}-nocase-{{ ansible_date_time.epoch }}-must-gather.tar.gz: {{ (archive_files.files[0].size | int / 1024 / 1024) | round(2) }} MB
+          - {{ cluster_name | default('cluster') }}-nocase-{{ ansible_date_time.epoch }}-must-gather.tar.gz: {{ (archive_files.files[0].size / 1024 / 1024) | round(2) }} MB
 
           Reason: No Red Hat case number provided (rh_case variable not set)
 
@@ -234,6 +234,7 @@
       loop_control:
         label: "part{{ item }}"
       failed_when: false
+      no_log: true
 
     - name: "Display SFTP upload log"
       ansible.builtin.debug:

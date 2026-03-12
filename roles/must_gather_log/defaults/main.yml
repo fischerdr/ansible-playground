@@ -87,6 +87,8 @@ skip_mustgather_deletion: false
 rh_sftp_host: "sftp.access.redhat.com"  # Red Hat SFTP server (port 22 or 80)
 rh_sftp_user: ""  # Red Hat Customer Portal username
 rh_sftp_token: ""  # SFTP authentication token (generate via web UI or API)
+rh_sftp_vault_path: "static_secrets/data/env/{{ cluster_user | default('default') }}/redhat/serviceaccount"  # Vault path for SFTP credentials lookups
+
 #
 # Example lookup patterns for HashiCorp Vault:
 #   rh_sftp_user: "{{ lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/redhat:sftp_user') }}"
@@ -95,6 +97,15 @@ rh_sftp_token: ""  # SFTP authentication token (generate via web UI or API)
 # Generate SFTP token:
 #   Web UI: https://access.redhat.com/support/secure-ftp
 #   API: curl -X POST https://api.access.redhat.com/support/v2/sftp/token
+
+# ==============================================================================
+# SFTP Diagnostics
+# ==============================================================================
+
+# Enable verbose SSH/SFTP output (-vvv) in upload log files.
+# WARNING: With large archives (multi-GB), this produces very large log files.
+# Only enable when actively troubleshooting SFTP connection failures.
+mustgather_sftp_verbose: false
 
 # ==============================================================================
 # Networking and Proxy Configuration

@@ -28,6 +28,10 @@
     # Test configuration
     test_archive_size_mb: 10  # Size of test archive in MB
 
+    # SFTP connectivity test - consumes the token (one-time use).
+    # Only enable with a dedicated throwaway token; never set true for production uploads.
+    sftp_run_connectivity_test: false
+
     # SFTP configuration for Red Hat support
     # See: https://access.redhat.com/articles/5594481
     sftp_host: "sftp.access.redhat.com"  # Red Hat SFTP server (port 22 or 80)
@@ -192,6 +196,31 @@
 
               {% endif %}
 
+        - name: "** PRE-UPLOAD TEST ** Probe nc proxy tunnel to SFTP host"
+          ansible.builtin.shell: |
+            set -o pipefail
+            echo "Testing nc proxy tunnel: {{ proxy_host }}:{{ proxy_port }} -> {{ sftp_host }}:22"
+            nc --proxy {{ proxy_host }}:{{ proxy_port }} \
+               --proxy-type http \
+               -w 5 \
+               {{ sftp_host }} 22 < /dev/null
+          args:
+            executable: /bin/bash
+          register: nc_proxy_probe
+          changed_when: false
+          failed_when: nc_proxy_probe.rc != 0
+          when: proxy_host is defined and proxy_port is defined
+
+        - name: Display nc proxy probe result
+          ansible.builtin.debug:
+            msg: |
+              nc proxy tunnel test result:
+              Host:       {{ proxy_host }}:{{ proxy_port }} -> {{ sftp_host }}:22
+              Exit code:  {{ nc_proxy_probe.rc }}
+              Output:     {{ nc_proxy_probe.stdout | default('(none)') }}
+              Stderr:     {{ nc_proxy_probe.stderr | default('(none)') }}
+          when: proxy_host is defined and proxy_port is defined
+
         - name: "** PRE-UPLOAD TEST ** Verify Red Hat SFTP connectivity"
           ansible.builtin.shell: |
             set -o pipefail
@@ -213,6 +242,7 @@
 
             echo "" >> "$log_file"
             echo "Exit code: $exit_code" >> "$log_file"
+            echo "$log_file"
             exit $exit_code
           args:
             executable: /bin/bash
@@ -220,6 +250,18 @@
           changed_when: false
           failed_when: sftp_test.rc != 0
           no_log: true
+          when: sftp_run_connectivity_test | default(false) | bool
+
+        - name: Read SFTP connectivity test log
+          ansible.builtin.slurp:
+            src: "{{ sftp_test.stdout | trim }}"
+          register: sftp_test_log
+          when: sftp_run_connectivity_test | default(false) | bool
+
+        - name: Display SFTP connectivity test log
+          ansible.builtin.debug:
+            msg: "{{ sftp_test_log.content | b64decode }}"
+          when: sftp_run_connectivity_test | default(false) | bool
 
         - name: Display SFTP connectivity test result
           ansible.builtin.debug:
@@ -234,6 +276,7 @@
               Target file: {{ sftp_upload_filename }}
               Note: File will auto-attach to case {{ rh_case }} with correct naming
               Log file: {{ mustgather_upload_logs }}/sftp-connectivity-test-{{ ansible_date_time.epoch }}.log
+          when: sftp_run_connectivity_test | default(false) | bool
               ===================================================================
 
         - name: "** TESTING SFTP UPLOAD ** Upload test archive to Red Hat support via SFTP"
@@ -253,6 +296,7 @@
             echo "" >> "$log_file"
 
             sshpass -p "{{ sftp_token }}" sftp \
+              -vvv \
               {{ sftp_proxy_option }} \
               -o StrictHostKeyChecking=no \
               -o UserKnownHostsFile=/dev/null \
@@ -272,13 +316,24 @@
               echo "Status: FAILED" >> "$log_file"
             fi
 
+            echo "$log_file"
             exit $exit_code
           args:
             executable: /bin/bash
           register: sftp_upload
           changed_when: sftp_upload.rc == 0
-          failed_when: sftp_upload.rc != 0
-          no_log: true
+          failed_when: false
+          ignore_errors: true
+          no_log: false
+
+        - name: Read SFTP upload log
+          ansible.builtin.slurp:
+            src: "{{ sftp_upload.stdout | trim }}"
+          register: sftp_upload_log
+
+        - name: Display SFTP upload log
+          ansible.builtin.debug:
+            msg: "{{ sftp_upload_log.content | b64decode }}"
 
         - name: Set upload status from SFTP results
           ansible.builtin.set_fact:

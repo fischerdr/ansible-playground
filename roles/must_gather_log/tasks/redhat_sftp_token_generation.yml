@@ -165,7 +165,7 @@
       Content-Type: "application/json"
     body_format: json
     body:
-      durationDays: "{{ rh_sftp_token_expiry_days }}"
+      expiryInDays: "{{ rh_sftp_token_expiry_days }}"
     validate_certs: false
     return_content: true
   environment:
@@ -193,7 +193,7 @@
   ansible.builtin.set_fact:
     rh_sftp_user: "{{ sftp_token_response.json.username }}"
     rh_sftp_token: "{{ sftp_token_response.json.token }}"
-    _sftp_token_expiry: "{{ sftp_token_response.json.expirationDate }}"
+    _sftp_token_expiry: "{{ sftp_token_response.json.expiryDate }}"
   no_log: true
   tags:
     - redhat_sftp_token

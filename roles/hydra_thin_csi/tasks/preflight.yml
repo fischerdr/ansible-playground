@@ -10,3 +10,158 @@
   tags:
     - preflight
     - hydra_thin_csi
+
+- name: Gather OpenShift MachineSets for hydra_thin_csi
+  kubernetes.core.k8s_info:
+    api_version: "machine.openshift.io/v1beta1"
+    kind: MachineSet
+  register: hydra_thin_csi_machinesets
+  tags:
+    - preflight
+    - hydra_thin_csi
+
+- name: Fail if no MachineSets found
+  ansible.builtin.fail:
+    msg: >
+      hydra_thin_csi preflight failed: no MachineSets found. Ensure the cluster is healthy
+      and MachineSets are present.
+  when: hydra_thin_csi_machinesets.resources | default([]) | length == 0
+  tags:
+    - preflight
+    - hydra_thin_csi
+
+- name: Derive vCenter URL and datacenter from first MachineSet workspace
+  ansible.builtin.set_fact:
+    hydra_thin_csi_vcenter_hostname: >-
+      {{
+        hydra_thin_csi_vcenter_hostname | default('', true) | trim
+        or hydra_thin_csi_machinesets.resources[0].spec.template.spec.providerSpec.value.workspace.server
+      }}
+    hydra_thin_csi_vcenter_datacenter: >-
+      {{
+        hydra_thin_csi_vcenter_datacenter | default('', true) | trim
+        or hydra_thin_csi_machinesets.resources[0].spec.template.spec.providerSpec.value.workspace.datacenter
+      }}
+  tags:
+    - preflight
+    - hydra_thin_csi
+
+- name: Fail if vCenter URL or datacenter could not be derived from MachineSets
+  ansible.builtin.fail:
+    msg: >
+      hydra_thin_csi preflight failed: could not derive vCenter server or datacenter from
+      MachineSet providerSpec.value.workspace. Set hydra_thin_csi_vcenter_hostname and
+      hydra_thin_csi_vcenter_datacenter, or ensure MachineSets have workspace.server and
+      workspace.datacenter.
+  when: >-
+    not (hydra_thin_csi_vcenter_hostname | length > 0 and hydra_thin_csi_vcenter_datacenter | length > 0)
+  tags:
+    - preflight
+    - hydra_thin_csi
+
+- name: Derive ESXi host cluster identifiers from MachineSets
+  ansible.builtin.set_fact:
+    hydra_thin_csi_esxi_host_clusters: >-
+      {{
+        hydra_thin_csi_machinesets.resources
+        | map(attribute='spec.template.spec.providerSpec.value.cluster')
+        | select('defined')
+        | list
+        | unique
+      }}
+  tags:
+    - preflight
+    - hydra_thin_csi
+
+- name: Fail if no ESXi host clusters could be derived from MachineSets
+  ansible.builtin.fail:
+    msg: >
+      hydra_thin_csi preflight failed: unable to derive ESXi host clusters from
+      providerSpec.value.cluster. Ensure MachineSets reference vSphere clusters.
+  when: hydra_thin_csi_esxi_host_clusters | default([]) | length == 0
+  tags:
+    - preflight
+    - hydra_thin_csi
+
+# Note: community.vmware has no vmware_datastore_cluster_info module. We verify the target
+# LUN exists in the datacenter and is visible to each ESXi cluster. Operators must ensure
+# the DS cluster exists and Storage DRS is disabled.
+
+- name: Retrieve vCenter credentials from Vault for preflight
+  ansible.builtin.set_fact:
+    hydra_thin_csi_vcenter_username: >-
+      {{
+        lookup(
+          'community.hashi_vault.hashi_vault',
+          'secret=' ~ hydra_thin_csi_vcenter_secret_path ~
+          ' url=' ~ hydra_thin_csi_vault_address ~
+          ' auth_method=token token=' ~ hydra_thin_csi_vault_token ~
+          ' validate_certs=true namespace=' ~ hydra_thin_csi_vault_namespace
+        )['username']
+      }}
+    hydra_thin_csi_vcenter_password: >-
+      {{
+        lookup(
+          'community.hashi_vault.hashi_vault',
+          'secret=' ~ hydra_thin_csi_vcenter_secret_path ~
+          ' url=' ~ hydra_thin_csi_vault_address ~
+          ' auth_method=token token=' ~ hydra_thin_csi_vault_token ~
+          ' validate_certs=true namespace=' ~ hydra_thin_csi_vault_namespace
+        )['password']
+      }}
+  no_log: true
+  tags:
+    - preflight
+    - hydra_thin_csi
+
+- name: Retrieve datastore information for target LUN (datacenter scope)
+  community.vmware.vmware_datastore_info:
+    hostname: "{{ hydra_thin_csi_vcenter_hostname }}"
+    username: "{{ hydra_thin_csi_vcenter_username }}"
+    password: "{{ hydra_thin_csi_vcenter_password }}"
+    datacenter: "{{ hydra_thin_csi_vcenter_datacenter }}"
+    validate_certs: false
+  register: hydra_thin_csi_datastores
+  tags:
+    - preflight
+    - hydra_thin_csi
+
+- name: Validate target LUN exists in datastore cluster
+  ansible.builtin.fail:
+    msg: >
+      hydra_thin_csi preflight failed: datastore (LUN) '{{ hydra_thin_csi_lun_name }}'
+      not found in vCenter datacenter '{{ hydra_thin_csi_vcenter_datacenter }}'.
+  when: >
+    hydra_thin_csi_datastores.datastores | default([]) |
+    selectattr('name', 'equalto', hydra_thin_csi_lun_name) | list | length == 0
+  tags:
+    - preflight
+    - hydra_thin_csi
+
+- name: Verify LUN visibility for each ESXi host cluster
+  community.vmware.vmware_datastore_info:
+    hostname: "{{ hydra_thin_csi_vcenter_hostname }}"
+    username: "{{ hydra_thin_csi_vcenter_username }}"
+    password: "{{ hydra_thin_csi_vcenter_password }}"
+    cluster: "{{ item }}"
+    validate_certs: false
+  loop: "{{ hydra_thin_csi_esxi_host_clusters }}"
+  loop_control:
+    label: "{{ item }}"
+  register: hydra_thin_csi_lun_visibility
+  tags:
+    - preflight
+    - hydra_thin_csi
+
+- name: Fail if LUN not visible to one or more ESXi host clusters
+  ansible.builtin.fail:
+    msg: >
+      hydra_thin_csi preflight failed: LUN '{{ hydra_thin_csi_lun_name }}' is not visible
+      to ESXi host cluster '{{ item.item }}'. Ensure the datastore is mounted on all
+      clusters referenced by MachineSets.
+  loop: "{{ hydra_thin_csi_lun_visibility.results }}"
+  when: >-
+    item.datastores | default([]) | selectattr('name', 'equalto', hydra_thin_csi_lun_name) | list | length == 0
+  tags:
+    - preflight
+    - hydra_thin_csi

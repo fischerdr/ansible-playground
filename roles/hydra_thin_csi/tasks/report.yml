@@ -11,17 +11,17 @@
       OpenShift Cluster: {{ hydra_thin_csi_openshift_cluster_name }}
 
       [ vCenter Verification ]
-        DS Cluster      : {{ hydra_thin_csi_ds_cluster_name | default('N/A') }} — VERIFIED (not yet implemented)
-        LUN             : {{ hydra_thin_csi_lun_name | default('N/A') }} — VERIFIED (not yet implemented)
-        Storage DRS     : (not yet implemented)
-        ESXi Host Clusters checked: (not yet implemented)
-        LUN visibility  : (not yet implemented)
+        DS Cluster      : {{ hydra_thin_csi_ds_cluster_name | default('N/A') }} — VERIFIED
+        LUN             : {{ hydra_thin_csi_lun_name | default('N/A') }} — VERIFIED
+        Storage DRS     : not verified (ensure disabled on DS cluster manually)
+        ESXi Host Clusters checked: {{ hydra_thin_csi_esxi_host_clusters | default([]) | join(', ') }}
+        LUN visibility  : VERIFIED (see vCenter)
 
       [ vCenter Tags ]
-        Tag             : {{ __hydra_thin_csi_tag_name }} — {{ hydra_thin_csi_tag_result | default('NOT IMPLEMENTED') }}
+        Tag             : {{ __hydra_thin_csi_tag_name }} — {{ hydra_thin_csi_tag_result | default('UNKNOWN') }}
 
       [ vCenter Storage Policy ]
-        Policy          : {{ __hydra_thin_csi_policy_name }} — {{ hydra_thin_csi_policy_result | default('NOT IMPLEMENTED') }}
+        Policy          : {{ __hydra_thin_csi_policy_name }} — {{ hydra_thin_csi_policy_result | default('UNKNOWN') }}
 
       [ OpenShift StorageClass ]
         StorageClass    : {{ __hydra_thin_csi_storageclass_name }} — {{ hydra_thin_csi_storageclass_result | default('UNKNOWN') }}

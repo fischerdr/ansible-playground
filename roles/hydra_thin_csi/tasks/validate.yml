@@ -8,15 +8,20 @@
       - hydra_thin_csi_usecase | length > 0
       - hydra_thin_csi_openshift_cluster_name is defined
       - hydra_thin_csi_openshift_cluster_name | length > 0
-      - hydra_thin_csi_vcenter_hostname is defined
-      - hydra_thin_csi_vcenter_hostname | length > 0
-      - hydra_thin_csi_vcenter_datacenter is defined
-      - hydra_thin_csi_vcenter_datacenter | length > 0
       - hydra_thin_csi_lun_name is defined
       - hydra_thin_csi_lun_name | length > 0
       - hydra_thin_csi_ds_cluster_name is defined
       - hydra_thin_csi_ds_cluster_name | length > 0
-    fail_msg: "One or more required hydra_thin_csi variables are missing or empty."
+      - hydra_thin_csi_vault_address is defined
+      - hydra_thin_csi_vault_address | length > 0
+      - hydra_thin_csi_vault_token is defined
+      - hydra_thin_csi_vault_token | length > 0
+      - hydra_thin_csi_vcenter_secret_path is defined
+      - hydra_thin_csi_vcenter_secret_path | length > 0
+    fail_msg: >
+      One or more required hydra_thin_csi variables are missing or empty:
+      usecase, openshift_cluster_name, lun_name, ds_cluster_name,
+      vault_address, vault_token, vcenter_secret_path.
   tags:
     - validation
     - hydra_thin_csi

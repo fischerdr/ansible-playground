@@ -1,10 +1,103 @@
 ---
 # Execute configuration: vCenter tagging, storage policy, and OpenShift StorageClass.
+# vCenter credentials are set in preflight (Vault lookup) and reused here.
 
-## TODO: Retrieve vCenter credentials from Vault
-# This section will use community.hashi_vault.hashi_vault to retrieve
-# vCenter credentials when the Vault integration is wired for this role.
+- name: Ensure vCenter tag category for Hydra thin-csi exists
+  community.vmware.vmware_tag_manager:
+    hostname: "{{ hydra_thin_csi_vcenter_hostname }}"
+    username: "{{ hydra_thin_csi_vcenter_username }}"
+    password: "{{ hydra_thin_csi_vcenter_password }}"
+    validate_certs: false
+    category_name: "hydra-thin-csi"
+    category_cardinality: "MULTIPLE"
+    state: "present"
+  register: hydra_thin_csi_tag_category
+  tags:
+    - execution
+    - hydra_thin_csi
 
+- name: Ensure vCenter tag {{ __hydra_thin_csi_tag_name }} exists
+  community.vmware.vmware_tag:
+    hostname: "{{ hydra_thin_csi_vcenter_hostname }}"
+    username: "{{ hydra_thin_csi_vcenter_username }}"
+    password: "{{ hydra_thin_csi_vcenter_password }}"
+    validate_certs: false
+    category_name: "hydra-thin-csi"
+    tag_name: "{{ __hydra_thin_csi_tag_name }}"
+    state: present
+  register: hydra_thin_csi_tag
+  tags:
+    - execution
+    - hydra_thin_csi
+
+- name: Apply vCenter tag to datastore (LUN)
+  community.vmware.vmware_tag_manager:
+    hostname: "{{ hydra_thin_csi_vcenter_hostname }}"
+    username: "{{ hydra_thin_csi_vcenter_username }}"
+    password: "{{ hydra_thin_csi_vcenter_password }}"
+    validate_certs: false
+    tag_names:
+      - "{{ __hydra_thin_csi_tag_name }}"
+    object_name: "{{ hydra_thin_csi_lun_name }}"
+    object_type: "Datastore"
+    state: "present"
+  register: hydra_thin_csi_tag_apply
+  tags:
+    - execution
+    - hydra_thin_csi
+
+- name: Set tag result state
+  ansible.builtin.set_fact:
+    hydra_thin_csi_tag_result: >-
+      {{
+        'CREATED'
+        if hydra_thin_csi_tag.changed | default(false)
+        or hydra_thin_csi_tag_category.changed | default(false)
+        or hydra_thin_csi_tag_apply.changed | default(false)
+        else 'ALREADY CORRECT'
+      }}
+  tags:
+    - execution
+    - hydra_thin_csi
+
+- name: Discover existing vCenter storage policies
+  community.vmware.vmware_vm_storage_policy_info:
+    hostname: "{{ hydra_thin_csi_vcenter_hostname }}"
+    username: "{{ hydra_thin_csi_vcenter_username }}"
+    password: "{{ hydra_thin_csi_vcenter_password }}"
+    validate_certs: false
+  register: hydra_thin_csi_policies
+  tags:
+    - execution
+    - hydra_thin_csi
+
+- name: Ensure vCenter storage policy {{ __hydra_thin_csi_policy_name }} exists and is bound to tag
+  community.vmware.vmware_vm_storage_policy:
+    hostname: "{{ hydra_thin_csi_vcenter_hostname }}"
+    username: "{{ hydra_thin_csi_vcenter_username }}"
+    password: "{{ hydra_thin_csi_vcenter_password }}"
+    validate_certs: false
+    name: "{{ __hydra_thin_csi_policy_name }}"
+    state: present
+    tags:
+      - category: "hydra-thin-csi"
+        tag: "{{ __hydra_thin_csi_tag_name }}"
+  register: hydra_thin_csi_policy
+  tags:
+    - execution
+    - hydra_thin_csi
+
+- name: Set storage policy result state
+  ansible.builtin.set_fact:
+    hydra_thin_csi_policy_result: >-
+      {{
+        'CREATED'
+        if hydra_thin_csi_policy.changed | default(false)
+        else 'ALREADY CORRECT'
+      }}
+  tags:
+    - execution
+    - hydra_thin_csi
 - name: Render desired StorageClass manifest for hydra_thin_csi
   ansible.builtin.template:
     src: storageclass.yml.j2

@@ -5,8 +5,8 @@
 # Core configuration
 hydra_thin_csi_usecase: ""  # REQUIRED: LOGMONSHARED, ASTRO, or CUSTOMER
 hydra_thin_csi_openshift_cluster_name: ""  # REQUIRED: OpenShift cluster identifier used in naming
-hydra_thin_csi_vcenter_hostname: ""  # REQUIRED: vCenter FQDN
-hydra_thin_csi_vcenter_datacenter: ""  # REQUIRED: vCenter datacenter name
+hydra_thin_csi_vcenter_hostname: ""  # Optional: vCenter FQDN; derived from MachineSet workspace.server if empty
+hydra_thin_csi_vcenter_datacenter: ""  # Optional: vCenter datacenter; derived from MachineSet workspace.datacenter if empty
 hydra_thin_csi_lun_name: ""  # REQUIRED: Full datastore (LUN) name in vCenter
 hydra_thin_csi_ds_cluster_name: ""  # REQUIRED: DS Cluster name in vCenter for this use case and cluster
 
@@ -24,9 +24,15 @@ hydra_thin_csi_report_format: "text"
 # Vault paths MUST be configured outside of this role (per environment/team
 # standards). Example patterns only:
 #
-# - vCenter username: secret/hydra/vcenter/username
-# - vCenter password: secret/hydra/vcenter/password
-# - OpenShift API token: secret/hydra/openshift/api_token
-# - OpenShift API URL:   secret/hydra/openshift/api_url
+# - vCenter username/password: secret/hydra/vcenter
+# - OpenShift API token / URL: secret/hydra/openshift
 #
 # This role never defines credential values directly; it only performs lookups.
+
+# Optional knobs for Vault lookup composition (pattern only; exact values
+# depend on environment and should be set in inventory or vars files).
+hydra_thin_csi_vault_address: ""
+hydra_thin_csi_vault_token: ""
+hydra_thin_csi_vault_namespace: ""
+hydra_thin_csi_vcenter_secret_path: "secret/hydra/vcenter"
+hydra_thin_csi_ocp_secret_path: "secret/hydra/openshift"

@@ -1,0 +1,24 @@
+---
+galaxy_info:
+  role_name: ocp_zone_label_updater
+  namespace: ocp
+  author: "Enterprise Platform Team"
+  description: "Propagate vSphere zone labels to OpenShift MachineSets, Machines, and Nodes."
+  company: "Enterprise Organization"
+  license: "MIT"
+  min_ansible_version: "2.12"
+  platforms:
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+  galaxy_tags:
+    - openshift
+    - kubernetes
+    - vmware
+    - vsphere
+    - labeling
+    - machineapi
+dependencies: []
+collections:
+  - kubernetes.core

@@ -1,0 +1,37 @@
+---
+# Role: ocp_zone_label_updater
+# Orchestrator - imports phase-specific task files
+
+- name: "PHASE 1: Pre-flight checks"
+  ansible.builtin.import_tasks: preflight.yml
+  tags:
+    - always
+    - preflight
+    - ocp_zone_label_updater
+
+- name: "PHASE 2: Input validation"
+  ansible.builtin.import_tasks: validate.yml
+  tags:
+    - always
+    - validation
+    - ocp_zone_label_updater
+
+- name: "PHASE 3: Execute zone label updates"
+  ansible.builtin.import_tasks: execute.yml
+  tags:
+    - execution
+    - ocp_zone_label_updater
+
+- name: "PHASE 4: Verification (optional)"
+  ansible.builtin.import_tasks: verify.yml
+  when: ocp_zone_label_updater_enable_verification | default(true) | bool
+  tags:
+    - verification
+    - ocp_zone_label_updater
+
+- name: "PHASE 5: Reporting"
+  ansible.builtin.import_tasks: report.yml
+  when: ocp_zone_label_updater_enable_reporting | default(true) | bool
+  tags:
+    - reporting
+    - ocp_zone_label_updater

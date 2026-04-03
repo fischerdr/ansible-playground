@@ -1,0 +1,16 @@
+---
+# Role: ocp_zone_label_updater
+# Default variables - can be overridden by users
+
+# Core configuration
+ocp_zone_label_updater_namespace: "openshift-machine-api"
+# ocp_zone_label_updater_label_key: NO DEFAULT - REQUIRED by caller
+
+# Retry configuration
+ocp_zone_label_updater_max_retries: 5
+ocp_zone_label_updater_retry_delay: 2
+
+# Behavior flags
+ocp_zone_label_updater_fail_on_error: true
+ocp_zone_label_updater_enable_verification: true
+ocp_zone_label_updater_enable_reporting: true

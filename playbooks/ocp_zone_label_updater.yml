@@ -1,0 +1,16 @@
+---
+# Playbook: ocp_zone_label_updater
+# Purpose: Propagate vSphere zone labels to MachineSets, Machines, and Nodes
+
+- name: "Propagate vSphere zone labels to OpenShift resources"
+  hosts: localhost
+  gather_facts: false
+  become: false
+
+  vars:
+    # REQUIRED: Label key to propagate (e.g., topology.portworx.io/zone)
+    # This must be provided by the caller
+    # ocp_zone_label_updater_label_key: topology.portworx.io/zone
+
+  roles:
+    - role: ocp_zone_label_updater

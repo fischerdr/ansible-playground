@@ -1,0 +1,10 @@
+---
+# Role: ocp_zone_label_updater
+# Internal runtime variables - DO NOT override
+
+ocp_zone_label_updater_all_machinesets: []
+ocp_zone_label_updater_vsphere_machinesets: []
+ocp_zone_label_updater_zone_map: []
+ocp_zone_label_updater_valid_machines: []
+ocp_zone_label_updater_machines_updated: 0
+ocp_zone_label_updater_nodes_updated: 0

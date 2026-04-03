@@ -21,8 +21,7 @@
       "Bash(.venv/bin/ansible-lint:*)",
       "Bash(.venv/bin/ansible-playbook:*)",
       "Bash(.venv/bin/ansible:*)",
-      "Bash(.venv/bin/pytest:*)",
-      "Read(//development/git/pyplayground/**)"
+      "Bash(.venv/bin/pytest:*)"
     ],
     "deny": [],
     "ask": [

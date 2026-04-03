@@ -1,3 +1,24 @@
 ---
 # Phase: Reporting
 # Purpose: Emit operation summary
+
+- name: Display ocp_zone_label_updater summary
+  ansible.builtin.debug:
+    msg: |
+      =============================================
+       OCP Zone Label Updater — Run Summary
+      =============================================
+      Namespace         : {{ ocp_zone_label_updater_namespace }}
+      Label Key         : {{ ocp_zone_label_updater_label_key }}
+      [ Resources Processed ]
+        MachineSets       : {{ ocp_zone_label_updater_zone_map | default([]) | length }}
+        Machines Updated  : {{ ocp_zone_label_updater_machines_updated | default(0) }}
+        Nodes Updated     : {{ ocp_zone_label_updater_nodes_updated | default(0) }}
+      [ Zone Mapping ]
+      {% for ms in ocp_zone_label_updater_zone_map | default([]) %}
+        {{ ms.name }}     : {{ ms.zone }}
+      {% endfor %}
+      =============================================
+  tags:
+    - reporting
+    - ocp_zone_label_updater

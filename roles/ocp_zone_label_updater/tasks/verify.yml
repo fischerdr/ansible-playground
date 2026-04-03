@@ -52,12 +52,12 @@
 - name: Assert Machine zone label present
   ansible.builtin.assert:
     that:
-      - "'{{ ocp_zone_label_updater_label_key }}' in item.resources[0].metadata.labels"
-      - item.resources[0].metadata.labels['{{ ocp_zone_label_updater_label_key }}'] == item.zone
+      - "'{{ ocp_zone_label_updater_label_key }}' in item.resources[0].spec.metadata.labels"
+      - item.resources[0].spec.metadata.labels['{{ ocp_zone_label_updater_label_key }}'] == item.zone
     fail_msg: >
       ocp_zone_label_updater verification failed: Machine '{{ item.name }}'
       missing or incorrect zone label '{{ ocp_zone_label_updater_label_key }}={{ item.zone }}'.
-      Expected label not found in metadata.labels.
+      Expected label not found in spec.metadata.labels.
   loop: "{{ __ocp_zone_label_updater_machine_verify.results | map(attribute='resources') | zip(ocp_zone_label_updater_valid_machines) | map('flatten') | list }}"
   loop_control:
     label: "{{ item[0][0].metadata.name }}"

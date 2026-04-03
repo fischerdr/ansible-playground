@@ -20,7 +20,7 @@
             ocp_zone_label_updater_zone_map + [{
               'name': item.metadata.name,
               'resource_pool': item.spec.template.spec.providerSpec.value.workspace.resourcePool,
-              'zone': (item.spec.template.spec.providerSpec.value.workspace.resourcePool | split('/'))[2]
+              'zone': (item.spec.template.spec.providerSpec.value.workspace.resourcePool | trim_start_matches(str='/' ) | split('/'))[2]
             }]
           }}
       loop: "{{ ocp_zone_label_updater_vsphere_machinesets }}"
@@ -28,7 +28,7 @@
         label: "{{ item.metadata.name }}"
       when:
         - item.spec.template.spec.providerSpec.value.workspace.resourcePool is defined
-        - item.spec.template.spec.providerSpec.value.workspace.resourcePool | split('/') | length >= 3
+        - (item.spec.template.spec.providerSpec.value.workspace.resourcePool | trim_start_matches(str='/')) | split('/') | length >= 3
       tags:
         - execution
         - ocp_zone_label_updater
@@ -42,7 +42,7 @@
       loop: "{{ ocp_zone_label_updater_vsphere_machinesets }}"
       when:
         - item.spec.template.spec.providerSpec.value.workspace.resourcePool is defined
-        - (item.spec.template.spec.providerSpec.value.workspace.resourcePool | split('/')) | length < 3
+        - (item.spec.template.spec.providerSpec.value.workspace.resourcePool | trim_start_matches(str='/')) | split('/') | length < 3
       tags:
         - execution
         - ocp_zone_label_updater
@@ -139,11 +139,12 @@
         kind: Machine
         namespace: "{{ ocp_zone_label_updater_namespace }}"
         name: "{{ item.name }}"
-        state: patched
-        patch:
-          - op: add
-            path: "/metadata/labels/{{ ocp_zone_label_updater_label_key | replace('/', '~~') }}"
-            value: "{{ item.zone }}"
+        state: present
+        definition:
+          spec:
+            metadata:
+              labels:
+                "{{ ocp_zone_label_updater_label_key }}": "{{ item.zone }}"
       loop: "{{ ocp_zone_label_updater_valid_machines }}"
       loop_control:
         label: "{{ item.name }}"

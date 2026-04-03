@@ -1,3 +1,28 @@
 ---
 # Phase: Validation
-# Purpose: Validate required input variables
+# Purpose: Validate required input variables for ocp_zone_label_updater
+
+- name: Validate ocp_zone_label_updater_namespace is defined and non-empty
+  ansible.builtin.assert:
+    that:
+      - ocp_zone_label_updater_namespace is defined
+      - ocp_zone_label_updater_namespace | length > 0
+    fail_msg: >
+      ocp_zone_label_updater requires ocp_zone_label_updater_namespace to be defined
+      and non-empty. Current value: '{{ ocp_zone_label_updater_namespace | default("NOT SET") }}'
+  tags:
+    - validation
+    - ocp_zone_label_updater
+
+- name: Validate ocp_zone_label_updater_label_key is defined and non-empty
+  ansible.builtin.assert:
+    that:
+      - ocp_zone_label_updater_label_key is defined
+      - ocp_zone_label_updater_label_key | length > 0
+    fail_msg: >
+      ocp_zone_label_updater requires ocp_zone_label_updater_label_key to be defined
+      and non-empty. This variable must be provided by the caller (no default).
+      Example: ocp_zone_label_updater_label_key=topology.portworx.io/zone
+  tags:
+    - validation
+    - ocp_zone_label_updater

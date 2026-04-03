@@ -1,3 +1,58 @@
 ---
 # Phase: Preflight
-# Purpose: Environment checks and resource discovery
+# Purpose: Environment checks and resource discovery for ocp_zone_label_updater
+
+- name: Validate minimum Ansible version for ocp_zone_label_updater
+  ansible.builtin.assert:
+    that:
+      - ansible_version.full is version('2.12.0', '>=')
+    fail_msg: "Ansible 2.12.0 or higher is required for the ocp_zone_label_updater role."
+    quiet: true
+  tags:
+    - preflight
+    - ocp_zone_label_updater
+
+- name: Query MachineSets in namespace
+  kubernetes.core.k8s_info:
+    api_version: "machine.openshift.io/v1beta1"
+    kind: MachineSet
+    namespace: "{{ ocp_zone_label_updater_namespace }}"
+  register: ocp_zone_label_updater_all_machinesets
+  changed_when: false
+  tags:
+    - preflight
+    - ocp_zone_label_updater
+
+- name: Fail if no MachineSets found in namespace
+  ansible.builtin.fail:
+    msg: >
+      ocp_zone_label_updater preflight failed: no MachineSets found in namespace
+      '{{ ocp_zone_label_updater_namespace }}'. Ensure the cluster is healthy
+      and MachineSets are present.
+  when: ocp_zone_label_updater_all_machinesets.resources | default([]) | length == 0
+  tags:
+    - preflight
+    - ocp_zone_label_updater
+
+- name: Filter vSphere MachineSets (where workspace is defined)
+  ansible.builtin.set_fact:
+    ocp_zone_label_updater_vsphere_machinesets: >-
+      {{
+        ocp_zone_label_updater_all_machinesets.resources
+        | selectattr('spec.template.spec.providerSpec.value.workspace', 'defined')
+        | list
+      }}
+  tags:
+    - preflight
+    - ocp_zone_label_updater
+
+- name: Fail if no vSphere MachineSets found
+  ansible.builtin.fail:
+    msg: >
+      ocp_zone_label_updater preflight failed: no vSphere MachineSets found in namespace
+      '{{ ocp_zone_label_updater_namespace }}'. Ensure MachineSets have workspace
+      defined in spec.template.spec.providerSpec.value.
+  when: ocp_zone_label_updater_vsphere_machinesets | default([]) | length == 0
+  tags:
+    - preflight
+    - ocp_zone_label_updater

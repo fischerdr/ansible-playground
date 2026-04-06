@@ -1,10 +1,10 @@
 ---
 # Role: ocp_zone_label_updater
 # Internal runtime variables - DO NOT override
-
-ocp_zone_label_updater_all_machinesets: []
-ocp_zone_label_updater_vsphere_machinesets: []
-ocp_zone_label_updater_zone_map: []
-ocp_zone_label_updater_valid_machines: []
-ocp_zone_label_updater_machines_updated: 0
-ocp_zone_label_updater_nodes_updated: 0
+# These are set at execution time via set_fact; documented here for reference only.
+#
+# ocp_zone_label_updater_vsphere_machinesets  - filtered list of vSphere MachineSets
+# ocp_zone_label_updater_zone_map             - list of {name, zone, resource_pool} dicts
+# ocp_zone_label_updater_valid_machines       - list of {machine_name, node_name, zone} dicts
+# ocp_zone_label_updater_machines_updated     - count of Machines patched
+# ocp_zone_label_updater_nodes_updated        - count of Nodes patched

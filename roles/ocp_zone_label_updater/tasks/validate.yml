@@ -11,7 +11,7 @@
       ocp_zone_label_updater requires ocp_zone_label_updater_namespace to be defined
       and non-empty. Current value: '{{ ocp_zone_label_updater_namespace | default("NOT SET") }}'
   tags:
-    - validation
+    - validate
     - ocp_zone_label_updater
 
 - name: Validate ocp_zone_label_updater_label_key is defined and non-empty
@@ -24,5 +24,5 @@
       and non-empty. This variable must be provided by the caller (no default).
       Example: ocp_zone_label_updater_label_key=topology.portworx.io/zone
   tags:
-    - validation
+    - validate
     - ocp_zone_label_updater

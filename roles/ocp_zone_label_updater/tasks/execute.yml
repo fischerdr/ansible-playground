@@ -10,7 +10,7 @@
       ansible.builtin.set_fact:
         ocp_zone_label_updater_zone_map: []
       tags:
-        - execution
+        - execute
         - ocp_zone_label_updater
 
     - name: Extract zones from vSphere MachineSets
@@ -20,7 +20,7 @@
             ocp_zone_label_updater_zone_map + [{
               'name': item.metadata.name,
               'resource_pool': item.spec.template.spec.providerSpec.value.workspace.resourcePool,
-              'zone': (item.spec.template.spec.providerSpec.value.workspace.resourcePool | trim_start_matches(str='/' ) | split('/'))[2]
+              'zone': (item.spec.template.spec.providerSpec.value.workspace.resourcePool | regex_replace('^/', '') | split('/'))[2]
             }]
           }}
       loop: "{{ ocp_zone_label_updater_vsphere_machinesets }}"
@@ -28,9 +28,9 @@
         label: "{{ item.metadata.name }}"
       when:
         - item.spec.template.spec.providerSpec.value.workspace.resourcePool is defined
-        - (item.spec.template.spec.providerSpec.value.workspace.resourcePool | trim_start_matches(str='/')) | split('/') | length >= 3
+        - (item.spec.template.spec.providerSpec.value.workspace.resourcePool | regex_replace('^/', '')) | split('/') | length >= 3
       tags:
-        - execution
+        - execute
         - ocp_zone_label_updater
 
     - name: Debug malformed resourcePool paths
@@ -42,9 +42,9 @@
       loop: "{{ ocp_zone_label_updater_vsphere_machinesets }}"
       when:
         - item.spec.template.spec.providerSpec.value.workspace.resourcePool is defined
-        - (item.spec.template.spec.providerSpec.value.workspace.resourcePool | trim_start_matches(str='/')) | split('/') | length < 3
+        - (item.spec.template.spec.providerSpec.value.workspace.resourcePool | regex_replace('^/', '')) | split('/') | length < 3
       tags:
-        - execution
+        - execute
         - ocp_zone_label_updater
 
     - name: Fail if zone map is empty
@@ -54,41 +54,53 @@
           with resourcePool paths found in namespace '{{ ocp_zone_label_updater_namespace }}'.
       when: ocp_zone_label_updater_zone_map | default([]) | length == 0
       tags:
-        - execution
+        - execute
+        - ocp_zone_label_updater
+
+    #### Backup: Capture existing label values before any changes ####
+    - name: Capture existing MachineSet zone label values for rollback reference
+      ansible.builtin.set_fact:
+        ocp_zone_label_updater_label_backup: >-
+          {{
+            ocp_zone_label_updater_label_backup + [{
+              'kind': 'MachineSet',
+              'name': item.metadata.name,
+              'original_value': item.spec.template.spec.metadata.labels[ocp_zone_label_updater_label_key]
+                                | default('NOT_SET')
+            }]
+          }}
+      loop: "{{ ocp_zone_label_updater_vsphere_machinesets }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      tags:
+        - execute
         - ocp_zone_label_updater
 
     #### B: Update MachineSet Labels ####
-    - name: Update MachineSet labels with zone label
-      ansible.builtin.set_fact:
-        __ocp_zone_label_updater_machineset_updated: false
-      tags:
-        - execution
-        - ocp_zone_label_updater
-
-    - name: Patch MachineSet spec.template.spec.metadata.labels with zone
+    - name: Patch zone label on MachineSet {{ item.name }}
       kubernetes.core.k8s:
         api_version: "machine.openshift.io/v1beta1"
         kind: MachineSet
         namespace: "{{ ocp_zone_label_updater_namespace }}"
         name: "{{ item.name }}"
         state: patched
-        patch:
-          - op: add
-            path: "/spec/template/spec/metadata/labels/{{ ocp_zone_label_updater_label_key | replace('/', '~~') }}"
-            value: "{{ item.zone }}"
+        definition:
+          spec:
+            template:
+              spec:
+                metadata:
+                  labels:
+                    "{{ ocp_zone_label_updater_label_key }}": "{{ item.zone }}"
       loop: "{{ ocp_zone_label_updater_zone_map }}"
       loop_control:
         label: "{{ item.name }}"
       register: __ocp_zone_label_updater_machineset_patch
-      until:
-        - __ocp_zone_label_updater_machineset_patch is succeeded
-        - __ocp_zone_label_updater_machineset_patch.failed | default(false) == false
-        - __ocp_zone_label_updater_machineset_patch.rc | default(0) != 409
+      until: __ocp_zone_label_updater_machineset_patch is not failed
       retries: "{{ ocp_zone_label_updater_max_retries }}"
       delay: "{{ ocp_zone_label_updater_retry_delay }}"
-      changed_when: "'patched' in __ocp_zone_label_updater_machineset_patch | default([]) | map(attribute='changed') | list"
+      changed_when: __ocp_zone_label_updater_machineset_patch.changed | default(false)
       tags:
-        - execution
+        - execute
         - ocp_zone_label_updater
 
     #### C: Discover and Update Machines ####
@@ -96,7 +108,7 @@
       ansible.builtin.set_fact:
         ocp_zone_label_updater_valid_machines: []
       tags:
-        - execution
+        - execute
         - ocp_zone_label_updater
 
     - name: Query Machines for each MachineSet
@@ -111,35 +123,76 @@
       register: __ocp_zone_label_updater_machines_query
       changed_when: false
       tags:
-        - execution
+        - execute
         - ocp_zone_label_updater
 
     - name: Build valid machines list (Running with nodeRef)
       ansible.builtin.set_fact:
         ocp_zone_label_updater_valid_machines: >-
           {{
-            ocp_zone_label_updater_valid_machines + [
-              {
-                'name': machine.metadata.name,
-                'machineset': item.name,
-                'zone': item.zone
-              }
-            ]
+            ocp_zone_label_updater_valid_machines + [{
+              'machine_name': item.metadata.name,
+              'node_name': item.status.nodeRef.name,
+              'zone': (
+                ocp_zone_label_updater_zone_map
+                | selectattr('name', 'equalto',
+                    item.metadata.labels['machine.openshift.io/cluster-api-machineset']
+                  )
+                | map(attribute='zone')
+                | first
+              )
+            }]
           }}
-      loop: "{{ __ocp_zone_label_updater_machines_query.results | map(attribute='resources') | flatten }}"
+      loop: >-
+        {{
+          __ocp_zone_label_updater_machines_query.results
+          | map(attribute='resources')
+          | flatten
+          | selectattr('status.phase', 'defined')
+          | selectattr('status.phase', 'equalto', 'Running')
+          | selectattr('spec.nodeRef', 'defined')
+          | list
+        }}
       loop_control:
         label: "{{ item.metadata.name }}"
-      when:
-        - item.status.phase | default('') == 'Running'
-        - item.spec.nodeRef is defined
+      tags:
+        - execute
+        - ocp_zone_label_updater
 
-    - name: Update Machine labels with zone label
+    - name: Capture existing Machine zone label values for rollback reference
+      ansible.builtin.set_fact:
+        ocp_zone_label_updater_label_backup: >-
+          {{
+            ocp_zone_label_updater_label_backup + [{
+              'kind': 'Machine',
+              'name': item.metadata.name,
+              'original_value': item.spec.metadata.labels[ocp_zone_label_updater_label_key]
+                                | default('NOT_SET')
+            }]
+          }}
+      loop: >-
+        {{
+          __ocp_zone_label_updater_machines_query.results
+          | map(attribute='resources')
+          | flatten
+          | selectattr('status.phase', 'defined')
+          | selectattr('status.phase', 'equalto', 'Running')
+          | selectattr('spec.nodeRef', 'defined')
+          | list
+        }}
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      tags:
+        - execute
+        - ocp_zone_label_updater
+
+    - name: Patch zone label on Machine {{ item.machine_name }}
       kubernetes.core.k8s:
         api_version: "machine.openshift.io/v1beta1"
         kind: Machine
         namespace: "{{ ocp_zone_label_updater_namespace }}"
-        name: "{{ item.name }}"
-        state: present
+        name: "{{ item.machine_name }}"
+        state: patched
         definition:
           spec:
             metadata:
@@ -147,73 +200,112 @@
                 "{{ ocp_zone_label_updater_label_key }}": "{{ item.zone }}"
       loop: "{{ ocp_zone_label_updater_valid_machines }}"
       loop_control:
-        label: "{{ item.name }}"
+        label: "{{ item.machine_name }}"
       register: __ocp_zone_label_updater_machine_patch
-      until:
-        - __ocp_zone_label_updater_machine_patch is succeeded
-        - __ocp_zone_label_updater_machine_patch.failed | default(false) == false
-        - __ocp_zone_label_updater_machine_patch.rc | default(0) != 409
+      until: __ocp_zone_label_updater_machine_patch is not failed
       retries: "{{ ocp_zone_label_updater_max_retries }}"
       delay: "{{ ocp_zone_label_updater_retry_delay }}"
-      changed_when: "'patched' in __ocp_zone_label_updater_machine_patch | default([]) | map(attribute='changed') | list"
+      changed_when: __ocp_zone_label_updater_machine_patch.changed | default(false)
       tags:
-        - execution
+        - execute
         - ocp_zone_label_updater
 
     - name: Set machines updated count
       ansible.builtin.set_fact:
         ocp_zone_label_updater_machines_updated: "{{ ocp_zone_label_updater_valid_machines | length }}"
       tags:
-        - execution
+        - execute
         - ocp_zone_label_updater
 
     #### D: Update Nodes ####
-    - name: Update Node labels with zone label
+    - name: Query current Node labels for rollback reference
+      kubernetes.core.k8s_info:
+        api_version: "v1"
+        kind: Node
+        name: "{{ item.node_name }}"
+      loop: "{{ ocp_zone_label_updater_valid_machines }}"
+      loop_control:
+        label: "{{ item.node_name }}"
+      register: __ocp_zone_label_updater_nodes_query
+      changed_when: false
+      tags:
+        - execute
+        - ocp_zone_label_updater
+
+    - name: Capture existing Node zone label values for rollback reference
+      ansible.builtin.set_fact:
+        ocp_zone_label_updater_label_backup: >-
+          {{
+            ocp_zone_label_updater_label_backup + [{
+              'kind': 'Node',
+              'name': item.resources[0].metadata.name,
+              'original_value': item.resources[0].metadata.labels[ocp_zone_label_updater_label_key]
+                                | default('NOT_SET')
+            }]
+          }}
+      loop: "{{ __ocp_zone_label_updater_nodes_query.results }}"
+      loop_control:
+        label: "{{ item.resources[0].metadata.name }}"
+      when: item.resources | length > 0
+      tags:
+        - execute
+        - ocp_zone_label_updater
+
+    - name: Patch zone label on Node {{ item.node_name }}
       kubernetes.core.k8s:
         api_version: "v1"
         kind: Node
-        name: "{{ item.name }}"
+        name: "{{ item.node_name }}"
         state: patched
-        patch:
-          - op: add
-            path: "/metadata/labels/{{ ocp_zone_label_updater_label_key | replace('/', '~~') }}"
-            value: "{{ item.zone }}"
+        definition:
+          metadata:
+            labels:
+              "{{ ocp_zone_label_updater_label_key }}": "{{ item.zone }}"
       loop: "{{ ocp_zone_label_updater_valid_machines }}"
       loop_control:
-        label: "{{ item.name }}"
+        label: "{{ item.node_name }}"
       register: __ocp_zone_label_updater_node_patch
-      until:
-        - __ocp_zone_label_updater_node_patch is succeeded
-        - __ocp_zone_label_updater_node_patch.failed | default(false) == false
-        - __ocp_zone_label_updater_node_patch.rc | default(0) != 409
+      until: __ocp_zone_label_updater_node_patch is not failed
       retries: "{{ ocp_zone_label_updater_max_retries }}"
       delay: "{{ ocp_zone_label_updater_retry_delay }}"
-      changed_when: "'patched' in __ocp_zone_label_updater_node_patch | default([]) | map(attribute='changed') | list"
+      changed_when: __ocp_zone_label_updater_node_patch.changed | default(false)
       tags:
-        - execution
+        - execute
         - ocp_zone_label_updater
 
     - name: Set nodes updated count
       ansible.builtin.set_fact:
         ocp_zone_label_updater_nodes_updated: "{{ ocp_zone_label_updater_valid_machines | length }}"
       tags:
-        - execution
+        - execute
         - ocp_zone_label_updater
 
   rescue:
-    - name: Handle execution failure
+    - name: Log rollback information on execution failure
+      ansible.builtin.debug:
+        msg: |
+          ocp_zone_label_updater EXECUTION FAILED - original label values captured before this run:
+          {% for entry in ocp_zone_label_updater_label_backup | default([]) %}
+          {{ entry.kind }} {{ entry.name }}: {{ entry.original_value }}
+          {% endfor %}
+          To revert: re-run the role with the original label value, or patch each resource manually.
+      tags:
+        - execute
+        - ocp_zone_label_updater
+
+    - name: Fail on execution failure
       ansible.builtin.fail:
         msg: >
-          ocp_zone_label_updater execution failed. Check previous tasks for details.
+          ocp_zone_label_updater execution failed. Review rollback info logged above.
       when: ocp_zone_label_updater_fail_on_error | default(true) | bool
       tags:
-        - execution
+        - execute
         - ocp_zone_label_updater
 
   always:
-    - name: Ensure labels are applied even on failure
+    - name: Execution completed (status logged in rescue if failure)
       ansible.builtin.debug:
-        msg: "ocp_zone_label_updater execution completed with status: {{ 'SUCCESS' if not failed else 'FAILED' }}"
+        msg: "ocp_zone_label_updater execution block completed"
       tags:
-        - execution
+        - execute
         - ocp_zone_label_updater

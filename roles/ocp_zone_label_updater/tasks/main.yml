@@ -13,25 +13,25 @@
   ansible.builtin.import_tasks: validate.yml
   tags:
     - always
-    - validation
+    - validate
     - ocp_zone_label_updater
 
 - name: "PHASE 3: Execute zone label updates"
   ansible.builtin.import_tasks: execute.yml
   tags:
-    - execution
+    - execute
     - ocp_zone_label_updater
 
 - name: "PHASE 4: Verification (optional)"
   ansible.builtin.import_tasks: verify.yml
   when: ocp_zone_label_updater_enable_verification | default(true) | bool
   tags:
-    - verification
+    - verify
     - ocp_zone_label_updater
 
 - name: "PHASE 5: Reporting"
   ansible.builtin.import_tasks: report.yml
   when: ocp_zone_label_updater_enable_reporting | default(true) | bool
   tags:
-    - reporting
+    - report
     - ocp_zone_label_updater

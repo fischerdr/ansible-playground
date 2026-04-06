@@ -1,16 +1,29 @@
 ---
 # Playbook: ocp_zone_label_updater
 # Purpose: Propagate vSphere zone labels to MachineSets, Machines, and Nodes
-
 - name: "Propagate vSphere zone labels to OpenShift resources"
   hosts: localhost
-  gather_facts: false
+  gather_facts: true
   become: false
 
-  vars:
-    # REQUIRED: Label key to propagate (e.g., topology.portworx.io/zone)
-    # This must be provided by the caller
-    # ocp_zone_label_updater_label_key: topology.portworx.io/zone
+  pre_tasks:
+    - name: "Validate clusters list is defined"
+      ansible.builtin.assert:
+        that:
+          - clusters is defined
+          - clusters | length > 0
+        fail_msg: "No clusters defined in the clusters list"
+        success_msg: "Clusters list validated successfully"
+      tags: [validation, always]
+
+    - name: "Display configuration summary"
+      ansible.builtin.debug:
+        msg: |
+          Setting up {{ clusters | length }} cluster(s):
+          {% for cluster in clusters %}
+          - {{ cluster.name }} -> {{ cluster.kubeconfig_dir }}
+          {% endfor %}
+      tags: [validation, summary]
 
   roles:
     - role: ocp_zone_label_updater

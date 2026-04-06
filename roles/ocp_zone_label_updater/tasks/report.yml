@@ -18,7 +18,11 @@
       {% for ms in ocp_zone_label_updater_zone_map | default([]) %}
         {{ ms.name }}     : {{ ms.zone }}
       {% endfor %}
+      [ Pre-Run Label Values ]
+      {% for entry in ocp_zone_label_updater_label_backup | default([]) %}
+        {{ entry.kind }} {{ entry.name }}: {{ entry.original_value }}
+      {% endfor %}
       =============================================
   tags:
-    - reporting
+    - report
     - ocp_zone_label_updater

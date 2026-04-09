@@ -1,10 +1,19 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code
+in this repository.
+
+**Document Version:** 3.0
+**Last Updated:** 2026-04-08
+
+---
 
 ## Repository Overview
 
-This is an enterprise Ansible Automation Platform (AAP) project for managing Kubernetes clusters, HashiCorp Vault integration, and Portworx backup operations. All automation is executed through Ansible Automation Platform using Execution Environments (EEs) only.
+This is an enterprise Ansible Automation Platform (AAP) project for managing
+Kubernetes clusters, HashiCorp Vault integration, and Portworx backup operations.
+All automation is executed through Ansible Automation Platform using Execution
+Environments (EEs) only.
 
 **Key Technologies:**
 
@@ -13,185 +22,320 @@ This is an enterprise Ansible Automation Platform (AAP) project for managing Kub
 - Kubernetes/OpenShift
 - HashiCorp Vault
 - Portworx Backup (via purepx.px_backup collection)
-- Docker/Podman container runtime (required)
+- Podman container runtime (required)
 
-## Current Project: Portworx Upgrade Role
+**Key Documentation:**
 
-**Active Development:** Creating a new role `roles/portworx_upgrade/` for automated Portworx cluster upgrades on OpenShift 4.18.
+- `.agents/skills/ansible/SKILL.md` — Ansible skill entry point, rules, and reference router
+- `docs/project_organization.md` — Where things go and why
+- `docs/execution-environment.md` — EE dependency and configuration reference
 
-**Specification:** The complete specification is in `docs/portworx_upgrade/portworx_upgrade-role-final.md` at the repository root.
+---
 
-**Key Implementation Notes:**
+## Before Making Any Changes
 
-- Operator-controlled rolling upgrade (role monitors, doesn't control)
-- Two timeout mechanisms: 35min global inactivity, 25min per pod
-- Monitor pod image field changes: `spec.containers[0].image`
-- Impatient mode ONLY for storageless nodes
-- STC updateStrategy validation required in preflight checks
-- autoUpdateComponents patch before STC image update
+**1. Read the Ansible skill**
 
-**Implementation Order:**
+```bash
+view .agents/skills/ansible/SKILL.md
+```
 
-1. Role structure and variables (defaults/main.yml, vars/main.yml)
-2. Preflight validation tasks (nodes, pods, cluster status, STC config)
-3. Upgrade trigger tasks (operator, configmap, update_components, storagecluster)
-4. Monitoring tasks (automatic rolling upgrade, stuck detection, impatient mode)
-5. Validation and reporting tasks
+**2. Read existing code in the area you are changing**
 
-When working on this role, always reference the specification document for exact requirements.
+```bash
+view roles/<similar_role>/tasks/main.yml
+view roles/<similar_role>/defaults/main.yml
+```
 
-## Development Commands
+**3. Load the relevant reference for the task**
+
+```bash
+# Kubernetes/OpenShift work
+view .agents/skills/ansible/references/KUBERNETES-PATTERNS.md
+
+# Custom module work
+view .agents/skills/ansible/references/ANSIBLE-ROLE-STANDARDS.md
+
+# Vault integration
+view .agents/skills/ansible/references/SecurityGuidelinesvault.md
+```
+
+Do not load all references by default. Load the one relevant to the task.
+
+---
 
 ## Python and Ansible Execution Environment
 
 ### Authoritative Execution Boundary
 
-**IMPORTANT:** All Python and Ansible tooling for this repository MUST execute from the project-local virtual environment located at `.venv` in the repository root. The virtual environment is the single supported runtime boundary for development, automation, and CI.
+All Python and Ansible tooling MUST execute from the project-local virtual
+environment at `.venv` in the repository root. System Python, system Ansible,
+and globally installed tools are not supported.
 
-System Python, system Ansible, or globally installed tools are not supported.
+### Authoritative Binaries
 
-### Virtual Environment Usage Model
+```bash
+.venv/bin/python
+.venv/bin/pip
+.venv/bin/ansible
+.venv/bin/ansible-playbook
+.venv/bin/ansible-galaxy
+.venv/bin/ansible-lint
+.venv/bin/black
+.venv/bin/isort
+.venv/bin/flake8
+.venv/bin/mypy
+```
 
-The authoritative interpreters and binaries are those located under:
-
-- `.venv/bin/python`
-- `.venv/bin/pip`
-- `.venv/bin/ansible`
-- `.venv/bin/ansible-playbook`
-- `.venv/bin/ansible-galaxy`
-
-Shell activation (`source .venv/bin/activate`) is permitted for interactive developer workflows, but correctness is defined by the resolved binary path, not shell state. Scripts, automation, and CI pipelines MUST invoke tools explicitly from `.venv/bin/`.
+Shell activation (`source .venv/bin/activate`) is permitted for interactive
+developer workflows. Scripts, automation, and CI MUST invoke tools explicitly
+from `.venv/bin/`.
 
 ### Initial Environment Setup
 
-If the virtual environment does not exist, create it using the provided setup script:
-
 ```bash
-# Unix / Linux / macOS
 ./setup.sh
+```
 
-# Windows
-setup.bat
-````
-
-This step is mandatory before running any Python or Ansible commands.
-
-### Dependency and Tool Installation
-
-All dependency installation must be performed using the virtual environment:
+### Dependency Installation
 
 ```bash
-# Install Python dependencies
 .venv/bin/python -m pip install -r requirements.txt
-
-# Install Ansible collections
 .venv/bin/ansible-galaxy collection install -r requirements.yml
-
-# Build the execution environment artifact
 chmod +x build.sh && ./build.sh
 ```
 
-No dependency installation is permitted outside `.venv`.
-
-### Running Python Code
-
-All Python execution MUST use the virtual environment interpreter:
-
-```bash
-.venv/bin/python src/dialogs/about_dialog.py
-.venv/bin/python tools/extract_dfm_images.py delphi-source/forms/fmAbout.dfm
-```
-
-### Linting, Testing, and Quality Gates
-
-All quality and verification tools MUST be executed from `.venv/bin/`.
-
-Available tools include:
-
-- `black`
-- `isort`
-- `flake8`
-- `mypy`
-- `pytest`
-- `tox`
-- `ansible-lint`
-- `yamllint`
-
-When modifying files, the following checks are required:
-
-- Python files (`.py`, custom modules under `roles/*/library/`, filter plugins under `roles/*/filter_plugins/`):
-
-  - `black`
-  - `isort`
-  - `flake8`
-
-- Ansible content (playbooks, roles, tasks, handlers):
-
-  - `ansible-lint`
-
-Local execution is expected to match CI behavior.
-
-### Running Ansible Playbooks
-
-All Ansible commands MUST resolve to binaries under `.venv/bin/`.
-
-```bash
-# Basic execution
-.venv/bin/ansible-playbook -i inventory/<inventory-file> playbooks/<playbook-name>.yml
-
-# Validation and inspection
-.venv/bin/ansible-playbook --syntax-check <playbook>.yml
-.venv/bin/ansible-playbook -i <inventory> <playbook>.yml --check
-.venv/bin/ansible-playbook -i <inventory> <playbook>.yml --diff
-.venv/bin/ansible-playbook -i <inventory> <playbook>.yml -vvv
-```
-
-Any deviation from this execution model is considered unsupported and may lead to non-reproducible behavior.
-
 ### Role Testing Workflow
 
-1. **Syntax validation**: `ansible-playbook --syntax-check playbooks/<playbook>.yml`
-2. **Ansible-lint**: `.venv/bin/ansible-lint roles/<role-name>/`
-3. **Tag-based testing**: `ansible-playbook playbooks/px_upgrade.yml --tags preflight --check`
-4. **Dry-run mode**: Use `--check` to validate without changes
-5. **Test environment**: Run against dev/test cluster first
-6. **Production validation**: Final testing in production-like environment
+1. Syntax validation: `ansible-playbook --syntax-check playbooks/<playbook>.yml`
+2. Ansible-lint: `.venv/bin/ansible-lint roles/<role-name>/`
+3. Tag-based testing: `ansible-playbook <playbook>.yml --tags preflight --check`
+4. Dry-run: `--check` flag
+5. Test environment first, then production-like environment
+
+---
 
 ## Architecture
 
 ### Directory Structure
 
-- **`roles/`**: Reusable Ansible roles (common, defrag_etcd_db, deploy_px, must_gather_log, portworx_upgrade, pxbackup, setup_env, upgrade_clusters, vault_multi_namespace_monitor, vault_fix_portworx)
-- **`playbooks/`**: Orchestration playbooks
-- **`Build-EE/`**: Execution environment build configuration
-- **`collections/`**: Local Ansible collections
-- **`inventory/`**: Inventory files with `group_vars/` and `host_vars/`
-- **`scripts/`**: Utility scripts
-- **`aap_import/`**: AAP/AWX import configurations for roles (see [aap_import/README.md](aap_import/README.md))
+```text
+roles/            Reusable Ansible roles — one directory per role
+playbooks/        Orchestration playbooks, organized by functional area
+Build-EE/         Execution Environment build configurations
+collections/      Local Ansible collections
+inventory/        Inventory files with group_vars/ and host_vars/
+scripts/          Standalone utility scripts (not executed by AAP)
+aap_import/       AAP/AWX import configurations, one subdir per role
+library/          Symlinks to custom modules for local dev only
+docs/             All project documentation
+```
+
+See `docs/project_organization.md` for the complete structure rules and
+naming conventions.
+
+### Current Roles
+
+| Role | Purpose |
+|------|---------|
+| `common` | Shared tasks, filters, and utilities used across roles |
+| `configure_clusters` | Cluster configuration and setup |
+| `defrag_etcd_db` | etcd database defragmentation for OpenShift |
+| `must_gather_log` | Log collection and Red Hat support case upload |
+| `portworx_upgrade` | Automated Portworx cluster upgrades on OpenShift |
+| `pxbackup` | Portworx PX-Backup operations and schedule management |
+| `setup_env` | Environment setup — retrieves credentials from Vault |
+| `upgrade_clusters` | Cluster upgrade automation |
+| `vault_fix_portworx` | Vault namespace and policy setup for Portworx |
+| `vault_kv2_demo` | Vault KV2 secrets engine demonstration role |
+| `vault_multi_namespace_monitor` | Vault auth testing across multiple namespaces |
 
 ### Custom Modules
 
-The project includes custom Python modules embedded within roles:
+Custom Python modules live in `roles/<role_name>/library/` and are symlinked
+from `library/` for local development.
 
-- **`roles/defrag_etcd_db/library/defrag_etcd.py`**: Defragments etcd databases in OpenShift
-- **`roles/must_gather_log/library/redhat_sso_device_auth.py`**: Automates Red Hat SSO device authorization via OAuth2 flow
-- **`roles/pxbackup/filter_plugins/lookup_helpers.py`**: Custom Jinja2 filters for Portworx backup operations
-- **`roles/portworx_upgrade/library/pxctl_status.py`**: Executes pxctl commands in Portworx pods
+Current modules:
 
-All custom modules follow Ansible 2.18+ standards with proper argument specs, return values, and comprehensive documentation.
+- `roles/defrag_etcd_db/library/defrag_etcd.py` — etcd defragmentation
+- `roles/must_gather_log/library/redhat_sso_device_auth.py` — Red Hat SSO OAuth2
+- `roles/must_gather_log/library/redhat_upload.py` — Red Hat support case upload
+- `roles/portworx_upgrade/library/pxctl_status.py` — pxctl command execution
 
-**Custom Module Standards:**
+All custom modules follow Ansible 2.18+ standards with DOCUMENTATION, EXAMPLES,
+and RETURN sections, argument specs, and check mode support.
 
-All custom Ansible modules must follow these requirements. See the full template below for structure.
+### Custom Filter Plugins
 
-#### Module File Structure Template
+Filter plugins live in `roles/<role_name>/filter_plugins/`.
+
+- `roles/common/filter_plugins/custom_filters.py`
+- `roles/pxbackup/filter_plugins/lookup_helpers.py`
+- `roles/portworx_upgrade/filter_plugins/operator_version.py`
+- `roles/portworx_upgrade/filter_plugins/pod_classifier.py`
+
+### Key Collections
+
+- `purepx.px_backup` — Portworx backup API
+- `kubernetes.core` — Kubernetes cluster management (v2.3.0+)
+- `community.hashi_vault` — HashiCorp Vault integration
+- `ansible.posix`, `ansible.utils` — Standard utilities
+- `community.vmware` — VMware vSphere integration
+- `amazon.aws`, `community.aws`, `google.cloud` — Cloud providers
+
+---
+
+## Non-Negotiable Rules
+
+### Rule 1: FQCN on Every Module
+
+```yaml
+# Correct
+- name: Create directory
+  ansible.builtin.file:
+    path: /tmp/work
+    state: directory
+
+# Never — missing FQCN is forbidden
+- name: Create directory
+  file:
+    path: /tmp/work
+    state: directory
+```
+
+### Rule 2: Never Use oc/kubectl in Shell for Kubernetes Operations
+
+```yaml
+# Never
+- name: Get pods
+  shell: oc get pods -n {{ namespace }}
+
+# Always
+- name: Get pod information
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ namespace }}"
+```
+
+Exception: only with explicit user confirmation and documented justification.
+
+### Rule 3: Orchestrator Pattern — tasks/main.yml Delegates Only
+
+```yaml
+# Correct — main.yml is a phase map
+- name: "Phase 1: Preflight"
+  ansible.builtin.import_tasks: preflight.yml
+  tags: [always, preflight, role_name]
+
+- name: "Phase 2: Execute"
+  ansible.builtin.import_tasks: execute.yml
+  tags: [execution, role_name]
+
+# Never — no logic in main.yml
+- name: Do something
+  shell: some command
+```
+
+### Rule 4: block/rescue/always for Critical Operations
+
+```yaml
+- name: Critical operation
+  block:
+    - name: Execute operation
+      kubernetes.core.k8s:
+        definition: "{{ resource }}"
+  rescue:
+    - name: Handle failure
+      ansible.builtin.debug:
+        msg: "Failed: {{ ansible_failed_result.msg }}"
+  always:
+    - name: Cleanup
+      ansible.builtin.file:
+        path: /tmp/work
+        state: absent
+```
+
+### Rule 5: changed_when/failed_when on Every shell/command Task
+
+```yaml
+# Read-only operation
+- name: Query cluster status
+  ansible.builtin.shell: pxctl status
+  changed_when: false
+
+# State change detected from output
+- name: Apply configuration
+  ansible.builtin.shell: apply_config.sh
+  changed_when: "'applied' in result.stdout"
+
+# Grep and similar — multiple valid exit codes
+- name: Check for pattern
+  ansible.builtin.shell: grep pattern file.txt
+  failed_when: result.rc not in [0, 1]
+  changed_when: false
+```
+
+### Rule 6: Meaningful Task Names
+
+```yaml
+# Correct
+- name: Ensure application configuration directory exists with correct permissions
+- name: Wait for deployment to reach ready state with all replicas available
+
+# Never
+- name: Create dir
+- name: Wait
+```
+
+---
+
+## Coding Standards
+
+### Ansible Best Practices
+
+- Always use FQCN for all modules
+- Use lowercase `true`/`false` for boolean values
+- Use `no_log: true` for tasks involving credentials or tokens
+- Define required variables at playbook start, validate with `assert`
+- Use `block`/`rescue`/`always` for error handling
+- Use `ignore_errors` sparingly and only with documented justification
+- Design all tasks to be idempotent
+- Avoid `shell` and `command` unless no module alternative exists
+
+### Variable Management
+
+- Role defaults: `roles/<role>/defaults/main.yml` — operator-overridable
+- Role constants: `roles/<role>/vars/main.yml` — not for override
+- Prefix role variables: `<role_prefix>_<name>` — e.g., `px_upgrade_timeout`
+- Use descriptive names — no single letters, no unexplained abbreviations
+- Document complex variable structures in `defaults/main.yml` comments
+
+### Kubernetes/OpenShift Operations
+
+- Use `kubernetes.core.k8s` for all resource management
+- Always specify `api_version` and `kind`
+- Use `state: present` for creation/updates, `state: absent` for deletion
+- Use `wait: true` with explicit `wait_timeout` values
+- Always specify `namespace` explicitly — never rely on defaults
+
+### Python Standards (Modules and Filters)
+
+- Python 3.11+ syntax only
+- Type hints required on all functions
+- Follow PEP 8, maximum line length 100 characters
+- Use `black` for formatting, `flake8` for linting, `mypy` for type checking
+- All custom modules must include DOCUMENTATION, EXAMPLES, RETURN sections
+- Use `AnsibleFilterError` for filter plugin errors — never return None
+- No bare `except:` clauses — ever
+
+### Custom Module Template
 
 ```python
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-
-# Copyright: (c) 2024, Your Name <your.email@example.com>
-# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
+# Copyright: (c) 2024, Author <email>
+# GNU General Public License v3.0+
 
 from __future__ import absolute_import, division, print_function
 __metaclass__ = type
@@ -204,7 +348,7 @@ description:
   - Detailed description
 version_added: "1.0.0"
 author:
-  - Your Name (@github_handle)
+  - Author Name (@github_handle)
 options:
   param_name:
     description: Parameter description
@@ -229,597 +373,218 @@ msg:
   description: Human-readable message
   type: str
   returned: always
-result:
-  description: Detailed result data
-  type: dict
-  returned: success
 '''
 
 from ansible.module_utils.basic import AnsibleModule
+
 
 def run_module():
     module_args = dict(
         param_name=dict(type='str', required=True),
     )
-
-    module = AnsibleModule(
-        argument_spec=module_args,
-        supports_check_mode=True
-    )
-
+    module = AnsibleModule(argument_spec=module_args, supports_check_mode=True)
     result = dict(changed=False, msg='', result={})
 
     try:
-        # Module logic here
         if module.check_mode:
-            result['msg'] = 'Check mode: would process resource'
+            result['msg'] = 'Check mode: no changes made'
             module.exit_json(**result)
-
-        # Actual processing
+        # Module logic here
         result['changed'] = True
         module.exit_json(**result)
-
     except Exception as e:
         module.fail_json(msg=f'Module execution failed: {str(e)}', **result)
 
+
 def main():
     run_module()
+
 
 if __name__ == '__main__':
     main()
 ```
 
-#### Required Components
+**For complete working examples:** See `docs/examples/custom_module_example.py`
+and `docs/examples/filter_plugin_example.py`.
 
-**1. Module Header:** Shebang, encoding, copyright, future imports, metaclass
+---
 
-**2. Documentation:** DOCUMENTATION, EXAMPLES, RETURN sections
+## Quality Assurance
 
-**3. Module Initialization:** Always support check mode, validate parameters, use structured error handling
+### Automatic Quality Enforcement
 
-**4. Error Handling:**
+Claude Code runs these without user approval (configured in `.claude/settings.local.json`):
 
-```python
-# Good - specific exceptions
-try:
-    data = perform_operation()
-except SpecificException as e:
-    module.fail_json(msg=f'Operation failed: {str(e)}', **result)
+- Python files: `isort`, `black`, `flake8`
+- Ansible files: `ansible-lint`
 
-# Bad - bare except (NEVER DO THIS)
-try:
-    data = perform_operation()
-except:
-    pass
-```
-
-#### Common Patterns
-
-**Kubernetes Resource Management:**
-
-```python
-from kubernetes import client, config
-from kubernetes.client.rest import ApiException
-
-def manage_k8s_resource(module):
-    config.load_kube_config()
-    v1 = client.CoreV1Api()
-
-    try:
-        existing = v1.read_namespaced_pod(name, namespace)
-        resource_exists = True
-    except ApiException as e:
-        if e.status == 404:
-            resource_exists = False
-        else:
-            raise
-
-    if module.check_mode:
-        return {'changed': not resource_exists, 'msg': f'Would create {name}'}
-```
-
-**Command Execution in Pods:**
-
-```python
-from kubernetes.stream import stream
-
-resp = stream(
-    v1.connect_get_namespaced_pod_exec,
-    pod_name, namespace,
-    command=command,
-    stderr=True, stdin=False, stdout=True, tty=False
-)
-return {'changed': False, 'msg': 'Command executed', 'stdout': resp}
-```
-
-**State-based Resources (present/absent):**
-
-Implement idempotency: check current state, only make changes if needed, respect check mode.
-
-#### Best Practices
-
-**DO:**
-
-- Always support check mode
-- Validate all input parameters
-- Return meaningful error messages
-- Use `module.fail_json()` for failures
-- Set `changed=False` for read-only operations
-- Implement idempotency
-- Include comprehensive DOCUMENTATION/EXAMPLES/RETURN
-- Test both success and failure paths
-
-**DON'T:**
-
-- Use bare `except:` clauses
-- Print to stdout/stderr
-- Make changes in check mode
-- Assume parameters are valid without checking
-- Hard-code credentials
-- Skip documentation sections
-
-#### Code Quality
-
-All modules must pass:
+### Quality Gates — Run After Every Change
 
 ```bash
-.venv/bin/isort roles/<role_name>/library/*.py
-.venv/bin/black roles/<role_name>/library/*.py
-.venv/bin/flake8 roles/<role_name>/library/*.py
-.venv/bin/mypy roles/<role_name>/library/*.py
-.venv/bin/ansible-test sanity --test validate-modules
+# Ansible content
+.venv/bin/ansible-lint roles/<role_name>/
+.venv/bin/yamllint roles/<role_name>/
+.venv/bin/ansible-playbook --syntax-check playbooks/<playbook>.yml
+
+# Python modules and filters
+.venv/bin/isort roles/<role_name>/library/
+.venv/bin/black roles/<role_name>/library/
+.venv/bin/flake8 roles/<role_name>/library/
+.venv/bin/mypy roles/<role_name>/library/
 ```
 
-**For complete working examples:** See `docs/examples/custom_module_example.py` for a production-ready Kubernetes resource manager module demonstrating all patterns above, and `docs/examples/module_testing_example.py` for comprehensive testing examples.
+Fix all issues before presenting output to the user. Run again until clean.
 
-### Custom Filter Plugins
+### Pre-Completion Checklist
 
-Filter plugins are Python modules that extend Jinja2 templating within Ansible.
+**Ansible:**
 
-**Location:**
+- [ ] All modules use FQCN
+- [ ] Task names are descriptive
+- [ ] No oc/kubectl in shell (or explicitly justified)
+- [ ] shell/command tasks have changed_when/failed_when
+- [ ] Critical operations use block/rescue/always
+- [ ] Variables follow naming convention
+- [ ] ansible-lint passes clean
 
-- Role-specific: `roles/<role_name>/filter_plugins/`
-- Global: `filter_plugins/` at repository root
+**Python:**
 
-**Filter Plugin Standards:**
+- [ ] Type hints on all functions
+- [ ] Docstrings present
+- [ ] Specific exception handling (no bare except)
+- [ ] Passes black, isort, flake8, mypy
 
-All filter plugins must follow these requirements:
+**Documentation:**
 
-#### File Structure Template
+- [ ] All code blocks specify language identifier
+- [ ] No emojis
+- [ ] Professional tone
+- [ ] README updated if interface changed
 
-```python
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-
-# Copyright: (c) 2024, Your Name <your.email@example.com>
-# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
-
-from __future__ import absolute_import, division, print_function
-__metaclass__ = type
-
-DOCUMENTATION = r'''
 ---
-filter: filter_name
-author: Author Name (@github_handle)
-version_added: "1.0.0"
-short_description: Brief description
-description:
-  - Detailed description
-options:
-  _input:
-    description: The input value
-    type: any
-    required: true
-'''
 
-EXAMPLES = r'''
-- debug:
-    msg: "{{ input_value | filter_name }}"
-'''
+## Common Pitfalls
 
-RETURN = r'''
-_value:
-  description: The filtered value
-  type: any
-  returned: always
-'''
+**Generating without reading first**
+Always `view` existing similar code before writing new code. Match the patterns
+already established in the role or adjacent roles.
 
-from ansible.errors import AnsibleFilterError
+**Shell commands for Kubernetes**
+If the instinct is to use `shell: oc ...` or `shell: kubectl ...`, stop.
+Check `.agents/skills/ansible/references/KUBERNETES-PATTERNS.md` for
+the correct module-based approach.
 
-class FilterModule(object):
-    def filters(self):
-        return {'filter_name': self.filter_method}
+**Missing error handling**
+Any task that makes a change to a cluster, Vault, or external system needs
+`block/rescue/always`. Read-only tasks do not.
 
-    @staticmethod
-    def filter_method(value, param=None):
-        if not isinstance(value, expected_type):
-            raise AnsibleFilterError(f"Expected {expected_type}, got {type(value).__name__}")
+**Assuming file locations**
+Always `view` a path before modifying it. Never assume a file exists or has
+a particular structure.
 
-        try:
-            return transform(value, param)
-        except Exception as e:
-            raise AnsibleFilterError(f"Error in filter_name: {str(e)}")
-```
+**Not running quality checks**
+Generate code → run ansible-lint → fix issues → run again → present clean output.
+Never skip this loop.
 
-#### Required Components
-
-1. **Module Header:** Shebang, encoding, copyright, future imports, metaclass
-2. **Documentation:** DOCUMENTATION, EXAMPLES, RETURN sections
-3. **FilterModule Class:** Must be named `FilterModule`, implement `filters()` method
-4. **Filter Methods:** Use `@staticmethod`, validate types, raise `AnsibleFilterError` for errors
-
-#### Best Practices
-
-**DO:** Validate input types, use descriptive error messages, provide comprehensive documentation, use static methods when possible, test edge cases
-
-**DON'T:** Use bare `except:`, return None for errors (raise AnsibleFilterError), modify input values, perform I/O operations, assume input types
-
-**For complete working examples:** See `docs/examples/filter_plugin_example.py` for 7 production-ready filter functions demonstrating all patterns, type validation, and comprehensive error handling.
-
-### Execution Environment Architecture
-
-- Base image: `quay.io/centos/centos:stream9`
-- Python: 3.11 (explicitly removes Python 3.9 if present)
-- Container runtime: **Docker only** (requirement enforced in build configuration)
-- All dependencies pinned in requirements files
-
-### Key Collections Used
-
-- `purepx.px_backup`: Portworx backup API integration
-- `kubernetes.core`: Kubernetes cluster management (v2.3.0+) - critical for StorageCluster CRD operations
-- `community.hashi_vault`: HashiCorp Vault integration
-- `ansible.posix`, `ansible.scm`, `ansible.utils`: Standard utilities
-- Cloud collections: `amazon.aws`, `community.aws`, `google.cloud`, `community.vmware`
-
-## Coding Standards
-
-**Comprehensive Examples Available:** The `docs/examples/` directory contains production-ready code templates and detailed examples. See `docs/examples/README.md` for a complete guide to all available examples.
-
-### Ansible Best Practices
-
-**Required Conventions:**
-
-- Always use FQCN (Fully Qualified Collection Names) for all modules
-- Use lowercase `true`/`false` for boolean values
-- Include clear description comment blocks at the start of playbooks
-- Use meaningful play and task names
-- Use `no_log: true` for sensitive operations (tokens, credentials)
-
-**Error Handling:**
-
-- Use `block`/`rescue`/`always` for error handling
-- Provide clear error messages
-- Set appropriate `failed_when` conditions
-- Use `ignore_errors` sparingly and only with justification
-- Register results for important operations
-
-**Variables:**
-
-- Define required variables at the start of playbooks
-- Use `assert` tasks to validate required variables
-- Document optional variables with default values
-- Follow proper variable scoping (host_vars, group_vars, playbook vars)
-
-**Idempotency:**
-
-- Design all tasks to be idempotent
-- Use `changed_when` and `failed_when` directives appropriately
-- Avoid `shell` and `command` modules unless absolutely necessary
-- Prefer Ansible's built-in modules for specific tasks
-
-**Proper use of changed_when and failed_when:**
-
-When using `shell` or `command` modules, always define these directives:
-
-- **changed_when**: For read-only ops (get, list, show): Use `changed_when: false`. For state changes: Test output to detect changes.
-- **failed_when**: Consider all valid exit codes. For grep: `failed_when: result.rc not in [0, 1]`
-
-Common patterns:
-
-- `changed_when: false` - Any read/query operation
-- `changed_when: "'created' in result.stdout or 'updated' in result.stdout"` - Output indicates modification
-- `failed_when: result.rc != 0` - Simple success/failure
-- `failed_when: result.rc not in [0, 1]` - Grep and similar tools
-
-**For comprehensive examples:** See `docs/examples/changed_when_failed_when_examples.yml` for 30+ practical examples covering all common patterns including read-only operations, grep, state changes, retries, and multi-line commands with pipefail.
-
-**Task Organization:**
-
-- Group related tasks in separate files and use `include_tasks` or `import_tasks`
-- Use tags for task organization and selective execution
-- Use `changed_when` to accurately report changes
-
-**Modular Role Architecture Pattern:**
-
-The project uses a modular orchestrator pattern for complex roles (see `must_gather_log` role as reference implementation):
-
-- **Orchestrator Pattern**: Main task file (`tasks/main.yml`) delegates to specialized task files
-- **Separation of Concerns**: Each workflow component is a separate task file with single responsibility
-- **Reusable Components**: Task files can be included individually using `tasks_from` parameter
-- **Independent Testing**: Each component is independently testable and maintainable
-
-Example structure:
-
-```yaml
-# tasks/main.yml - Simple orchestrator
-- name: "Phase 1: Preparation"
-  ansible.builtin.include_tasks: cleanup.yml
-  tags: [preparation, cleanup]
-
-- name: "Phase 2: Credential Management"
-  ansible.builtin.include_tasks: sftp_credential_management.yml
-  when: credentials_required | default(true) | bool
-  tags: [credentials]
-
-- name: "Phase 3: Main Operation"
-  ansible.builtin.include_tasks: main_operation.yml
-  tags: [execute]
-```
-
-Benefits:
-
-- Clear workflow visualization in main.yml
-- Reduced file size (easier code review)
-- Components can be called directly: `ansible.builtin.include_role: name=role_name tasks_from=specific_task.yml`
-- Simplified testing with targeted tag execution
-
-**Kubernetes/OpenShift Operations:**
-
-- Use `kubernetes.core.k8s` for all Kubernetes resource management
-- Always specify `api_version` and `kind` for resources
-- Use `state: present` for creation/updates, `state: absent` for deletion
-- Implement wait conditions with `wait: true` and `wait_timeout`
-- Use `namespace` parameter explicitly (never rely on default)
-
-**Variable Management:**
-
-- Define variables in appropriate locations (defaults, vars, group_vars, host_vars)
-- Use descriptive variable names (avoid single letters or abbreviations)
-- Document complex variable structures in role README or defaults/main.yml
-- Use `set_fact` for derived or computed values
-- Avoid using `register` unless the output is actually needed
-
-### Python Standards (Modules and Filters)
-
-- Python 3.11+ syntax
-- Type hints required (from `__future__ import annotations`) for type checking
-- Follow PEP 8 style guide
-- Maximum line length: 100 characters (not 79)
-- Use `black` for formatting, `flake8` for linting, `mypy` for type checking
-- Custom modules must include proper Ansible documentation (DOCUMENTATION, EXAMPLES, RETURN)
-- Use meaningful variable and function names
-- Include docstrings for all functions and classes
-
-**Error Handling:**
-
-```python
-# Good
-try:
-    result = perform_operation()
-except SpecificException as e:
-    module.fail_json(msg=f"Operation failed: {str(e)}")
-
-# Bad - too broad
-try:
-    result = perform_operation()
-except:  # NEVER DO THIS
-    pass
-```
-
-**Testing:**
-
-- Write unit tests for all custom modules and filters
-- Use pytest for Python testing
-- Test both success and failure cases
-- Mock external dependencies appropriately
-
-### Security
-
-- Use Ansible Vault to encrypt sensitive data
-- Never log sensitive information (use `no_log: true`)
-- Validate all external input using `assert` module
-- Use HTTPS for all API communication
-- Implement proper privilege escalation with `become` only when necessary
-
-### YAML Best Practices
-
-**Formatting:**
-
-- Use 2 spaces for indentation
-- Use `---` document separator at file start
-- Quote strings when they contain special characters
-- Use `>` or `|` for multi-line strings appropriately
-- Keep lines under 120 characters when possible
-
-**Consistency:**
-
-```yaml
-# Good - consistent list syntax
-tasks:
-  - name: First task
-    command: echo "one"
-  - name: Second task
-    command: echo "two"
-
-# Bad - mixed notation
-tasks:
-  - name: First task
-    command: echo "one"
-  - { name: "Second task", command: "echo two" }
-```
+---
 
 ## Configuration Files
 
-- **`ansible.cfg`**: Ansible configuration (inventory, fact caching, SSH retries, callbacks)
-- **`.ansible-lint`**: Ansible-lint configuration (skips: line-length, var-naming, command-instead-of-module)
-- **`.flake8`**: Python linting configuration
-- **`tox.ini`**: Test automation for Podman and Docker builds
+- `ansible.cfg` — Ansible configuration (inventory, fact caching, SSH retries, callbacks)
+- `.ansible-lint` — Ansible-lint configuration
+- `.flake8` — Python linting configuration
+- `.mypy.ini` — Mypy type checking configuration
+- `tox.ini` — Test automation configuration
 
-## Important Notes
-
-### Execution Environment Requirements
-
-- Container runtime **must** be Podman
-- EE isolation must be considered in all automation decisions
-- Python 3.11 is the only supported Python version
-- All dependencies must be declared in requirements files for reproducible builds
-
-### Platform Context
-
-This project is designed for **Ansible Automation Platform (AAP)** deployment:
-
-- All playbooks run inside Execution Environments
-- Vault-based secret management is standard
-- Enterprise security standards apply to all code
-- Systems-level reasoning required for scaling considerations
-
-### Communication Style
-
-When working with this codebase, maintain a formal, professional tone appropriate for enterprise environments. Emphasize maintainability, clarity, and operational soundness in all changes.
+---
 
 ## AAP/AWX Integration
 
 ### AAP Project Structure
 
-The `aap_import/` directory contains configurations for importing roles and playbooks into Ansible Automation Platform. Each role subdirectory includes:
+The `aap_import/` directory contains configurations for importing roles into AAP.
+Each role subdirectory includes:
 
-- `README.md` - Role import guide
-- `import_to_aap.sh` - Automated import script
-- `project_*.json` - Project configuration
-- `execution_environment.json` - EE configuration
-- `job_template_*.json` - Job template(s)
-- `survey_spec_*.json` - Survey specifications
-- `workflow_*.json` - Workflow templates (optional)
+- `README.md` — Role import guide
+- `import_to_aap.sh` — Automated import script
+- `project_*.json` — Project configuration
+- `execution_environment.json` — EE configuration
+- `job_template_*.json` — Job template(s)
+- `survey_spec_*.json` — Survey specifications
+- `workflow_*.json` — Workflow templates (optional)
 
-### AAP Configuration Patterns
-
-**Multi-Template Pattern:** Create separate job templates for different execution modes (Check Mode, Execute, Rollback)
-
-**Workflow Pattern:** Orchestrate multiple job templates with approval gates and success/failure paths
-
-### Creating AAP Configurations for New Roles
-
-1. Create subdirectory: `mkdir -p aap_import/<role_name>`
-2. Add required files (README, import script, JSON configs)
-3. Follow naming conventions: `{Role Name} Automation`, `{Role Name} - {Action}`
-4. Include surveys for runtime variables with sensible defaults
-5. Never commit credentials; use AAP credential types
-6. Test: project sync, EE availability, job templates, workflows
+Reference implementation: `aap_import/portworx_upgrade/`
 
 ### Import Methods
 
-1. **Automated Script**: `cd aap_import/<role_name> && ./import_to_aap.sh`
-2. **AWX CLI**: `awx projects create --name "..." --scm_type git --scm_url "..."`
-3. **Web UI**: Manual creation following README
-4. **API/Curl**: Direct API calls using JSON files
+1. Automated: `cd aap_import/<role_name> && ./import_to_aap.sh`
+2. AWX CLI: `awx projects create --name "..." --scm_type git --scm_url "..."`
+3. Web UI: Manual creation following README
+4. API: Direct API calls using the JSON files
+
+Never commit credentials. Use AAP credential types for all secrets.
+
+---
 
 ## Documentation Standards
 
-**IMPORTANT:** Follow these rules when working with documentation:
+- No emojis or icons anywhere — documentation, task names, commit messages
+- Ask before creating documentation files — never create unsolicited READMEs
+- All code blocks must specify a language identifier (MD040 compliance)
+- Professional tone throughout
 
-- **No emojis or icons** - Documentation must be professional and text-only
-- **Ask before creating** - Always ask the user for approval before generating or modifying documentation files
-- **No unsolicited documentation** - Never proactively create README files, markdown documentation, or similar without explicit user request
+**File placement:**
 
-**Documentation File Placement:**
+- `CLAUDE.md` — Repo root only
+- `README.md` — Repo root only (main project README)
+- Role-specific docs — `docs/roles/<role_name>/`
+- General standards — `.agents/skills/ansible/references/`
+- `aap_import/<role>/README.md` — AAP import guides
+- All other docs — `docs/` with appropriate subdirectory
 
-All documentation and markdown files must be placed in the `docs/` directory:
+---
 
-- **General documentation**: `docs/` root (e.g., `docs/setup_guide.md`)
-- **Role-specific**: `docs/<role_name>/` (e.g., `docs/portworx_upgrade/architecture.md`)
-- **Collection-specific**: `docs/<collection_name>/` (e.g., `docs/px_backup/api_guide.md`)
-- **Playbook-specific**: `docs/<playbook_name>/` (e.g., `docs/px_upgrade_playbook/usage.md`)
-- **Filter plugins**: `docs/filters/` (e.g., `docs/filters/custom_filters_guide.md`)
+## Git Commit Messages
 
-**Exceptions:**
-
-- `CLAUDE.md` - Repository root (project instructions for Claude Code)
-- `README.md` - Repository root only (main project README)
-- `aap_import/README.md` - AAP import main documentation
-- `aap_import/<role_name>/README.md` - Role-specific AAP import guides
-
-## Claude Code Workflow Requirements
-
-### Virtual Environment Usage
-
-**CRITICAL:** All Python and Ansible commands MUST use the virtual environment at `.venv`
-
-- Python: `.venv/bin/python`
-- Pip: `.venv/bin/pip`
-- Ansible: `.venv/bin/ansible`, `.venv/bin/ansible-playbook`, `.venv/bin/ansible-lint`, `.venv/bin/ansible-galaxy`
-- Linting: `.venv/bin/black`, `.venv/bin/isort`, `.venv/bin/flake8`, `.venv/bin/mypy`
-
-### Automatic Quality Enforcement
-
-**For Python files:** Run isort, black, flake8 automatically
-**For Ansible files:** Run ansible-lint automatically
-
-These tools run without user approval (configured in `.claude/settings.local.json`).
-
-### Expected Behavior
-
-When Claude Code modifies files:
-
-1. Make the requested changes
-2. Automatically run appropriate quality tools
-3. Fix any issues found
-4. Report results to user
-
-### Git Commit Messages
-
-**IMPORTANT:** Do NOT add Claude Code attribution or co-authorship to commit messages.
-
-Commit messages should:
-
-- Follow conventional commit format when appropriate
-- Be concise and descriptive
-- Focus on the "why" rather than the "what"
-- Match the repository's existing commit style
-- **NOT include** any Claude Code branding, attribution, or co-authorship footers
-
-Good example:
+Do NOT add Claude Code attribution or co-authorship to commit messages.
 
 ```text
-Add etcd defragmentation monitoring
+# Correct
+feat: Replace oc commands with kubernetes.core modules in cluster_setup role
 
-Implements health check validation before and after defrag operations
-to ensure cluster stability.
+Converted shell commands to native Kubernetes modules for reliability
+and idempotency.
+
+# Never
+feat: Add new feature
+
+Generated with Claude Code
+Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
 ---
 
 ## Markdown Code Block Language Specification
 
-**Rule**: All fenced code blocks MUST have a language identifier specified to comply with MD040/fenced-code-language linting rules.
+All fenced code blocks MUST include a language identifier (MD040).
 
-### Requirements
-
-- Every code block using triple backticks (```) MUST include a language identifier
-- If no specific language applies, use `text` as the default language identifier
-- Never create code blocks with opening ``` without a language specifier
-
-### Examples
-
-**Correct**:
-
-```python
-print("Hello World")
+```yaml
+- name: Example task
+  ansible.builtin.debug:
+    msg: "correct"
 ```
 
-```bash
-echo "Hello World"
+```python
+def example():
+    pass
 ```
 
 ```text
-This is plain text content
-No specific language applies
+Plain text content with no specific language.
 ```
 
-**Incorrect**:
-
-```
-This violates MD040
-```
+Use `text` as the default when no specific language applies. Never create a
+code block with opening ` ``` ` without a language specifier.
 
 ### Common Language Identifiers
 

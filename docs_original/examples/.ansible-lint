@@ -1,7 +1,0 @@
----
-# Ansible-lint configuration for example files
-# These examples intentionally demonstrate shell/command usage patterns
-skip_list:
-  - command-instead-of-shell
-  - risky-shell-pipe
-  - name[casing]

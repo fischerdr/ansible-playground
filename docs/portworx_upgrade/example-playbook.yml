@@ -1,0 +1,105 @@
+---
+# Example 1: Basic Upgrade
+- name: Basic Portworx upgrade
+  hosts: localhost
+  gather_facts: true
+  vars:
+    portworx_target_version: "3.5.0"
+  roles:
+    - role: portworx_upgrade
+
+---
+# Example 2: Upgrade with Impatient Mode
+- name: Fast Portworx upgrade with impatient mode
+  hosts: localhost
+  gather_facts: true
+  vars:
+    portworx_target_version: "3.5.0"
+    portworx_cluster_name: "production-cluster"
+    portworx_impatient_mode: true
+    portworx_impatient_batch_size: 7
+  roles:
+    - role: portworx_upgrade
+
+---
+# Example 3: Preflight Check Only
+- name: Preflight validation
+  hosts: localhost
+  gather_facts: true
+  vars:
+    portworx_target_version: "3.5.0"
+  tasks:
+    - name: Import portworx_upgrade role
+      ansible.builtin.import_role:
+        name: portworx_upgrade
+        tasks_from: main
+      tags:
+        - preflight
+
+---
+# Example 4: Skip Operator Upgrade
+- name: Upgrade Portworx (operator already upgraded)
+  hosts: localhost
+  gather_facts: true
+  vars:
+    portworx_target_version: "3.5.0"
+    portworx_skip_operator_upgrade: true
+  roles:
+    - role: portworx_upgrade
+
+---
+# Example 5: Custom Work Directory and Logging
+- name: Upgrade with custom configuration
+  hosts: localhost
+  gather_facts: true
+  vars:
+    portworx_target_version: "3.5.0"
+    portworx_cluster_name: "dev-cluster"
+    portworx_work_dir: "/var/log/portworx-upgrades"
+    portworx_detailed_logging: true
+  roles:
+    - role: portworx_upgrade
+
+---
+# Example 6: Multi-Phase Execution
+- name: Phased Portworx upgrade
+  hosts: localhost
+  gather_facts: true
+  vars:
+    portworx_target_version: "3.5.0"
+  
+  pre_tasks:
+    - name: Display upgrade start time
+      ansible.builtin.debug:
+        msg: "Starting Portworx upgrade at {{ ansible_date_time.iso8601 }}"
+  
+  roles:
+    - role: portworx_upgrade
+  
+  post_tasks:
+    - name: Send completion notification
+      ansible.builtin.debug:
+        msg: "Portworx upgrade completed at {{ ansible_date_time.iso8601 }}"
+
+---
+# Example 7: Tag-Based Selective Execution
+- name: Run only specific phases
+  hosts: localhost
+  gather_facts: true
+  vars:
+    portworx_target_version: "3.5.0"
+  roles:
+    - role: portworx_upgrade
+  # Run with: ansible-playbook playbook.yml --tags preflight,backup
+
+---
+# Example 8: Custom Namespace
+- name: Upgrade Portworx in custom namespace
+  hosts: localhost
+  gather_facts: true
+  vars:
+    portworx_target_version: "3.5.0"
+    portworx_namespace: "kube-system"
+    portworx_operator_namespace: "portworx-operator"
+  roles:
+    - role: portworx_upgrade
